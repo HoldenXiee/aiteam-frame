@@ -398,6 +398,22 @@ record({
   conclusion: "机制边界已测清；真模型的结构化输出成功率与互评一致率（清单 8.2/8.3 的 🔴 部分）只能由真模型专项回答。",
 });
 
+// ─────────────────────────────────────────────────────────────
+section("8.5 零成本确认");
+
+{
+  const calls = env.calls();
+  const realModels = calls.filter((c) => c.model !== env.models[0].id).map((c) => c.model);
+  record({
+    id: "8.5",
+    question: "本节是否产生了真实 API 调用",
+    observed: `假服务收到的请求数 = ${calls.length}，其中 model 字段不是 faux 的 = ${realModels.length}（${JSON.stringify(realModels.slice(0, 3))}）　所有 agent 都显式传了 modelRuntime（绑定 ${env.faux.baseUrl}，allowModelNetwork:false）与 agentDir　AITEAM_AGENT_DIR 仍指向孤立目录 = ${process.env.AITEAM_AGENT_DIR === env.agentDir}`,
+    verdict: calls.length > 0 && realModels.length === 0 && process.env.AITEAM_AGENT_DIR === env.agentDir ? "OK" : "GAP",
+    conclusion: "零真实调用：全部模型流量都进了本机假服务，没有任何 agent 落到真实 provider 的配置上。",
+    data: { calls: calls.length, realModels },
+  });
+}
+
 dump("08-aggregation");
 host.dispose();
 await env.close();

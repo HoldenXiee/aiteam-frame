@@ -1,0 +1,84 @@
+{
+  "section": "R14 成员失败时，主持人会不会诚实汇报",
+  "findings": [
+    {
+      "id": "R11a",
+      "question": "provider 网络不可达时的失败形态与耗时",
+      "observed": "耗时 14177ms；RunResult.error = \"Connection error.\"，text=\"\"",
+      "verdict": "INFO",
+      "conclusion": "14177ms 内失败（pi 内部有重试，不是立即返回）。错误以 RunResult.error 形式给出，内容是底层连接错误原文 —— 没有「网络问题」这样的分类，设计者只能字符串匹配。",
+      "data": {
+        "ms": 14177,
+        "thrown": "",
+        "error": "Connection error."
+      }
+    },
+    {
+      "id": "R11b",
+      "question": "API key 无效（401）时的失败形态",
+      "observed": "耗时 1132ms；RunResult.error = \"401: {\\\"type\\\":\\\"AuthError\\\",\\\"message\\\":\\\"Invalid API key.\\\"}\"",
+      "verdict": "INFO",
+      "conclusion": "错误文本是 HTTP 状态码 + provider 返回的 JSON 原文。设计者要区分「401 认证失败」「402 额度不足」「429 限流」只能解析这串文本。",
+      "data": {
+        "ms": 1132,
+        "thrown": "",
+        "error": "401: {\"type\":\"AuthError\",\"message\":\"Invalid API key.\"}"
+      }
+    },
+    {
+      "id": "R11c",
+      "question": "超长输入（约 24 万字符）时的真实行为",
+      "observed": "耗时 8395ms；error=\"(无)\" text 长度=189 用量=123645",
+      "verdict": "INFO",
+      "conclusion": "该模型声明 contextWindow = 100 万，24 万字符（约 12 万 token）没有触发超限 —— 库与 pi 都不做本地 token 预算检查，超限只能由 provider 报错。设计者若需要提前拦截，必须自己算 token。",
+      "data": {
+        "thrown": "",
+        "textLen": 189,
+        "tokens": 123645
+      }
+    },
+    {
+      "id": "R12a",
+      "question": "真模型下跑到预算耗尽的体验：设计者能优雅收场吗",
+      "observed": "budgetTokens=7000：\n     第1轮 ok（本轮 1211 tok，宿主累计 1211）\n     第2轮 ok（本轮 1229 tok，宿主累计 2440）\n     第3轮 ok（本轮 1247 tok，宿主累计 3687）\n     第4轮 ok（本轮 1265 tok，宿主累计 4952）\n     最终 host.usage=4952，实际花费 $0.0002",
+      "verdict": "PARTIAL",
+      "conclusion": "耗尽时 prompt() 抛错，**已经跑完的轮次结果都还在**（agent.lastResult / agent.session 可读），所以设计者可以在 catch 里用最后的结果收场 —— 不是硬中断。但库**没有任何「预算快到了」的预警**，设计者只能靠 round_completed 自己盯 host.usage 判断，而并发场景下判断必然滞后（见 4.2c）。",
+      "data": {
+        "budget": 7000,
+        "used": 4952,
+        "log": [
+          "第1轮 ok（本轮 1211 tok，宿主累计 1211）",
+          "第2轮 ok（本轮 1229 tok，宿主累计 2440）",
+          "第3轮 ok（本轮 1247 tok，宿主累计 3687）",
+          "第4轮 ok（本轮 1265 tok，宿主累计 4952）"
+        ]
+      }
+    },
+    {
+      "id": "R13a",
+      "question": "中途 abort 会不会留下坏上下文",
+      "observed": "abort 时 isStreaming=true；消息数 0 → 5；最后一条 assistant 的文本长度=0（片段：\"\"）errorMessage=\"Request aborted\"；abort 后再跑一轮 → error=null text=\"9\"",
+      "verdict": "OK",
+      "conclusion": "可以继续。残局形态：半截的 assistant 输出**留在了 session.messages 里**（长度 0，未被标记为中断），没有 errorMessage 标注。下一轮会带着这段半成品继续 —— 设计者若不自己清理，模型会把中断当成「说完了」。",
+      "data": {
+        "streamingAtAbort": true,
+        "before": 0,
+        "afterCount": 5,
+        "partialLen": 0,
+        "partial": "",
+        "nextOk": true
+      }
+    },
+    {
+      "id": "R14a",
+      "question": "成员彻底失败时，主持人看到的是什么、会不会编造结果",
+      "observed": "子分身 lastResult.error = \"Connection error.\"\n     主持人汇报：\"① 它什么判断都没给出——分身刚启动就报 `Connection error.`，产出的文本是空的，所以「这个方案可行吗」这个问题没有得到任何回答。\\n\\n② 确实有异常：这是连不上的成员，网络故障导致对话在第一步就中断了，属于预期内的失败，没有可用的结论。\"",
+      "verdict": "OK",
+      "conclusion": "主持人如实汇报了异常（错误文本通过 spawn_agent 的返回值传给了它）。链条是可用的：子分身的 error → spawn_agent 的文本 → 父 agent 的上下文。",
+      "data": {
+        "childError": "Connection error.",
+        "report": "① 它什么判断都没给出——分身刚启动就报 `Connection error.`，产出的文本是空的，所以「这个方案可行吗」这个问题没有得到任何回答。\n\n② 确实有异常：这是连不上的成员，网络故障导致对话在第一步就中断了，属于预期内的失败，没有可用的结论。"
+      }
+    }
+  ]
+}

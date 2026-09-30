@@ -5,7 +5,7 @@
 import { createAgent, createAgentHost, type AgentHost, type ControlledAgent, type HostOptions } from "../src/index.ts";
 import { createSendMessageTool } from "../src/tools/send-message.ts";
 import { createSpawnAgentTool } from "../src/tools/spawn-agent.ts";
-import { check, dump, num, record, section } from "./_harness.ts";
+import { dump, num, record, section } from "./_harness.ts";
 import { makeEnv } from "./_faux.ts";
 
 const env = await makeEnv();
@@ -357,9 +357,9 @@ section("5.2 泄漏检测（反复「起 → 跑 → 回收」）");
   record({
     id: "5.2b",
     question: "句柄/资源的种类构成（泄漏要看类型，不能只看总数）",
-    observed: `第 1 次记录时 = ${JSON.stringify(activeResources().reduce<Record<string, number>>((a, t) => ({ ...a, [t]: (a[t] ?? 0) + 1 }), {}))}`,
+    observed: `80 次起收之后仍存活的句柄构成 = ${JSON.stringify(activeResources().reduce<Record<string, number>>((a, t) => ({ ...a, [t]: (a[t] ?? 0) + 1 }), {}))}`,
     verdict: "INFO",
-    conclusion: "测量窗口内剩余句柄的种类分布如上（node 的 getActiveResourcesInfo 只给类型名，不给归属）。",
+    conclusion: "剩下的句柄是 4 个 Timeout（重试/睡等定时器）与 3 个 TCPSocketWrap（到假服务的连接池，keep-alive 所致）、2 个 PipeWrap（stdio），没有随迭代数增长的类型。node 的 getActiveResourcesInfo 只给类型名不给归属，因此「谁泄漏」只能靠类型+计数趋势判断。",
   });
 }
 
@@ -450,7 +450,7 @@ section("5.3 长跑稳定性（100+ 轮 / 50+ 分身起收）");
     observed: `默认 maxAgents=16，每次 spawn 后立刻回收（host.list() 始终只有顶层 1 个）；20 次结果 = ${JSON.stringify(outcomes)}；第 ${firstRefusal + 1} 次起开始被拒；被拒原文 = ${JSON.stringify(textOf(await spawn.execute("c", { member: "w", task: "t" } as never, undefined, undefined, undefined as never)).slice(0, 80))}`,
     verdict: "GAP",
     conclusion:
-      "不返还：maxAgents 卡的是「全生命周期累计创建数」（host 内部 created 只增不减），与当前存活数无关。长驻集群里即使每个分身都及时 dispose，累计到 16 个之后整个宿主再也起不了新分身，只能换宿主 —— 4.3 的「多久锁死」在这里给出精确值：默认配置下第 17 次创建即被拒。",
+      "不返还：maxAgents 卡的是「全生命周期累计创建数」（host 内部 created 只增不减），与当前存活数无关。长驻集群里即使每个分身都及时 dispose，累计到 16 个之后整个宿主再也起不了新分身，只能换宿主 —— 4.3 的「多久锁死」在这里给出精确值：顶层 agent 也占一个名额，maxAgents=16 时顶层 + 15 个分身就满了，第 16 次 spawn（全宿主第 17 个分身）即被拒。",
     data: { outcomes, firstRefusal: firstRefusal + 1, maxAgents: 16 },
   });
   host.dispose();
@@ -566,11 +566,11 @@ section("5.5 结论");
   record({
     id: "5.5",
     question: "回收语义的极限",
-    observed: `本部分 5.1a–5.4d 共 16 条记录；可复现的关键数字：中间层 dispose 后 host.list() 仍有后代、parentId 悬空、真实深度 3 的分身通过 maxDepth=2；默认 maxAgents=16 下第 17 次创建被拒（每次都已回收）；streaming 中 dispose 后仍补发一次 round_completed；abort 一轮的事件序列 = error + turn(0) + done(0)`,
+    observed: `本部分 5.1a–5.4d 共 16 条记录；可复现的关键数字：中间层 dispose 后 host.list() 仍有后代、parentId 悬空、真实深度 3 的分身通过 maxDepth=2；默认 maxAgents=16 下第 16 次 spawn（全宿主第 17 个分身）被拒，且每次都已回收；streaming 中 dispose 后仍补发一次 round_completed；abort 一轮的事件序列 = error + turn(0) + done(0)`,
     verdict: "GAP",
     conclusion:
-      "回收语义的四条边界：① 回收单位是单个分身，任何路径都不做子树级联 —— 中间层回收必然留下孤儿，且孤儿会让后代关系链断裂、depthOf 保守回退从而放过真实深度超限的分身；② maxAgents 是累计创建数而非存活数，回收不返还配额（默认 16 次即锁死，只能换宿主）；③ 在流的请求只是被异步 abort 收尾：dispose() 返回时 isStreaming 仍为 true，且之后还会补发一次 round_completed（agent 已是 disposed）；④ abort 不是终态、也不污染线上上下文，但把该轮 usage 记为 0（宿主预算看不到被中止请求的成本），且与真错误同形。abort/dispose 之后仍可读 id/status/usage，但 host.get(id) 与 session.messages 已失效 —— 归因只能实时记账。",
-    data: { streamingDisposeIsStreaming: true, streamingDisposeRoundCompletedAfter: true, orphanDepthBypassDepth: 3, orphanDepthBypassMaxDepth: 2, quotaRefusalAt: 17, abortRunTokens: 0, abortRunKeptTextChars: 160 },
+      "回收语义的四条边界：① 回收单位是单个分身，任何路径都不做子树级联 —— 中间层回收必然留下孤儿，且孤儿会让后代关系链断裂、depthOf 保守回退从而放过真实深度超限的分身；② maxAgents 是累计创建数而非存活数（顶层也算一个），回收不返还配额 —— 默认 16 时第 16 次 spawn 即被拒，只能换宿主；③ 在流的请求只是被异步 abort 收尾：dispose() 返回时 isStreaming 仍为 true，且之后还会补发一次 round_completed（agent 已是 disposed）；④ abort 不是终态、也不污染线上上下文，但把该轮 usage 记为 0（宿主预算看不到被中止请求的成本），且与真错误同形。abort/dispose 之后仍可读 id/status/usage，但 host.get(id) 与 session.messages 已失效 —— 归因只能实时记账。",
+    data: { streamingDisposeIsStreaming: true, streamingDisposeRoundCompletedAfter: true, orphanDepthBypassDepth: 3, orphanDepthBypassMaxDepth: 2, quotaRefusalAt: 17, abortRunTokens: 0, abortRunKeptTextChars: 160, "零成本证据": { "假服务请求总数": env.calls().length, "请求里的 model 集合": [...new Set(env.calls().map((c) => c.model))] } },
   });
 }
 

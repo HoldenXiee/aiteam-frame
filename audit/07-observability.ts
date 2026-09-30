@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createAgent, createAgentHost, type AgentHost, type AgentEventName, type ControlledAgent, type HostOptions } from "../src/index.ts";
 import { createSpawnAgentTool } from "../src/tools/spawn-agent.ts";
 import { createSendMessageTool } from "../src/tools/send-message.ts";
-import { check, dump, num, record, section } from "./_harness.ts";
+import { dump, num, record, section } from "./_harness.ts";
 import { makeEnv } from "./_faux.ts";
 
 const env = await makeEnv();
@@ -181,7 +181,7 @@ const USER_MARKER = "唯一用户标记串-USER-777";
       observed: `各事件载荷字段 = ${JSON.stringify(inventory)}；宿主事件载荷字段 = ${JSON.stringify(entries.filter((e) => e.source === "host").map((e) => ({ [e.name]: Object.keys(e.payload as object) })))}；turn 事件共 ${turns.length} 条，去重后 timestamp ${new Set(turns).size} 个（毫秒，跨分身撞时 ${turns.length - new Set(turns).size} 次）`,
       verdict: "PARTIAL",
       conclusion:
-        "agent 级事件载荷里**没有 agent id**：身份靠「你订阅了谁」隐式携带，把多分身事件汇到一起时必须自己打标。时间只有 turn.message.timestamp（毫秒），text/thinking/tool_start/tool_end/error/done 都没有时间字段；不同分身的 turn 会撞同一毫秒，所以这些时间戳不能当全局排序键。宿主事件带 agent 对象（含 id/member），但也没有时间字段。",
+        "agent 级事件载荷里**没有 agent id**：身份靠「你订阅了谁」隐式携带，把多分身事件汇到一起时必须自己打标。时间只有 turn.message.timestamp（毫秒），text/thinking/tool_start/tool_end/error/done 都没有时间字段。本次 8 个 turn 得到 8 个不同毫秒（撞时 0 次），但毫秒分辨率加上「多数事件无时间」意味着：跨分身排序只能靠订阅者自己的本地时钟，一旦同一毫秒内有多个分身的 turn（并发场景下会发生），就无法定序。",
       data: { inventory, turnCount: turns.length, distinctTimestamps: new Set(turns).size, collisions: turns.length - new Set(turns).size },
     });
   }
@@ -293,21 +293,24 @@ function createCostLedger(host: AgentHost): CostLedger {
   host.on("round_completed", ({ agent, result }) => {
     const row = ledger.byAgent[agent.id];
     if (row) row.tokens += result.usage.totalTokens;
-    const key = agent.member ?? "(顶层/无名)";
+    const key = agent.member ?? "(顶层)";
     ledger.byMember[key] = (ledger.byMember[key] ?? 0) + result.usage.totalTokens;
   });
   return ledger;
 }
 function branchOf(ledger: CostLedger, id: string): string {
+  // ancestors 从自己一路排到根；分支头 = 紧挂在根下面的那一层
+  const ancestors: string[] = [id];
+  const seen = new Set<string>([id]);
   let cur = ledger.byAgent[id];
-  const seen = new Set<string>();
   while (cur?.parentId && !seen.has(cur.parentId)) {
     seen.add(cur.parentId);
-    const parent = ledger.byAgent[cur.parentId];
-    if (!parent) break;
-    cur = parent;
+    ancestors.push(cur.parentId);
+    cur = ledger.byAgent[cur.parentId];
   }
-  return cur?.member ?? "(顶层/无名)";
+  if (ancestors.length === 1) return "(顶层)";
+  const head = ancestors[ancestors.length - 2];
+  return ledger.byAgent[head]?.member ?? `(${head} 无名)`;
 }
 function byBranch(ledger: CostLedger): Record<string, number> {
   return Object.entries(ledger.byAgent).reduce<Record<string, number>>((acc, [id, row]) => {
@@ -321,14 +324,22 @@ function byBranch(ledger: CostLedger): Record<string, number> {
   const selfPath = fileURLToPath(import.meta.url);
   const source = readFileSync(selfPath, "utf-8");
   const glueLines = source.split(/\r?\n/).slice(source.split(/\r?\n/).findIndex((l) => l.includes("#region 归因胶水")) + 1, source.split(/\r?\n/).findIndex((l) => l.includes("#endregion 归因胶水"))).filter((l) => l.trim() && !l.trim().startsWith("//")).length;
-  const host = newHost();
+  const host = createAgentHost({
+    defaults,
+    members: { w: { description: "工人" }, lead: { description: "组长", tools: ["spawn_agent"] } },
+    maxAgents: 1000,
+    maxDepth: 2,
+    modelRuntime: env.runtime,
+  });
   const ledger = createCostLedger(host);
   const top = await mkTop(host);
   await top.prompt("顶层第一轮");
-  await top.prompt(`[[call:spawn_agent {"member":"w","task":"工人任务一"}]]`);
+  await top.prompt(`[[call:spawn_agent {"member":"lead","task":"组长先接活"}]]`);
+  const lead = host.list().find((a) => a.member === "lead")!;
+  await lead.prompt(`[[call:spawn_agent {"member":"w","task":"组员的活"}]]`);
   const child = host.list().find((a) => a.member === "w")!;
-  await top.prompt(`[[call:send_message {"agentId":"${child.id}","message":"再干一轮"}]]`);
-  await child.waitForIdle();
+  await top.prompt(`[[call:send_message {"agentId":"${lead.id}","message":"再干一轮"}]]`);
+  await lead.waitForIdle();
   const memberSum = Object.values(ledger.byMember).reduce((a, b) => a + b, 0);
   const branchSum = Object.values(byBranch(ledger)).reduce((a, b) => a + b, 0);
   record({
@@ -336,7 +347,7 @@ function byBranch(ledger: CostLedger): Record<string, number> {
     question: "「哪个成员花了多少」要自己写多少胶水、算不算得平",
     observed: `胶水代码 ${glueLines} 行（createCostLedger + branchOf + byBranch）；按成员 = ${JSON.stringify(ledger.byMember)}；按分支 = ${JSON.stringify(byBranch(ledger))}；按 agent = ${JSON.stringify(Object.fromEntries(Object.entries(ledger.byAgent).map(([k, v]) => [k, v.tokens])))}；成员求和=${memberSum} 分支求和=${branchSum} host.usage=${host.usage.totalTokens}（对得上=${memberSum === host.usage.totalTokens && branchSum === host.usage.totalTokens}）`,
     verdict: "PARTIAL",
-    conclusion: `能算清，但全靠设计者自己订阅 round_completed 累加（${glueLines} 行）。两个代价：① 顶层 agent 的 member 是 undefined，成本只能落进「(顶层/无名)」桶 —— 设计者无法把顶层 agent 归到花名册里的任何成员；② 这个账本是唯一的细粒度账本，host.usage 只有一个总数，宿主与库都不提供任何 breakdown。`,
+    conclusion: `能算清，但全靠设计者自己订阅 round_completed 累加（${glueLines} 行）。两个代价：① 顶层 agent 的 member 是 undefined，成本只能落进「(顶层)」桶 —— 设计者无法把顶层 agent 归到花名册里的任何成员；② 这个账本是唯一的细粒度账本，host.usage 只有一个总数，宿主与库都不提供任何 breakdown。分支口径要自己定义（这里取「挂在顶层下面的那棵子树」，取 root 或取直接父级都是合理设计，库不提供任何一个）。`,
     data: { glueLines, byMember: ledger.byMember, byBranch: byBranch(ledger), byAgent: Object.fromEntries(Object.entries(ledger.byAgent).map(([k, v]) => [k, v])), memberSum, branchSum, hostUsage: host.usage.totalTokens },
   });
   host.dispose();
@@ -359,66 +370,75 @@ section("7.3 三方对账（RunResult.usage / agent.usage / host.usage）");
   const top = await mkTop(host);
   const rows: Array<Record<string, unknown>> = [];
   let roundEvents = 0;
-  host.on("round_completed", () => (roundEvents += 1));
-  const step = async (label: string, expectReqs: number, run: () => Promise<unknown>) => {
+  let roundTokens = 0;
+  host.on("round_completed", ({ result }) => {
+    roundEvents += 1;
+    roundTokens += result.usage.totalTokens;
+  });
+  const reqsAtStart = env.calls().length;
+  /** 一步 = 一段被观察的活动；把「假服务请求数」与「本步全部 round_completed 之和」对上 */
+  const step = async (label: string, run: () => Promise<unknown>) => {
     const reqBefore = env.calls().length;
     const evBefore = roundEvents;
+    const tokBefore = roundTokens;
     const out = await run();
     const reqs = env.calls().length - reqBefore;
     const expected = reqs * TOKENS_PER_REQUEST;
+    const got = roundTokens - tokBefore;
     const runUsage = (out as { usage?: { totalTokens: number } } | undefined)?.usage?.totalTokens;
     rows.push({
       步骤: label,
       请求数: reqs,
       期望token: expected,
-      "本次RunResult": runUsage ?? "-",
+      "本步全部round_completed": got,
+      "本步等待的RunResult": runUsage ?? "-",
+      round事件数: roundEvents - evBefore,
       宿主累计: host.usage.totalTokens,
-      事件数: roundEvents - evBefore,
-      "本步合计对账": runUsage === undefined ? "n/a" : runUsage === expected ? "OK" : `差 ${(runUsage ?? 0) - expected}`,
+      对账: got === expected ? "OK" : `差 ${got - expected}`,
     });
     return out;
   };
 
-  await step("R1 单轮 prompt", 1, () => top.prompt("hi"));
-  await step("R2 含工具调用轮（read）", 2, () => top.prompt(`[[tool:read]] [[args:{"path":"x"}]] 读一下`));
-  await step("R3 spawn 一个分身", 2, () => top.prompt(`[[call:spawn_agent {"member":"w","task":"工人活"}]]`));
+  await step("R1 单轮 prompt", () => top.prompt("hi"));
+  await step("R2 含工具调用轮（read）", () => top.prompt(`[[tool:read]] [[args:{"path":"x"}]] 读一下`));
+  await step("R3 spawn 一个分身（顶层 2 请求 + 分身 1 请求）", () => top.prompt(`[[call:spawn_agent {"member":"w","task":"工人活"}]]`));
   const child = host.list().find((a) => a.member === "w")!;
-  // R4：长轮 + 两条排队消息
-  const long = top.prompt("[[sleep:400]] 长活");
-  await sleep(60);
-  await top.send("排队一");
-  await top.send("排队二");
-  await step("R4 长轮 + 2 条 send 排队（同一轮内）", 3, () => long);
-  const child2 = await mkTop(host, { id: undefined });
-  await step("R5 2 个分身并发 prompt", 2, async () => {
-    const a1 = createAgent({ ...defaults }, { host, parent: top, member: "w", modelRuntime: env.runtime });
-    const a2 = createAgent({ ...defaults }, { host, parent: top, member: "w", modelRuntime: env.runtime });
-    const [r1, r2] = await Promise.all([a1, a2].map((a) => a.then((x) => x.prompt("并发"))));
+  // R4：长轮 + 两条排队消息（同一轮里）
+  await step("R4 长轮 + 2 条 send 排队（合为一次 run）", async () => {
+    const long = top.prompt("[[sleep:400]] 长活");
+    await sleep(60);
+    await top.send("排队一");
+    await top.send("排队二");
+    return long;
+  });
+  await step("R5 2 个分身并发 prompt", async () => {
+    const mk = () => createAgent({ ...defaults }, { host, parent: top, member: "w", modelRuntime: env.runtime });
+    const [a1, a2] = await Promise.all([mk(), mk()]);
+    const [r1, r2] = await Promise.all([a1.prompt("并发"), a2.prompt("并发")]);
     return { usage: { totalTokens: r1.usage.totalTokens + r2.usage.totalTokens } };
   });
-  child2.dispose();
 
-  const totalReqs = env.calls().length;
+  const totalReqs = env.calls().length - reqsAtStart;
   const expectedTotal = totalReqs * TOKENS_PER_REQUEST;
   const children = host.list().filter((a) => a.member === "w");
   const agentSum = host.list().reduce((a, x) => a + x.usage.totalTokens, 0);
   record({
     id: "7.3a",
-    question: "RunResult.usage 与假服务请求数逐笔对账",
+    question: "RunResult / round_completed 与假服务请求数逐笔对账",
     observed: `对账表（期望 token = 18 × 请求数）：${JSON.stringify(rows, null, 1)}`,
-    verdict: rows.every((r) => r["本步合计对账"] === "OK") ? "OK" : "GAP",
+    verdict: rows.every((r) => r["对账"] === "OK") ? "OK" : "GAP",
     conclusion:
-      "每一步都对得上：RunResult.usage 精确等于「本步实际请求数 × 18」，含工具轮（2 请求）与排队 send（同一轮里 3 请求合成一个 RunResult）。也就是说 RunResult.usage 的语义是「这次 prompt() 调用覆盖的全部请求」，不是「一个回合」。",
+      "每一步都对得上（差额全为 0）：含工具轮（2 请求）、spawn（顶层 2 请求 + 分身 1 请求，两个 round_completed 各自结算）、排队 send（同一 run 里 3 请求合为一个 round_completed）。语义定死：`RunResult.usage` = 这次 prompt 调用覆盖的全部请求；`round_completed.result.usage` = 一个「run」的全部请求，而一个 run 可能包含多个回合。注意 R3：等待的 RunResult 只有 36，分身那 18 只出现在另一条 round_completed 里 —— 父 agent 的「本次用量」不包含子分身。",
     data: rows,
   });
   record({
     id: "7.3b",
     question: "排队 send 如何影响「一轮」的定义与事件计数",
-    observed: `R4 一次 prompt + 2 条排队 send：请求数 3、该次 RunResult.usage=${(rows[3] as any)["本次RunResult"]}、round_completed 事件数=1；top.lastResult.text=${JSON.stringify(top.lastResult!.text.slice(0, 60))}；top.session.messages 里的 user 消息数 = ${(top.session as unknown as { messages: Array<{ role: string }> }).messages.filter((m) => m.role === "user").length}`,
+    observed: `R4 一次 prompt + 2 条排队 send：请求数 ${(rows[3] as any)["请求数"]}、该次 RunResult.usage=${(rows[3] as any)["本步等待的RunResult"]}、round_completed 事件数=${(rows[3] as any)["round事件数"]}；top.lastResult.text=${JSON.stringify(top.lastResult!.text.slice(0, 60))}；top.session.messages 里的 user 消息数 = ${(top.session as unknown as { messages: Array<{ role: string }> }).messages.filter((m) => m.role === "user").length}`,
     verdict: "PARTIAL",
     conclusion:
-      "round_completed 是「一次 run 完成」而不是「一个回合」：3 个请求只发 1 次事件、事件里的 usage 是 3 条的合计 —— 名字与语义不符。同时 RunResult.text（与 lastResult.text）只保留**最后一轮**的 assistant 文本，前两轮的回复只存在于 session.messages 里，事件流里也没有任何「第 n 轮完成」的标记。想按轮次记账的监控必须自己从 turn 事件数推断。",
-    data: { requests: 3, roundEvents: 1, runUsage: (rows[3] as any)["本次RunResult"] },
+      "round_completed 是「一次 run 完成」而不是「一个回合」：R4 的 3 个请求只发 1 次事件、事件里的 usage 是 3 条合计。同时 RunResult.text（与 lastResult.text）只保留**最后一轮**的 assistant 文本 —— 前两轮的回复只存在于 session.messages 里，事件流里也没有任何「第 n 回合完成」的标记（只能自己数 turn 事件）。要按回合记账/按回合督导的监控得自己拆。",
+    data: { requests: (rows[3] as any)["请求数"], roundEvents: (rows[3] as any)["round事件数"], runUsage: (rows[3] as any)["本步等待的RunResult"] },
   });
   {
     const host2 = newHost();
@@ -459,11 +479,10 @@ section("7.3 三方对账（RunResult.usage / agent.usage / host.usage）");
   record({
     id: "7.3e",
     question: "全局合计与 ground truth 的差额表",
-    observed: `假服务共收到 ${totalReqs} 次请求 → 期望 ${expectedTotal} token；host.usage.totalTokens=${host.usage.totalTokens}，差额=${host.usage.totalTokens - expectedTotal}；存活 agent 求和=${agentSum}（host.usage - 存活求和 = ${host.usage.totalTokens - agentSum}，即已回收分身的用量）`,
+    observed: `本节内假服务共收到 ${totalReqs} 次请求 → 期望 ${expectedTotal} token；host.usage.totalTokens=${host.usage.totalTokens}，差额=${host.usage.totalTokens - expectedTotal}；逐条差分 = ${JSON.stringify(rows.map((r) => `${r["步骤"]}: ${r["对账"]}`))}`,
     verdict: host.usage.totalTokens === expectedTotal ? "OK" : "GAP",
-    conclusion:
-      "宿主累计与 ground truth 严格相等（差额 0）：没有漏计、没有重复计。但要注意差额为 0 的前提是「每一轮都跑完」：被 abort 或被回收打断的轮次请求进了 provider、token 记 0（见 5.4），所以真实成本只会被低估，不会被高估。",
-    data: { totalReqs, expectedTotal, hostUsage: host.usage.totalTokens, agentSumSurviving: agentSum },
+    conclusion: `差额 = ${host.usage.totalTokens - expectedTotal}（宿主累计 ${host.usage.totalTokens} vs 期望 ${expectedTotal}）：没有任何漏计或重复计 —— 数值精度上账是准的。但差额为 0 的前提是「每一轮都跑完」：被 abort 或被回收打断的请求进了 provider、token 记 0（见 7.3f），所以真实成本只会被**低估**。另外 host.usage 只在本节内聚合，因为宿主每次 dispose 后新建，全局没有跨宿主的总账。`,
+    data: { totalReqs, expectedTotal, hostUsage: host.usage.totalTokens, diff: host.usage.totalTokens - expectedTotal, agentSumSurviving: agentSum },
   });
   {
     // abort 的账
@@ -506,7 +525,7 @@ section("7.5 观测的盲区");
   const gaps = [
     { 盲区: "工具返回值", 现状: "归一化事件里没有；原始 turn_end.toolResults 有", 影响: "无法从事件流复现「工具真的返回了什么」，只能靠模型复述" },
     { 盲区: "用户 prompt 原文", 现状: "归一化事件里没有；原始 message_end(role=user) 有", 影响: "审计/回放要自己订阅原始流" },
-    { 盲区: "跨分身时序", 现状: "只有 turn.message.timestamp（毫秒）", 影响: "多分身并发时无法排出全局事件序；本次测量出现同毫秒撞时" },
+    { 盲区: "跨分身时序", 现状: "只有 turn.message.timestamp（毫秒），其余 6 种事件无时间字段", 影响: "并发多分身时无法排出全局事件序；只能靠订阅者的本地时钟（本次 8 个 turn 撞时 0 次，但并发时毫秒不够区分）" },
     { 盲区: "投递语义（ran/queued）", 现状: "无任何事件", 影响: "监控看不到「消息投给谁、是否排队」" },
     { 盲区: "按成员/分支的成本 breakdown", 现状: "host.usage 只有一个总数", 影响: "必须自己订阅 round_completed 记账，且不能事后补算" },
     { 盲区: "中止 vs 真错误", 现状: "事件序列同形，只有字符串不同", 影响: "告警无法区分设计者主动打断与模型故障" },
@@ -519,8 +538,8 @@ section("7.5 观测的盲区");
     observed: `共 ${gaps.length} 条：${JSON.stringify(gaps, null, 1)}`,
     verdict: "GAP",
     conclusion:
-      "「7 个事件」够做过程展示与粗略计量，不够做审计与精确归因。三条硬缺口：① 事实流不完整（工具结果、用户输入只在原始流）；② 没有全局有序事件流（跨分身只能靠毫秒时间戳，且会撞时、多数事件根本没有时间字段）；③ 成本没有结构化分解（host.usage 一个数，细账必须自己实时累加，事后不可补）。需要审计能力的场景应直接使用 session.subscribe 原始流 + 自己的账本，把 7 个事件当作 UI 摘要层。",
-    data: gaps,
+      "「7 个事件」够做过程展示与粗略计量，不够做审计与精确归因。三条硬缺口：① 事实流不完整（工具结果、用户输入只在原始流）；② 没有全局有序事件流（跨分身只能靠毫秒时间戳；本次 8 个 turn 恰好不撞时，但并发下毫秒不足区分，且 7 种事件里只有 turn 带时间）；③ 成本没有结构化分解（host.usage 一个数，细账必须自己实时累加，事后不可补）。需要审计能力的场景应直接使用 session.subscribe 原始流 + 自己的账本，把 7 个事件当作 UI 摘要层。",
+    data: { gaps, "零成本证据": { "假服务请求总数": env.calls().length, "请求里的 model 集合": [...new Set(env.calls().map((c) => c.model))] } },
   });
 }
 

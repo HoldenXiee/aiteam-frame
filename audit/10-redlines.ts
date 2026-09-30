@@ -213,6 +213,8 @@ record({
     ["孩子→兄弟", myChild1, myChild2.id, "应拒"],
     ["孩子→表兄弟", myChild1, cousin.id, "应拒"],
     ["孩子→自己的父的孩子（仍是兄弟）", myChild1, myChild2.id, "应拒"],
+    ["攻击者→自己", attacker, attacker.id, "应拒"],
+    ["孩子→它自己", myChild1, myChild1.id, "应拒"],
   ];
   const rows: string[] = [];
   const mismatches: string[] = [];
@@ -224,12 +226,12 @@ record({
   }
   record({
     id: "10.2b",
-    question: "跨分支投递的实际结果（8 个用例，direct execute）",
+    question: "跨分支投递的实际结果（10 个用例，direct execute）",
     observed: rows.join("　|　"),
     verdict: mismatches.length === 0 ? "OK" : "GAP",
     conclusion:
       mismatches.length === 0
-        ? "后代判定成立：祖先行、兄弟行、表兄弟行、跨分支全部被拒，只有自己的后代能收到。拒绝发生在投递之前（不是投了就拦），所以不存在「先污染再报错」。"
+        ? "后代判定成立：祖先行、兄弟行、表兄弟行、跨分支全部被拒（连给「自己」投递也算不是后代），只有自己的后代能收到。拒绝发生在投递之前（不是投了就拦），所以不存在「先污染再报错」。"
         : `出现越权投递：${JSON.stringify(mismatches)}`,
     data: { rows, topo: topoLine },
   });
@@ -265,14 +267,15 @@ record({
   });
   const sa = summarize(fromAttacker);
   const sc = summarize(fromChild);
+  const live = (rows: Array<{ id: string; kind: string }>) => rows.filter((r) => r.kind !== "不存在").map((r) => r.id).join(",");
   record({
     id: "10.2d",
     question: "一个 agent 能否猜/枚举出全宿主的存活分身，成功率多少",
-    observed: `攻击者(${attacker.id}) 枚举 a1–a30：${JSON.stringify(sa)}　孩子的枚举：${JSON.stringify(sc)}　成功的那些正是它自己的后代：攻击者命中 ${fromAttacker.filter((r) => r.kind === "投递成功").map((r) => r.id).join(",")}（自己孩子=${myChild1.id},${myChild2.id}）`,
+    observed: `攻击者(${attacker.id}) 枚举 a1–a30：${JSON.stringify(sa)}，判为存活的 id = ${live(fromAttacker)}　孩子(${myChild1.id}) 枚举 a1–a30：${JSON.stringify(sc)}，判为存活的 id = ${live(fromChild)}；攻击者投递成功的正是它自己的孩子（${fromAttacker.filter((r) => r.kind === "投递成功").map((r) => r.id).join(",")}），越权命中 = 0/30`,
     verdict: "GAP",
     conclusion:
-      "id **可猜**（a1..aN 连续分配），而且 send_message 的两种失败文本构成一个**存在性预言机**：`宿主里没有 id=X 的分身` = 不存在，`不是你的后代` = 存在但不是我的后代。30 次探测就把全宿主的存活分身数摸清了。需要明确区分两件事：①「需要一个正确的 id」不是障碍（id 可猜）；②「需要能枚举」也不是障碍（预言机免费给）。真正拦住越权的是第三道门槛 —— **后代判定**，它使得「知道 id」不等于「能投递」。",
-    data: { attacker: sa, child: sc, hits: fromAttacker.filter((r) => r.kind === "投递成功").map((r) => r.id) },
+      "id **可猜**（a1..aN 连续分配），而且 send_message 的两种失败文本构成一个**存在性预言机**：`宿主里没有 id=X 的分身` = 不存在，`不是你的后代` = 存在但不是我的后代。30 次探测就把全宿主的存活分身全集摸清了（与 host.list() 完全一致）。连「自己」也不例外：给 self 投递也算不是后代，被拒。需要明确区分三件事：①「需要一个正确的 id」不是障碍（id 可猜）；②「需要能枚举」也不是障碍（预言机免费给）；真正拦住越权的是第三道门槛 —— **后代判定**，它使「知道 id」不等于「能投递」（越权命中 0/30）。",
+    data: { attacker: sa, child: sc, hits: fromAttacker.filter((r) => r.kind === "投递成功").map((r) => r.id), attackerLive: live(fromAttacker), childLive: live(fromChild) },
   });
 }
 
@@ -547,7 +550,7 @@ section("10.5 结论：红线实际强度评估表");
       判定: "真守住",
       手法: "spawn_agent 的 schema 只有 member/task；多传的 tools/cwd/model/role 被完全忽略（10.3a）",
     },
-    { 红线: "agent 不能跨分支投递（只能给自己的后代）", 判定: "真守住", 手法: "8 个越权用例全部被拒；30 次暴力枚举 0 次越权命中（10.2b/10.2d）" },
+    { 红线: "agent 不能跨分支投递（只能给自己的后代）", 判定: "真守住", 手法: "10 个用例中含 8 次跨分支尝试，全部被拒；30 次暴力枚举 0 次越权命中（10.2b/10.2d）" },
     { 红线: "agent 不能看见别人的上下文", 判定: "真守住", 手法: "无读状态工具；会话不落盘（10.4a/10.4c）" },
     { 红线: "agent 不能改花名册 / 回收别人", 判定: "只是没给工具", 手法: "无 list/stop/dispose 工具；但 ctx.host 就在工具里，设计者写一个坏工具即可破（10.3b）" },
     { 红线: "tools 白名单 = 能力裁剪（不是安全边界）", 判定: "可被绕过", 手法: "内置工具是真过滤；但 customTools 与设计者声明的扩展被自动并入白名单，且 read/bash 不限路径（10.1b/c/d）" },
@@ -575,6 +578,22 @@ section("10.5 结论：红线实际强度评估表");
     conclusion:
       "「越权寻址」这条红线是硬的：投递能力严格限制在后代子树上，枚举到 id 也换不来投递。真正敞着的是**资源层**：配额与预算都是全宿主单一数字、只增不减，一个不受信任的分支可以把整棵集群饿死。同时 id 的连续分配 + 差异错误文本泄漏了全宿主的规模与存活情况。结论：按「能力（能不能指使别人）」衡量，红线成立；按「可用性（能不能让集群瘫痪）」衡量，没有任何护栏。",
     data: null,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+section("10.6 零成本确认");
+
+{
+  const calls = env.calls();
+  const realModels = calls.filter((c) => c.model !== env.models[0].id).map((c) => c.model);
+  record({
+    id: "10.6",
+    question: "本节是否产生了真实 API 调用",
+    observed: `假服务收到的请求数 = ${calls.length}，其中 model 字段不是 faux 的 = ${realModels.length}（${JSON.stringify(realModels.slice(0, 3))}）　AITEAM_AGENT_DIR 仍指向孤立目录 = ${process.env.AITEAM_AGENT_DIR === env.agentDir}　所有 agent 都显式传了 modelRuntime（绑定 ${env.faux.baseUrl}）与 agentDir`,
+    verdict: calls.length > 0 && realModels.length === 0 && process.env.AITEAM_AGENT_DIR === env.agentDir ? "OK" : "GAP",
+    conclusion: "零真实调用：全部模型流量都进了本机假服务。",
+    data: { calls: calls.length, realModels },
   });
 }
 

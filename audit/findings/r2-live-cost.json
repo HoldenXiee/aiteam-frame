@@ -1,0 +1,175 @@
+{
+  "section": "R10 同输入方差（真模型的非确定性）",
+  "findings": [
+    {
+      "id": "R6a",
+      "question": "usage 五个字段到底各代表什么，彼此自洽吗",
+      "observed": "deepseek-v4.1-flash：in=118 out=2 cacheRead=3200 cacheWrite=0 reasoning=undefined total=3320；in+out+cacheRead+cacheWrite=3320（恰好等于 total）\n     qwen3.8-flash：in=6 out=17 cacheRead=3317 cacheWrite=11 reasoning=undefined total=3351；in+out+cacheRead+cacheWrite=3351（恰好等于 total）\n     mimo-v2.6-flash：in=3226 out=13 cacheRead=0 cacheWrite=0 reasoning=undefined total=3239；in+out+cacheRead+cacheWrite=3239（恰好等于 total）",
+      "verdict": "OK",
+      "conclusion": "字段是自洽的：`input + output + cacheRead + cacheWrite === totalTokens`（3 个模型、含缓存命中与新写入全部成立）。`input` **只是未命中的新增输入**，不是总输入 —— 真正的输入主体在 `cacheRead`（约 3200 token 的系统提示词，每轮都命中缓存）。`reasoning` 恒为 undefined（这些模型不暴露推理 token）。",
+      "data": [
+        "deepseek-v4.1-flash：in=118 out=2 cacheRead=3200 cacheWrite=0 reasoning=undefined total=3320；in+out+cacheRead+cacheWrite=3320（恰好等于 total）",
+        "qwen3.8-flash：in=6 out=17 cacheRead=3317 cacheWrite=11 reasoning=undefined total=3351；in+out+cacheRead+cacheWrite=3351（恰好等于 total）",
+        "mimo-v2.6-flash：in=3226 out=13 cacheRead=0 cacheWrite=0 reasoning=undefined total=3239；in+out+cacheRead+cacheWrite=3239（恰好等于 total）"
+      ]
+    },
+    {
+      "id": "R6b",
+      "question": "只看 usage.input 会低估多少真实输入量",
+      "observed": "本次：usage.input=118，usage.cacheRead=3200，usage.totalTokens=3320。若按 input 估算会以为「只用了 118 个输入 token」，实际输入侧共 3318 个。低估倍数 = 28×",
+      "verdict": "PARTIAL",
+      "conclusion": "低估 28 倍。字段名 `input` 极具误导性：设计者做成本面板或预算核算时若用 `input`，会得到荒谬的小数字。必须用 `totalTokens`，或把 input/cacheRead/cacheWrite 三者相加。",
+      "data": {
+        "input": 118,
+        "cacheRead": 3200,
+        "cacheWrite": 0,
+        "total": 3320
+      }
+    },
+    {
+      "id": "R7a",
+      "question": "host.usage 是否等于所有分身 agent.usage 之和",
+      "observed": "host.usage=8545；各分身 agent.usage 之和=8545（顶层 5210 + 子分身 3335）；差额=0",
+      "verdict": "OK",
+      "conclusion": "完全对得上。host.usage 是各 agent 累计用量的精确求和。",
+      "data": {
+        "hostTotal": 8545,
+        "sumOfAgents": 8545,
+        "agentTotal": 5210,
+        "childrenUsage": 3335
+      }
+    },
+    {
+      "id": "R7b",
+      "question": "已回收分身的用量会不会从 host 统计里消失",
+      "observed": "回收前 host.usage=8545；回收后 host.usage=8545（不变），而存活分身之和=5210",
+      "verdict": "OK",
+      "conclusion": "host.usage 是**终身累计**，回收分身不会扣减 —— 这正是成本统计该有的语义。但设计者不能靠 list() 复原它（已回收的对不上）。"
+    },
+    {
+      "id": "R7c",
+      "question": "spawn_agent 是否把子分身的用量算进父的那一轮 RunResult",
+      "observed": "顶层第3轮调用了 spawn（子分身也跑了），但 RunResult.usage 只包含顶层自己的生成；子分身用量单独记在它的 agent.usage / host.usage 上。三方数据：顶层第1轮（RunResult） / 顶层第2轮（RunResult） / 顶层第3轮（含 spawn 工具调用）",
+      "verdict": "PARTIAL",
+      "conclusion": "不计入。`spawn_agent` 返回的文本里也**没有任何用量信息**（只有 agentId 与结论文本）。设计者要算「这次委派花了多少」，只能自己在 spawn 前后读 host.usage 求差，或者监听 round_completed 按 parentId 归因。",
+      "data": {
+        "runs": [
+          {
+            "label": "顶层第1轮（RunResult）",
+            "run": 1215
+          },
+          {
+            "label": "顶层第2轮（RunResult）",
+            "run": 1226
+          },
+          {
+            "label": "顶层第3轮（含 spawn 工具调用）",
+            "run": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "R8a",
+      "question": "同一分身连续多轮时，成本的增长形状是常数、线性还是平方",
+      "observed": "第1轮 in=123 cacheRead=3200 total=3325 $0.000029；第2轮 in=140 cacheRead=3200 total=3342 $0.000032；第3轮 in=29 cacheRead=3328 total=3359 $0.000016；第4轮 in=46 cacheRead=3328 total=3390 $0.000026；第5轮 in=77 cacheRead=3328 total=3416 $0.000028；第6轮 in=103 cacheRead=3328 total=3433 $0.000027",
+      "verdict": "INFO",
+      "conclusion": "**线性，且被一个常数主导。** 每轮固定吃 3200 个 cached token（系统提示词 + 工具表）；对话增量使缓存线性增长（6 轮共 +128，约 26/轮）。单轮成本从 $0.000029 缓升到 $0.000027，不是平方级。",
+      "data": [
+        {
+          "i": 1,
+          "input": 123,
+          "cacheRead": 3200,
+          "total": 3325,
+          "cost": 0.000029
+        },
+        {
+          "i": 2,
+          "input": 140,
+          "cacheRead": 3200,
+          "total": 3342,
+          "cost": 0.000032
+        },
+        {
+          "i": 3,
+          "input": 29,
+          "cacheRead": 3328,
+          "total": 3359,
+          "cost": 0.000016
+        },
+        {
+          "i": 4,
+          "input": 46,
+          "cacheRead": 3328,
+          "total": 3390,
+          "cost": 0.000026
+        },
+        {
+          "i": 5,
+          "input": 77,
+          "cacheRead": 3328,
+          "total": 3416,
+          "cost": 0.000028
+        },
+        {
+          "i": 6,
+          "input": 103,
+          "cacheRead": 3328,
+          "total": 3433,
+          "cost": 0.000027
+        }
+      ]
+    },
+    {
+      "id": "R8b",
+      "question": "集群规模的成本外推（这个常数对多分身意味着什么）",
+      "observed": "固定成本 3200 cached token/轮。按此估算：10 个分身 × 10 轮 = 100 轮 × 3200 ≈ 320,000 缓存 token；100 个分身 × 10 轮 ≈ 3,200,000 缓存 token",
+      "verdict": "INFO",
+      "conclusion": "**集群成本的主导项是「分身数 × 轮数 × 3200」这个常数乘积**，而不是对话内容。所以：① 少起分身、缩短分身寿命，比省钱地写提示词有效得多；② 缓存命中让这个常数比全价输入便宜，但量级仍由它决定；③ 阶段 2 如果做长驻分身，成本会按「活着的分身数 × 每次唤醒」持续累积 —— 这是长驻设计必须先算清的账。",
+      "data": {
+        "fixedPerTurn": 3200,
+        "extrapolation": {
+          "10x10": 320000,
+          "100x10": 3200000
+        }
+      }
+    },
+    {
+      "id": "R9a",
+      "question": "16 个分身同时打同一个 provider，会不会触发限流",
+      "observed": "16/16 并发，总墙钟 4069ms。成功 16 个，没有失败。宿主用量 53109 token / $0.0005",
+      "verdict": "OK",
+      "conclusion": "16 路并发全部成功，总墙钟 4069ms（约 254ms/个）。本次未遇到限流 —— 但库**没有任何退避或重试逻辑**，限流与否完全交给 pi/provider；一旦发生，设计者只能靠 RunResult.error 的原始文本察觉。",
+      "data": {
+        "ms": 4069,
+        "okCount": 16,
+        "errs": [],
+        "hostTokens": 53109
+      }
+    },
+    {
+      "id": "R10a",
+      "question": "同输入同配置跑 5 次，真模型的产出方差与用量方差",
+      "observed": "5 次产出互不相同：5/5 种。\n     样本：\"顺序合理：闸门先限流，总线再解耦。\" ｜ \"顺序务实：先限流保稳定，但总线滞后易返工。\" ｜ \"顺序合理：先控并发再解耦通信。（14 字）\" ｜ \"先闸门后总线，稳流再通渠，合理。\" ｜ \"稳妥：闸门限流在前，总线扩容才安全。\"\n     用量：3495/3441/3494/3615/3603 token",
+      "verdict": "INFO",
+      "conclusion": "产出 5/5 不同，用量 3441–3615 token。真模型下**产出不可复现**（且库没有 seed/temperature 旋钮，见 9.2）。用量也有 ±5% 的抖动。含义：集群设计的可复现性只能做到「拓扑与配置可复现」，行为的可复现性做不到 —— 所以**验收标准不能是「产出与上次一致」，只能是「结构/流程符合预期」**。",
+      "data": {
+        "outs": [
+          "顺序合理：闸门先限流，总线再解耦。",
+          "顺序务实：先限流保稳定，但总线滞后易返工。",
+          "顺序合理：先控并发再解耦通信。（14 字）",
+          "先闸门后总线，稳流再通渠，合理。",
+          "稳妥：闸门限流在前，总线扩容才安全。"
+        ],
+        "costs": [
+          3495,
+          3441,
+          3494,
+          3615,
+          3603
+        ],
+        "uniqueCount": 5
+      }
+    }
+  ]
+}

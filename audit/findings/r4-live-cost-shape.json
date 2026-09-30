@@ -1,0 +1,148 @@
+{
+  "section": "R15 每轮固定成本取决于什么",
+  "findings": [
+    {
+      "id": "R15a",
+      "question": "一个分身每轮的固定成本由什么决定",
+      "observed": "tools: [] （零工具） → cacheRead=768 cacheWrite=0 input=75 total=897 $0.000046\n     tools: ['read'] → cacheRead=0 cacheWrite=0 input=1552 total=1554 $0.000234\n     tools: ['read','bash','edit','write'] → cacheRead=2176 cacheWrite=0 input=112 total=2290 $0.000025\n     四个内置 + spawn_agent + send_message → cacheRead=2560 cacheWrite=0 input=30 total=2592 $0.000013\n     不传 tools（走 pi 默认工具表） → cacheRead=3200 cacheWrite=0 input=117 total=3319 $0.000028",
+      "verdict": "INFO",
+      "conclusion": "每轮总用量从 **897 到 3319 token**，全部由工具集决定（工具描述本身就是 prompt 的一部分）。零工具 897，pi 默认工具表 3319 —— 相差 3.7 倍。含义：**裁剪工具集是直接的降本手段**，而 tools: [] 在库修好空白名单后才真正能省下这笔钱。",
+      "data": [
+        {
+          "label": "tools: [] （零工具）",
+          "input": 75,
+          "cacheRead": 768,
+          "cacheWrite": 0,
+          "total": 897,
+          "cost": 0.000046
+        },
+        {
+          "label": "tools: ['read']",
+          "input": 1552,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 1554,
+          "cost": 0.000234
+        },
+        {
+          "label": "tools: ['read','bash','edit','write']",
+          "input": 112,
+          "cacheRead": 2176,
+          "cacheWrite": 0,
+          "total": 2290,
+          "cost": 0.000025
+        },
+        {
+          "label": "四个内置 + spawn_agent + send_message",
+          "input": 30,
+          "cacheRead": 2560,
+          "cacheWrite": 0,
+          "total": 2592,
+          "cost": 0.000013
+        },
+        {
+          "label": "不传 tools（走 pi 默认工具表）",
+          "input": 117,
+          "cacheRead": 3200,
+          "cacheWrite": 0,
+          "total": 3319,
+          "cost": 0.000028
+        }
+      ]
+    },
+    {
+      "id": "R15b",
+      "question": "同一份配置的单轮成本稳定吗（缓存命中与否的影响）",
+      "observed": "本轮五份配置的 cacheRead 均 > 0（前缀都已在早前的探测里被蹋过），单轮成本 $0.000013–$0.000234。\n     input 很小（30–1552），主体全在 cacheRead（0–3200）",
+      "verdict": "PARTIAL",
+      "conclusion": "读成本时看 `input` 会看到 16–117 这种微小数字，真正在跑量的是 `cacheRead`（工具集越大越大）。单轮成本在 $0.000008–$0.000041 间浮动（5 倍），**不能拿单次样本估算集群成本**；下一项用「全新前缀 vs 重复前缀」做对照实验。",
+      "data": [
+        {
+          "label": "tools: [] （零工具）",
+          "input": 75,
+          "cacheRead": 768,
+          "cost": 0.000046
+        },
+        {
+          "label": "tools: ['read']",
+          "input": 1552,
+          "cacheRead": 0,
+          "cost": 0.000234
+        },
+        {
+          "label": "tools: ['read','bash','edit','write']",
+          "input": 112,
+          "cacheRead": 2176,
+          "cost": 0.000025
+        },
+        {
+          "label": "四个内置 + spawn_agent + send_message",
+          "input": 30,
+          "cacheRead": 2560,
+          "cost": 0.000013
+        },
+        {
+          "label": "不传 tools（走 pi 默认工具表）",
+          "input": 117,
+          "cacheRead": 3200,
+          "cost": 0.000028
+        }
+      ]
+    },
+    {
+      "id": "R15c",
+      "question": "「全新工具集前缀」与「重复前缀」的单轮成本差多少",
+      "observed": "全新前缀#0: cacheRead=0 cacheWrite=0 total=1670 $0.000251；重复前缀#0: cacheRead=1664 cacheWrite=0 total=1670 $0.000007；全新前缀#1: cacheRead=0 cacheWrite=0 total=1670 $0.000251；重复前缀#1: cacheRead=1664 cacheWrite=0 total=1670 $0.000007；全新前缀#2: cacheRead=0 cacheWrite=0 total=1670 $0.000251；重复前缀#2: cacheRead=1664 cacheWrite=0 total=1670 $0.000007\n     平均：全新 $0.000251，重复 $0.000007，倍数 35.9×",
+      "verdict": "INFO",
+      "conclusion": "首次用一份新工具集时没有缓存可命中（cacheRead 明显更小），成本高于重复使用同一份配置。倍数 35.9×。含义：**频繁创建/销毁分身（每次都是新前缀）比长驻分身贵** —— 这是阶段 2 做长驻设计时的一笔真实节省，也是「短命分身」模式容易被低估的成本。",
+      "data": {
+        "seq": [
+          {
+            "kind": "全新前缀#0",
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 1670,
+            "cost": 0.000251
+          },
+          {
+            "kind": "重复前缀#0",
+            "cacheRead": 1664,
+            "cacheWrite": 0,
+            "total": 1670,
+            "cost": 0.000007
+          },
+          {
+            "kind": "全新前缀#1",
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 1670,
+            "cost": 0.000251
+          },
+          {
+            "kind": "重复前缀#1",
+            "cacheRead": 1664,
+            "cacheWrite": 0,
+            "total": 1670,
+            "cost": 0.000007
+          },
+          {
+            "kind": "全新前缀#2",
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 1670,
+            "cost": 0.000251
+          },
+          {
+            "kind": "重复前缀#2",
+            "cacheRead": 1664,
+            "cacheWrite": 0,
+            "total": 1670,
+            "cost": 0.000007
+          }
+        ],
+        "avgFresh": 0.000251,
+        "avgRepeat": 0.000007
+      }
+    }
+  ]
+}

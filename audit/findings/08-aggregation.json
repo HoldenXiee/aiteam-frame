@@ -1,5 +1,5 @@
 {
-  "section": "8.4 结论：聚合能力的极限",
+  "section": "8.5 零成本确认",
   "findings": [
     {
       "id": "8.1a",
@@ -192,6 +192,17 @@
       "observed": "本节全部结论都是机制性的：文本无结构、转发无裁剪、工具提交是唯一 schema 通道、不提交不报错。假 provider 是确定性的，无法回答「真模型 JSON 成功率」与「互评一致率」",
       "verdict": "INFO",
       "conclusion": "机制边界已测清；真模型的结构化输出成功率与互评一致率（清单 8.2/8.3 的 🔴 部分）只能由真模型专项回答。"
+    },
+    {
+      "id": "8.5",
+      "question": "本节是否产生了真实 API 调用",
+      "observed": "假服务收到的请求数 = 14，其中 model 字段不是 faux 的 = 0（[]）　所有 agent 都显式传了 modelRuntime（绑定 http://127.0.0.1:18132/v1，allowModelNetwork:false）与 agentDir　AITEAM_AGENT_DIR 仍指向孤立目录 = true",
+      "verdict": "OK",
+      "conclusion": "零真实调用：全部模型流量都进了本机假服务，没有任何 agent 落到真实 provider 的配置上。",
+      "data": {
+        "calls": 14,
+        "realModels": []
+      }
     }
   ]
 }
