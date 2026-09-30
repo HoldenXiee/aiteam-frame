@@ -44,14 +44,19 @@ function defaultAgentDir(): string {
   return process.env.AITEAM_AGENT_DIR || getAgentDir();
 }
 
-/** 宿主级共享的 ModelRuntime 单例（决策 #8）：按第一个 agentDir 建，避免每 agent 重复读盘 */
-let sharedRuntime: Promise<ModelRuntime> | undefined;
+/** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir 缓存** —— 一个凭证集一个 runtime。
+ *  曾经是全局单例，结果是第二个不同 agentDir 的分身仍去读第一个的 models.json/auth.json。 */
+const sharedRuntimes = new Map<string, Promise<ModelRuntime>>();
 function getSharedRuntime(agentDir: string): Promise<ModelRuntime> {
-  sharedRuntime ??= ModelRuntime.create({
-    modelsPath: join(agentDir, "models.json"),
-    authPath: join(agentDir, "auth.json"),
-  });
-  return sharedRuntime;
+  let runtime = sharedRuntimes.get(agentDir);
+  if (!runtime) {
+    runtime = ModelRuntime.create({
+      modelsPath: join(agentDir, "models.json"),
+      authPath: join(agentDir, "auth.json"),
+    });
+    sharedRuntimes.set(agentDir, runtime);
+  }
+  return runtime;
 }
 
 /** 库自带的能力工具：spec.tools 里点了名就自动挂上（规格 §9「已定」）。
@@ -129,9 +134,10 @@ export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}
 
   // 决策 #4：只有设计者给了 tools 白名单时才并入 customTools 与「他声明的」扩展工具名；
   // 不给就一个都不动。环境里自动发现的扩展不算数，否则白名单形同虚设。
-  const tools = spec.tools
+  // 用 `?.length` 而不是真值判断：`tools: []` 是「一个工具都不给」，不能被 customTools 撑开。
+  const tools = spec.tools?.length
     ? [...new Set([...spec.tools, ...customTools.map((t) => t.name), ...declaredExtensionToolNames(spec, loader)])]
-    : undefined;
+    : spec.tools;
 
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
   const { session } = await createAgentSession({

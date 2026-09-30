@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createAgent } from "../src/index.ts";
 import { FAUX_MODEL_REF, writeModelsJson } from "./faux-models.ts";
-import { faux, seenTools } from "./helpers.ts";
+import { faux, seenTools, echoTool } from "./helpers.ts";
 
 const extensionSource = (tool: string) => `
 export default function (pi) {
@@ -57,4 +57,21 @@ test("tools 白名单只并入设计者声明的扩展工具，不并入用户�
 
   declared.dispose();
   plain.dispose();
+});
+
+test("tools: [] 是「一个工具都不给」，不会被 customTools 撑开", async () => {
+  const { agentDir, cwd } = makeIsolatedDir();
+  writeModelsJson(agentDir, faux.baseUrl);
+  const modelRuntime = await ModelRuntime.create({
+    modelsPath: join(agentDir, "models.json"),
+    allowModelNetwork: false,
+  });
+
+  const locked = await createAgent(
+    { model: FAUX_MODEL_REF, agentDir, cwd, tools: [], customTools: [echoTool] },
+    { modelRuntime },
+  );
+  await locked.prompt("hi");
+  assert.deepEqual(seenTools(), [], "空白名单就是零工具，不能被并入 customTools");
+  locked.dispose();
 });

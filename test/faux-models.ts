@@ -8,7 +8,7 @@ export const FAUX_PROVIDER = "faux";
 export const FAUX_MODEL_ID = "echo";
 export const FAUX_MODEL_REF = `${FAUX_PROVIDER}/${FAUX_MODEL_ID}`;
 
-export function writeModelsJson(agentDir: string, baseUrl: string): string {
+export function writeModelsJson(agentDir: string, baseUrl: string, modelId: string = FAUX_MODEL_ID): string {
   mkdirSync(agentDir, { recursive: true });
   const modelsPath = join(agentDir, "models.json");
   writeFileSync(
@@ -23,8 +23,8 @@ export function writeModelsJson(agentDir: string, baseUrl: string): string {
             apiKey: "faux-key",
             models: [
               {
-                id: FAUX_MODEL_ID,
-                name: "Faux Echo",
+                id: modelId,
+                name: `Faux ${modelId}`,
                 reasoning: false,
                 input: ["text"],
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

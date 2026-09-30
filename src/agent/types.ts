@@ -18,14 +18,14 @@ export interface MemberSpec {
   /** 给 agent 看的职责说明，会出现在 spawn_agent 的工具描述里 */
   description?: string;
   cwd?: string;
-  /** 默认：宿主级共享。仅当需要独立 skills/settings 时才另开（另开会导致凭证需重复配置） */
+  /** 默认：宿主级共享。另开会换掉这一份 models.json / auth.json（技能与设置也跟着隔离） */
   agentDir?: string;
   /** 角色说明 → appendSystemPrompt（决策 #25） */
   role?: string;
   /** 名字或 SKILL.md 路径。Skill 对象必须指向真实存在的文件（决策 #27）；名字解析失败必须抛错 */
   skills?: (string | Skill)[];
   extensions?: (string | InlineExtension)[];
-  /** 白名单。库会无条件并入 customTools / extension 工具名 */
+  /** 白名单。非空时库并入 customTools 与**设计者声明的**扩展工具名；`[]` 表示一个工具都不给 */
   tools?: string[];
   excludeTools?: string[];
   customTools?: AgentTool[];
