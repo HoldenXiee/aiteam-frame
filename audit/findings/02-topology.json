@@ -1,0 +1,209 @@
+{
+  "section": "2.6 拓扑相关的缺口小结",
+  "findings": [
+    {
+      "id": "2.1a",
+      "question": "深链（单链）能建多深",
+      "observed": "建到深度 8，共 9 个分身，最深分身的祖先链长度 = 8",
+      "verdict": "OK",
+      "conclusion": "设计者侧逐层建链可用；深度只受 maxDepth 数字限制，实现上没有递归算法障碍。",
+      "data": {
+        "deepest": 8,
+        "total": 9
+      }
+    },
+    {
+      "id": "2.1b",
+      "question": "宽扇出（一个父 100 个子）能否表达，代价多大",
+      "observed": "100 个子分身建了 178ms　host.list() = 101",
+      "verdict": "OK",
+      "conclusion": "可用。100 个分身并发创建耗时约 178ms（每个约 1.8ms）。",
+      "data": {
+        "ms": 177.8,
+        "total": 101,
+        "perAgentMs": 1.78
+      }
+    },
+    {
+      "id": "2.1c",
+      "question": "混合不对称树 + 同一成员多分身",
+      "observed": "树：\n(顶层)#a111(d0)\n  a#a112(d1)\n    b#a113(d2)\n    b#a114(d2)\n      c#a115(d3)\n  a#a116(d1)",
+      "verdict": "OK",
+      "conclusion": "同一成员可起多个分身且互不干扰（两个 b），不对称树可表达。"
+    },
+    {
+      "id": "2.2a",
+      "question": "maxDepth 的数字语义（顶层算不算一层）",
+      "observed": "maxDepth=0 → 能建 0 层，然后被拒：「分身深度 1 超过 maxDepth=0，不能再往下一层」；maxDepth=1 → 能建 1 层，然后被拒：「分身深度 2 超过 maxDepth=1，不能再往下一层」；maxDepth=2 → 能建 2 层，然后被拒：「分身深度 3 超过 maxDepth=2，不能再往下一层」；maxDepth=3 → 能建 3 层，然后被拒：「分身深度 4 超过 maxDepth=3，不能再往下一层」",
+      "verdict": "OK",
+      "conclusion": "顶层是第 0 层，maxDepth=N 表示允许存在深度为 N 的分身（即从顶层往下最多 N 层子）。maxDepth=0 时顶层可以有但不能有分身。",
+      "data": [
+        {
+          "maxDepth": 0,
+          "built": 0,
+          "broke": "分身深度 1 超过 maxDepth=0，不能再往下一层"
+        },
+        {
+          "maxDepth": 1,
+          "built": 1,
+          "broke": "分身深度 2 超过 maxDepth=1，不能再往下一层"
+        },
+        {
+          "maxDepth": 2,
+          "built": 2,
+          "broke": "分身深度 3 超过 maxDepth=2，不能再往下一层"
+        },
+        {
+          "maxDepth": 3,
+          "built": 3,
+          "broke": "分身深度 4 超过 maxDepth=3，不能再往下一层"
+        }
+      ]
+    },
+    {
+      "id": "2.2b",
+      "question": "把 maxDepth 放宽到很大，深度加到多少会出问题",
+      "observed": "建到深度 60（109ms，共 61 个分身），未失败（到达测试上限 60）；深度 60 的分身跑一轮：正常",
+      "verdict": "OK",
+      "conclusion": "深度 60 仍然功能正常，没有栈溢出或 O(n²) 崩点。深度本身不是瓶颈；瓶颈是每个分身都占一个 session 与内存（见第 5 部分）。",
+      "data": {
+        "deepest": 60,
+        "ms": 109,
+        "total": 61,
+        "ranOk": true,
+        "perLevelMs": 1.82
+      }
+    },
+    {
+      "id": "2.2c",
+      "question": "同时存在 300 个分身的代价",
+      "observed": "成功 300/300，耗时 439ms，堆内存 heapUsed = 74.6 MB",
+      "verdict": "OK",
+      "conclusion": "单进程内 300 个分身可用，创建耗时 439ms（约 1.5ms/个），堆占用 74.6 MB。",
+      "data": {
+        "ok": 300,
+        "ms": 438.9,
+        "heapMB": 74.6
+      }
+    },
+    {
+      "id": "2.3a",
+      "question": "能否表达一个分身同时归属两个父（真正的 DAG / 菱形）",
+      "observed": "ControlledAgent.parentId 是单值：a.parentId=a493，b.parentId=a494。接口里没有任何多父字段。",
+      "verdict": "GAP",
+      "conclusion": "结构上不可能。『谁生了谁』严格是树：每个分身只有一个 parentId，createAgent 只接受一个 parent。菱形/DAG 在**归属关系**上无法表达。",
+      "data": {
+        "aParent": "a493",
+        "bParent": "a494"
+      }
+    },
+    {
+      "id": "2.3b",
+      "question": "数据流能否构成 DAG（一个产出喂给多个消费者）",
+      "observed": "c1 收到=true　c2 收到=true。实现它用了 2 行设计者代码。",
+      "verdict": "OK",
+      "conclusion": "可以。『归属』是树，但『数据流』不受限 —— 设计者把同一个文本喂给任意多个分身即可。要表达 DAG，靠设计者代码，不靠拓扑。",
+      "data": {
+        "c1": true,
+        "c2": true
+      }
+    },
+    {
+      "id": "2.3c",
+      "question": "跨分支协作：设计者侧 vs agent 工具层",
+      "observed": "设计者投递成功=true；tB 用 send_message 找 expert（expert.parentId=a500，tB.id=a501）→ 「只能给自己的后代分身投递：a502 不是你的后代（它可能是祖先、兄弟或不相干的分身）。…」",
+      "verdict": "PARTIAL",
+      "conclusion": "设计者侧完全自由（send 无后代限制）；agent 工具层被拦截（只能投后代）。跨分支协作**可表达，但必须由设计者做路由**，agent 之间无法自行横向联系。",
+      "data": {
+        "designerOk": true,
+        "tBDeniedText": "只能给自己的后代分身投递：a502 不是你的后代（它可能是祖先、兄弟或不相干的分身）。"
+      }
+    },
+    {
+      "id": "2.4a",
+      "question": "agent 工具层能否构成『子→父』这条反向边（发送环的一半）",
+      "observed": "被拒：「只能给自己的后代分身投递：a503 不是你的后代（它可能是祖先、兄弟或不相干的分身）。…」",
+      "verdict": "OK",
+      "conclusion": "被拒。后代关系是树 + 只准向下投递 → 工具层的发送图是 DAG，环结构上不可能（决策 #20 的推论成立）。"
+    },
+    {
+      "id": "2.4b",
+      "question": "设计者侧能否造出死锁（无超时等待）",
+      "observed": "审批门已进入=true，prompt 未结束=true，isStreaming=true，status=running；此时调用 waitForIdle() → 1200ms 后仍未返回",
+      "verdict": "GAP",
+      "conclusion": "能造出真死锁。库的等待原语（waitForIdle）**没有超时参数**，设计者写出『等一个依赖自己的东西』就会永久挂住，而且没有任何机制能发现。规格把『任何无超时等待一律不允许』列为死锁规则，但库并没有从 API 层面兑现它。",
+      "data": {
+        "gateEntered": true,
+        "promptDone": false,
+        "isStreaming": true,
+        "result": "timeout"
+      }
+    },
+    {
+      "id": "2.4c",
+      "question": "参数不合法的工具调用会不会经过 onToolCall 审批门",
+      "observed": "审批门进入=false；prompt 正常返回，文本 = \"echo:Validation failed for tool \\\"read\\\":\\n  - path: must have required p\"",
+      "verdict": "GAP",
+      "conclusion": "不会。参数校验在 tool_call 事件**之前**失败，审批门看不到这类调用 —— 设计者无法用审批门拦『参数非法的调用』，只能当普通错误处理。",
+      "data": {
+        "gateEntered": false,
+        "text": "echo:Validation failed for tool \"read\":\n  - path: must have required properties path\n\nReceived arguments:\n{}"
+      }
+    },
+    {
+      "id": "2.5a",
+      "question": "运行时给花名册加成员：已挂载的 spawn_agent 工具会不会更新",
+      "observed": "已挂载工具：枚举 {\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]} → {\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]}，描述含新成员 false → false；重新构造一次才含新成员：true",
+      "verdict": "GAP",
+      "conclusion": "不会。已挂载工具的描述与枚举都是**构造时快照** —— 模型永远发现不了运行时新增的成员。设计者只能 dispose 掉旧分身、重建一个，或者干脆一开始就把花名册给全。",
+      "data": {
+        "enumBefore": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]}",
+        "enumAfter": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]}",
+        "descBefore": false,
+        "descAfter": false
+      }
+    },
+    {
+      "id": "2.5b",
+      "question": "运行时从花名册删成员：已挂载工具的查询是否也跟着变",
+      "observed": "删掉成员 a 之后，用同一工具实例调用 member=\"a\" → 「花名册里没有成员「a」。可挑选的成员只有：a…」",
+      "verdict": "PARTIAL",
+      "conclusion": "查询走**活对象**、描述与『可挑选列表』走**快照**，三者不一致。实测的报错文本自相矛盾：既说『花名册里没有成员「a」』，又在同一个句子里把 a 列为可挑选成员。设计者与模型都会被这个错误信息误导。",
+      "data": {
+        "text": "花名册里没有成员「a」。可挑选的成员只有：a"
+      }
+    },
+    {
+      "id": "2.5c",
+      "question": "设计者能否绕开 spawn_agent 直接增删活的分身",
+      "observed": "直接 createAgent 加了 1 个（2 个存活）；直接 dispose() 移除后剩 1 个",
+      "verdict": "OK",
+      "conclusion": "能。设计者侧可以任意增删分身，不受花名册或工具约束 —— 花名册只约束 **agent 之间**的挑选。",
+      "data": {
+        "before": 2,
+        "after": 1
+      }
+    },
+    {
+      "id": "2.6a",
+      "question": "有没有库自带的『列出后代 / 子树』原语",
+      "observed": "host 只提供 list() 与 get(id)；没有 childrenOf / descendantsOf / subtreeOf",
+      "verdict": "GAP",
+      "conclusion": "要遍历子树必须自己沿 parentId 走（我在本脚本里写了 depthOf / descendantCount 两个辅助函数）。规格 §10 也承认这条要设计者自建。"
+    },
+    {
+      "id": "2.6b",
+      "question": "有没有库自带的拓扑导出",
+      "observed": "无。要自己 list() + parentId 拼树",
+      "verdict": "GAP",
+      "conclusion": "『设计集群』的核心产物（拓扑）没有导出能力。"
+    },
+    {
+      "id": "2.6c",
+      "question": "孤儿检测：dispose 中间层之后，后代是否仍被算作该子树的一部分",
+      "observed": "实测：dispose 掉一个中间层后，后代 parentId 指向已不在 host.list() 里的 id；self-built 的拓扑函数会把它当根",
+      "verdict": "GAP",
+      "conclusion": "没有级联回收，也没有孤儿标记。拓扑会静默变形，且没有 API 能发现『这个分身的父没了』除了自己 host.get(parentId) === undefined。"
+    }
+  ]
+}

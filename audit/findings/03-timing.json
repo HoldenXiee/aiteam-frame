@@ -1,0 +1,220 @@
+{
+  "section": "3.4 时序相关的边界与陷阱",
+  "findings": [
+    {
+      "id": "3.1a",
+      "question": "空闲时 send 返回后，lastResult 是本次还是上一次的",
+      "observed": "send 返回 {\"delivered\":\"ran\"}；返回瞬间 lastResult 仍是上一次（未更新）；waitForIdle 后 lastResult = \"echo:空闲投递\"",
+      "verdict": "PARTIAL",
+      "conclusion": "send 是**发出即返回**（delivered=\"ran\" 只表示『已开始跑』，不表示跑完了）。要拿本次结果必须先 waitForIdle —— 直接读 lastResult 会读到上一轮的陈旧值。",
+      "data": {
+        "delivered": "ran",
+        "staleOnReturn": true,
+        "callsAtReturn": 0
+      }
+    },
+    {
+      "id": "3.1b",
+      "question": "忙时连发两条 send 的返回值与最终 lastResult",
+      "observed": "两次返回 [{\"delivered\":\"queued\"},{\"delivered\":\"queued\"}]；isStreaming 最终=false；lastResult = \"echo:排队二\"",
+      "verdict": "OK",
+      "conclusion": "忙时都返回 queued，不抛错。lastResult 是**最后一次跑完**的结果（即队列里最后一条），不是各自的重放。",
+      "data": {
+        "r1": {
+          "delivered": "queued"
+        },
+        "r2": {
+          "delivered": "queued"
+        },
+        "last": "echo:排队二"
+      }
+    },
+    {
+      "id": "3.1c",
+      "question": "忙时排队 5 条，是否每条都真的跑了一轮（不丢、不合并）",
+      "observed": "返回 = [\"queued\",\"queued\",\"queued\",\"queued\",\"queued\"]；排队完成后新增请求数 = 5；done 事件 1 次；lastResult = \"echo:排队第 4\"",
+      "verdict": "OK",
+      "conclusion": "每条排队消息各自产生一轮（新增 5 次请求，期望 ≥5）。",
+      "data": {
+        "rs": [
+          "queued",
+          "queued",
+          "queued",
+          "queued",
+          "queued"
+        ],
+        "newCalls": 5,
+        "done": 1,
+        "last": "echo:排队第 4"
+      }
+    },
+    {
+      "id": "3.1d",
+      "question": "排队消息的投递顺序是否保持",
+      "observed": "假服务收到的顺序 = [\"第一\",\"第二\",\"第三\"]",
+      "verdict": "OK",
+      "conclusion": "FIFO，顺序保持。",
+      "data": {
+        "seen": [
+          "第一",
+          "第二",
+          "第三"
+        ]
+      }
+    },
+    {
+      "id": "3.1e",
+      "question": "send({mode:'interrupt'}) 是否真的改变方向",
+      "observed": "返回 {\"delivered\":\"queued\"}；从投递到静下来耗时 722ms（原任务设定 sleep 900ms，投递发生在 200ms 时）",
+      "verdict": "INFO",
+      "conclusion": "返回 queued。steer 是『在下一轮开始前改变方向』，不是硬中断 —— 本轮已经发出去的请求仍会跑完。要真正中断得用 abort()。",
+      "data": {
+        "result": {
+          "delivered": "queued"
+        },
+        "settleMs": 722,
+        "last": "echo:打断"
+      }
+    },
+    {
+      "id": "3.1f",
+      "question": "空闲状态下同步连发两次 send（启动窗口竞态）",
+      "observed": "返回 [\"ran\",\"queued\"]；收到的消息 = [\"[[sleep:\",\"打断\",\"窗口一\",\"窗口二\"]",
+      "verdict": "OK",
+      "conclusion": "第一条 ran、第二条按 running 计数判为 queued，两条都没丢（这是库里特意补的忙闲判据）。",
+      "data": {
+        "r1": "ran",
+        "r2": "queued"
+      }
+    },
+    {
+      "id": "3.2a",
+      "question": "忙时排队的 N 条消息，在库的模型里算「几轮」",
+      "observed": "模型实际生成次数（HTTP 请求）= 5；turn 事件 = 5；done 事件 = 1；host 的 round_completed = 1（合计 90 token）",
+      "verdict": "GAP",
+      "conclusion": "不对应：模型生成了 5 次，但库层只记了 1 次 done / 1 次 round_completed。原因：send 忙时走 followUp，排队消息由**同一个 session.prompt() 调用**内部消化，库只在那个调用结束时收一次结果。后果：靠 round_completed 计数的督导逻辑、按轮的用量归因、以及「一共聊了几轮」都会少算。",
+      "data": {
+        "httpCalls": 5,
+        "turn": 5,
+        "done": 1,
+        "rounds": 1,
+        "roundUsage": 90
+      }
+    },
+    {
+      "id": "3.2a",
+      "question": "并发吞吐曲线：N 个分身各跑 300ms，墙钟怎么变",
+      "observed": "N=1 → 315ms（315ms/个）；N=4 → 327ms（81.8ms/个）；N=8 → 319ms（39.9ms/个）；N=16 → 349ms（21.8ms/个）；N=32 → 373ms（11.7ms/个）；N=64 → 405ms（6.3ms/个）",
+      "verdict": "OK",
+      "conclusion": "真并发：每个分身各跑 300ms，N=64 时总墙钟仅 405ms（若串行应为 19200ms）。库内**没有任何并发闸门** —— 并发度完全由设计者与操作系统决定。",
+      "data": [
+        {
+          "n": 1,
+          "ms": 315,
+          "perAgent": 315,
+          "heapMB": 58.1
+        },
+        {
+          "n": 4,
+          "ms": 327,
+          "perAgent": 81.8,
+          "heapMB": 63.8
+        },
+        {
+          "n": 8,
+          "ms": 319,
+          "perAgent": 39.9,
+          "heapMB": 74.3
+        },
+        {
+          "n": 16,
+          "ms": 349,
+          "perAgent": 21.8,
+          "heapMB": 56
+        },
+        {
+          "n": 32,
+          "ms": 373,
+          "perAgent": 11.7,
+          "heapMB": 66.8
+        },
+        {
+          "n": 64,
+          "ms": 405,
+          "perAgent": 6.3,
+          "heapMB": 91.4
+        }
+      ]
+    },
+    {
+      "id": "3.2b",
+      "question": "一条 assistant 消息里的兄弟工具调用是否并发执行",
+      "observed": "1 个 spawn（内含 400ms 任务）= 1724ms；同一条消息里 3 个 spawn = 1776ms（若串行应约 5172ms）",
+      "verdict": "OK",
+      "conclusion": "并发。同一条消息里 3 个 spawn_agent 只用了 1776ms，接近 1 个的耗时。",
+      "data": {
+        "oneMs": 1724,
+        "threeMs": 1776,
+        "ratio": 1.03
+      }
+    },
+    {
+      "id": "3.3a",
+      "question": "多条排队消息跑完后，lastResult 代表哪一轮",
+      "observed": "最近几轮请求 = [\"[[sl\",\"乙\",\"丙\"]；lastResult = \"echo:丙\"",
+      "verdict": "PARTIAL",
+      "conclusion": "lastResult 只保留**最后一轮**。中间轮次的结果在库里查不到 —— 要拿到每一轮的结果，设计者必须自己监听 turn/done 事件或自己维护队列。",
+      "data": {
+        "recent": [
+          "[[sl",
+          "乙",
+          "丙"
+        ],
+        "last": "echo:丙"
+      }
+    },
+    {
+      "id": "3.3b",
+      "question": "agent.usage 在哪一刻更新（prompt 返回时 vs send 返回时）",
+      "observed": "await prompt 之后 = 18；send 返回瞬间 = 18；waitForIdle 之后 = 36",
+      "verdict": "PARTIAL",
+      "conclusion": "send 返回瞬间 usage 还没算上这一轮 —— 想实时读成本必须等 waitForIdle。",
+      "data": {
+        "afterAwait": 18,
+        "afterSend": 18,
+        "afterIdle": 36
+      }
+    },
+    {
+      "id": "3.3c",
+      "question": "对已 dispose 的分身 waitForIdle()",
+      "observed": "立即返回（0ms），不抛错",
+      "verdict": "OK",
+      "conclusion": "直接 resolve，符合决策 #21。但这也意味着**等待一个已回收的分身看不出差别** —— 设计者无法从 waitForIdle 判断目标是否还活着。",
+      "data": {
+        "ms": 0
+      }
+    },
+    {
+      "id": "3.3d",
+      "question": "abort 之后 status 是什么，还能不能再投递",
+      "observed": "abort 后 status=aborted；再 send 返回 {\"delivered\":\"ran\"}；最终 status=idle lastResult=\"echo:abort 之后再来一条\"",
+      "verdict": "INFO",
+      "conclusion": "status 变成 aborted，但**仍然可以继续 prompt/send**（aborted 不是终态）—— 后续一轮会把 status 改回 idle 或 error。设计者若把 aborted 当作『已废』会误判。",
+      "data": {
+        "afterAbort": "aborted",
+        "sendResult": {
+          "delivered": "ran"
+        },
+        "final": "idle"
+      }
+    },
+    {
+      "id": "3.3e",
+      "question": "等待原语有没有超时参数",
+      "observed": "ControlledAgent.waitForIdle(): Promise<void> —— 无参数；send(): 无等待语义；无 waitFor(timeout) / waitForNext()",
+      "verdict": "GAP",
+      "conclusion": "没有任何带超时的等待。规格把『任何无超时等待一律不允许』写进死锁规则，但 API 层没兑现（见 2.4b 的实测死锁）。"
+    }
+  ]
+}
