@@ -86,8 +86,8 @@ export interface MemberSpec {
   cwd?: string;
   /** 默认：宿主级共享。仅当需要独立 skills/settings 时才另开（另开会导致凭证需重复配置） */
   agentDir?: string;
-  role?: string;                          // → systemPromptOverride
-  /** 名字或 SKILL.md 路径；名字解析失败必须抛错，不得静默跳过 */
+  role?: string;                          // → appendSystemPrompt（决策 #25）
+  /** 名字或 SKILL.md 路径。Skill 对象必须指向真实存在的文件（决策 #27）；名字解析失败必须抛错 */
   skills?: (string | Skill)[];
   extensions?: (string | InlineExtension)[];
   /** 白名单。库会无条件并入 customTools / extension 工具名 */
@@ -298,10 +298,10 @@ send_message({ agentId: "a3", message: "把刚才的结论写成 md" })
 
 | # | 决策 | 理由 |
 |---|---|---|
-| 1 | 自己构造 `DefaultResourceLoader`，用 `skillsOverride` / `extensionFactories` / `additionalExtensionPaths` / `systemPromptOverride` / `agentsFilesOverride` **显式注入**，不依赖磁盘发现 | 非交互模式下项目级 `.pi/skills`、`.pi/extensions` 在 `defaultProjectTrust: "ask"` 时会被**静默忽略**。这是最大的坑 |
-| 2 | skill 名字解析：先建 `DefaultResourceLoader` + `reload()`，用 `getSkills()` 做名字→Skill 映射；找不到**抛错** | 同上教训。静默降级会让运行时行为不可预测 |
-| 3 | 模型解析直接用导出的 `resolveCliModel({ cliModel, modelRuntime })` | 已支持 `provider/id:thinking` 语法，不自造 |
-| 4 | `tools` 白名单**无条件**并入 customTools 与扩展注册的工具名（要剔除请用 `excludeTools`） | 文档要求工具名必须一起列进 `tools`，漏了就静默不生效 |
+| 1 | 自己构造 `DefaultResourceLoader`，用 `additionalSkillPaths` / `extensionFactories` / `additionalExtensionPaths` / `appendSystemPrompt` / `agentsFilesOverride` **显式注入**，不依赖磁盘发现 | 理由不是「绕开 trust」（探路证伪：SDK 路径下 `projectTrusted` 默认就是 `true`，项目资源正常加载），而是**确定性**：注入什么就是什么，不受磁盘布局与 cwd 影响 |
+| 2 | skill 名字解析：建 `DefaultResourceLoader` + `reload()`，用 `getSkills().skills` 做名字→Skill 映射；找不到**抛错** | 静默降级会让运行时行为不可预测。注意 0.99.1 的 `getSkills()` 返回 `{ skills, diagnostics }` 而**不是**数组 |
+| 3 | 模型解析直接用导出的 `resolveCliModel({ cliModel, modelRuntime })` | 已支持 `provider/id:thinking` 语法，不自造。**但它对不存在的模型只给 warning 不报错**，库必须自己判 warning（见决策 #28） |
+| 4 | 仅当 `spec` 提供了 `tools` 时才把 customTools 与扩展工具名并入白名单 | 探路实测：不传 `tools` 时 customTools 自动生效；传了 `tools` 就必须把 customTools 名列进去，否则它静默不生效 |
 | 5 | `RunResult.error` 显式暴露 | pi 的 `prompt()` 在**接受后**失败是通过事件流报告的，不 reject。不暴露的话调用方会误判成功 |
 | 6 | `RunResult.usage` = 本次运行；`ControlledAgent.usage` = 全生命周期累计 | 两者都叫 usage 极易误用，必须在类型注释与文档里写死语义 |
 | 7 | 事件归一化只对外暴露 7 个 + `session` 逃生口；载荷用 `AgentEventMap` 收窄 | 全透传等于没封装；`unknown` 会逼用户到处 cast |
@@ -309,19 +309,24 @@ send_message({ agentId: "a3", message: "把刚才的结论写成 md" })
 | 9 | `agentDir` 默认宿主级共享 | 每 agent 一个会让 `auth.json` 凭证需要重复配置 |
 | 10 | `onToolCall` 实现为动态生成的扩展工厂：`extensionFactories: [pi => pi.on("tool_call", …)]` | 这是 pi 拦截工具调用的标准做法，返回 `{ block: true, reason }` |
 | 11 | 工具是工厂式（接受 `ctx`），静态对象也支持 | 挑选型工具必须拿到调用者上下文；简单工具不必被强迫包一层 |
-| 12 | 工具工厂的 `ctx` **惰性求值**：`customTools` 在 `createAgentSession` 时就交给 SDK，而 `ControlledAgent` 那时尚未构造完成 | 工厂若在构造期被调用，`ctx.agent` 会是 undefined。用可变 holder，首次 `execute` 时解析 |
+| 12 | 工具工厂的 `ctx` **惰性求值**：`customTools` 在 `createAgentSession` 时就交给 SDK，而 `ControlledAgent` 那时尚未构造完成 | 探路实测：工具 `execute` 拿到的 `ctx` 是 SDK 的 `ExtensionToolContext`，**不含当前 agent 引用**。所以库必须自己用可变 holder 注入，这不是优化而是必需 |
 | 13 | `host.defaults` 是所有成员的基线，被成员定义覆盖 | 避免「默认值只管子 agent」这种需要读源码才能明白的语义 |
 | 14 | 深度由 `parent` 链推出，不作为参数传入 | 可被伪造的参数等于没有护栏 |
 | 15 | 分身在 `spawn_agent` 返回后**保留**在宿主中 | 阶段 2 的 `send_message(id)` / `wait_agents(ids)` / 聚合都需要 id 与存活实例。若此时丢弃，阶段 2 必须改工具契约 |
 | 16 | `spawn_agent` 的 `member` 用枚举约束 + 描述动态列出花名册 | 模型在类型层面就无法请求不存在的成员，也无从挑选如果它不知道有哪些成员 |
-| 17 | 依赖版本固定为 `@earendil-works/pi-coding-agent@0.84.2` | 本规格所有 API 均针对该版本核对；npm 上已有更新版本，升级是独立任务，需重新核对 API |
+| 17 | 依赖版本固定为 `@earendil-works/pi-coding-agent@0.99.1` | 本规格所有 API 与决策均针对该版本**实跑核对过**（7 个探针全绿）。已知与 0.84.2 文档的漂移见第 11 节 |
 | 18 | **`send()` 是必需的一层，不是便利方法** | pi 的 `prompt()` 在目标 streaming 且无 `streamingBehavior` 时**直接抛错**。团队交流里目标正忙是常态，不补这层，阶段 2 的消息功能一写就崩 |
-| 19 | `send()` 忙时用 `followUp`（mode `next`）/ `steer`（mode `interrupt`）排队，空闲时直接 `prompt` | 投递者不应被迫关心目标当前是否在忙。精确的 SDK 语义（如空闲时调 `steer` 会怎样）实现时需实跑核实 |
+| 19 | `send()` 忙时用 `followUp`（mode `next`）/ `steer`（mode `interrupt`）排队，空闲时直接 `prompt` | 投递者不应被迫关心目标当前是否在忙。探路已核实空闲 `steer` 的危害，见决策 #26 |
 | 20 | `send_message` 只能投递给**自己的后代分身** | 防跨分支干扰；同时因为后代关系是树，禁止反向投递就免费消灭了发送环 |
 | 21 | `waitForIdle()` 包裹 `session.agent.waitForIdle()`，且已 `dispose` 时直接 resolve | 阶段 2 不该为了等待穿到逃生口；已回收的 agent 永远“已静下来” |
 | 22 | **宿主只提供机制，不固化策略**：发射 `agent_created` / `agent_disposed` / `round_completed`，但**不内置**轮次上限或督导逻辑 | B 路（agent 自己组织循环）下设计者看不到循环体，**不给观測就是瞎的**。但轮次督导只是众多监控需求中的一种，写进 L1 既伤灵活性又多写代码。开箱即用的版本做在它之上 |
 | 23 | `send()` 不带回复通道，用 `agent.lastResult` 配合 | 带回复的 `send` 就是同步 `ask`，会把死锁引进来。督导等场景只需「投递 → `waitForIdle()` → 读 `lastResult`」 |
 | 24 | 不做轮次硬上限 | 「轮次上限 + 督导 agent」是一种可用方案，不是唯一方案。硬上限会阻止合法的长任务；统一由 `budgetTokens` 兑底，需要更早千预时用决策 #22 的事件 |
+| 25 | **`role` 用 `appendSystemPrompt` 实现，不用 `systemPrompt` 也不用 `systemPromptOverride`** | 探路实测：`systemPromptOverride(base)` 的 base 是 `systemPrompt` **选项的值**，不是 pi 内置默认提示词；`systemPrompt` 是整体替换，会把 `<tools>` 段一起换掉。`appendSystemPrompt` 保留默认行为，角色说明追加在 `<tools>` 之后、`<available_skills>` 之前 |
+| 26 | `send()` 必须自己分派状态：`isStreaming` → `steer`/`followUp`，空闲 → `prompt` | 探路实测：**空闲时 `steer()` 不抛错但静默丢弃消息**（请求数不变）；忙时 `prompt()` 抛错并要求 `streamingBehavior`。若 `send()` 直映到 `steer()`，空闲时的消息会被无声吞掉 |
+| 27 | `skills` 里的 `Skill` 对象必须指向**真实存在**的文件 | 探路实测：虚拟 `filePath` 会在 `getDefaultSourceInfoForPath` 里 `ENOENT` 崩掉。按名字解析也必须走磁盘上的真技能 |
+| 28 | `resolveCliModel` 返回的 `warning` 必须自己处理，不得忽略 | 探路实测：不存在的模型返回 `model` **仍然有值** + `warning: 'Model "nope" not found ... Using custom model id'`。直接信任 `model` 会把拼写错误变成静默的奇怪行为 |
+| 29 | 依赖必须**显式声明**：至少 `@earendil-works/pi-coding-agent` + `typebox`；若要用 `calculateCost` / `Usage` 则还需 `@earendil-works/pi-ai` | 探路实测：三者中只有 pi-coding-agent 是顶层依赖，`typebox` 与 `pi-ai` 都只是它的嵌套依赖，**从项目根不可解析**。不加 `typebox` 连 `defineTool` 都写不出来 |
 
 ## 6. 目录结构
 
@@ -343,15 +348,21 @@ D:/space/aiteam/test/
       spawn-agent.ts      # 挑选成员 + 派活
       send-message.ts     # 给已有分身追加消息
   test/
-    fake-provider.ts      # 假 provider 扩展，零成本确定性
+    faux-server.ts        # 本机 HTTP 假 LLM（零成本）
+    faux-models.ts        # 写 models.json 并造 ModelRuntime
     *.test.ts
   demo/
     demo.ts               # 真模型端到端
+  probe/                  # 探路代码（一次性），可作 test/ 的起点
 ```
 
 ## 7. 测试策略
 
-**零成本确定性测试**：`test/fake-provider.ts` 是一个扩展，用 `pi.registerProvider("fake", { …, streamSimple })` 注册一个假 provider，`streamSimple` 按脚本吐固定的 text / toolCall 事件。所有断言跑在 `model: "fake/echo"` 上，不产生真实 API 调用。
+**零成本确定性测试**（探路已验证可行）：在独立 agentDir 写一份 `models.json`，声明一个 `api: "openai-completions"` 的假 provider，指向一个本机 HTTP 服务；该服务按脚本吐 OpenAI 风格的 SSE chunk。所有断言跑在 `model: "faux/echo"` 上，**不产生任何真实 API 调用**。
+
+可用探针 `probe/` 里的实现作起点（`_support.ts` 的假服务 + `_sdk.ts` 的 `models.json` 写法）—— 探路阶段 7 个探针共约 60 条断言，全程零花费。
+
+脚本约定（写在最后一条 user 消息里）：`[[tool:NAME]]` 发起工具调用、`[[sleep:MS]]` 制造「正忙」窗口、`[[fail]]` 走错误路径。
 
 - 运行器用 Node 内置 `node --test`（Node 24 原生跑 .ts）。**不引入测试框架**。
 - 代码只用可擦除的 TS 语法（不用 enum / namespace / 装饰器），import 写显式 `.ts` 后缀。
@@ -395,8 +406,8 @@ D:/space/aiteam/test/
 
 | 风险 | 处理 |
 |---|---|
-| pi SDK 迭代快，API 可能变动 | 版本固定（决策 #17）+ 升级需重新核对 API |
-| 假 provider 的 `streamSimple` 实现细节多（事件序列、toolCall JSON 累积） | 本阶段最大实现工作量；先做最小 text-only 版本，toolCall 支持按需加 |
+| pi SDK 迭代快，API 可能变动 | 版本固定（决策 #17）为 **0.99.1** 并已实跑核对。已知与 0.84.2 文档的漂移见第 11 节 |
+| 假 provider 实现有细节坑 | **已解决**。探路选定「本地 HTTP + models.json」而非 `streamSimple` 扩展，代码少且走真实的 openai-completions 客户端路径，已跑通 |
 | 同进程多 agent 的并发与资源上限（进程/cpu/网络） | 阶段 2 的并发闸门负责。阶段 1 的 `spawn_agent` 是同步的，但 pi 会并发执行同一消息里的兄弟工具调用 → 实际可能出现并发分身，由 `maxAgents` 兜住 |
 | 分身保留会累积内存 | `maxAgents` 封顶 + `host.dispose()` 回收 |
 | 成本 | 阶段 1 只用假 provider 测试；`budgetTokens` 护栏已就位，阶段 2 落地为硬闸门 |
@@ -468,3 +479,42 @@ host.on("round_completed", ({ agent }) => {
 - 用例 5 用假 provider 脚本化**多轮**流程（验证主持人能拿到成员观点并转发，且分身能复用）
 - 用例 6 用假 provider 脚本化（验证子树嵌套、跨团队转发、护栏不误触发）
 - `demo/demo.ts` 用真模型跑**至少一个多轮形态**（建议 5，最便宜）；只跑单轮等于灵活性没被验证
+
+## 11. 探路结论（已实跑核对）
+
+阶段 1 开工前跑了一轮探路，7 个探针全绿（`probe/`，见 `probe/README.md`），**零 API 花费**。以下是已确认的事实，实现时不必重新怀疑。
+
+### 11.1 可行性已成立
+
+| 事项 | 实证结果 |
+|---|---|
+| 零成本测试 | 本机 HTTP 假 provider + `models.json` 跑通完整 prompt，usage 可读 |
+| 多 agent 同进程 | 3 个 session 建了 **16ms**；共享一个 `ModelRuntime` 与 agentDir 无冲突；上下文与 cwd 互不串 |
+| 真并发 | 3 个 `sleep 400ms` 的任务并发总耗时 **545ms** |
+| 忙时 `prompt()` | 抛错：`Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.` |
+| 忙时 `steer()` / `followUp()` | 可排队，不抛错；每条队列消息各自产生一轮 |
+| **空闲 `steer()`** | **不抛错，但静默丢弃消息** —— 决策 #26 的依据 |
+| `tool_call` 审批门 | 扩展返回 `{ block: true }` 时工具确实未执行 |
+| 工具 `execute` 签名 | `(toolCallId, params, signal, onUpdate, ctx)`，`ctx` 是 `ExtensionToolContext`，**不含当前 agent 引用** |
+| `resolveCliModel` | 存在，`faux/echo:high` 正常解出模型 + 思考档 |
+| 事件覆盖 | `text` / `tool_start` / `tool_end` / `turn` / `done` 都有对应原始事件（`thinking` 需模型支持 reasoning） |
+
+### 11.2 与 0.84.2 文档的漂移（0.99.1 实际）
+
+- `getModel`（pi-ai）与 `openAICompletionsApi` **已不存在**
+- `loader.getSkills()` 返回 `{ skills, diagnostics }`，不是数组
+- 多出文档没有的事件：`agent_settled`、`message_update.toolcall_start/delta/end`
+- `systemPromptOverride(base)` 的 base 是 `systemPrompt` 选项的值，不是内置默认提示词
+- `pi-ai` / `pi-agent-core` / `typebox` 是**嵌套依赖，从项目根不可解析**
+
+### 11.3 探路解决掉的风险
+
+- ~~「非交互模式下项目资源被静默跳过」~~ —— **证伪**，`projectTrusted` 默认就是 `true`
+- ~~「假 provider 实现细节多」~~ —— 改用本机 HTTP 后代码量很小，且走的是真实客户端路径
+- ~~「空闲 `steer` 行为未知」~~ —— 已定性（静默丢消息）
+
+### 11.4 探路**没有**覆盖的（属实现阶段）
+
+- `spawn_agent` 的端到端（需真实 L1 代码）
+- 真实模型下多轮 `steer` / `followUp` 的交互与收敛行为
+- `session_before_*` 等低频事件的行为
