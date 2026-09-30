@@ -25,6 +25,22 @@ test("忙时 send 返回 queued 且不抛错", async () => {
   await agent.waitForIdle();
 });
 
+test("同步连发两次 send：第二次也要真的跑，不许静默丢弃", async () => {
+  const agent = await createAgent({ model: FAUX_MODEL_REF });
+  const before = faux.calls.length;
+  // 不 sleep：这会落在「已发起但 SDK 还没置 isStreaming」的窗口里
+  const r1 = await agent.send("第一条");
+  const r2 = await agent.send("第二条");
+  assert.equal(r1.delivered, "ran");
+  assert.equal(r2.delivered, "queued", "第二次投递必须被当作忙时排队");
+
+  await agent.waitForIdle();
+  const sent = faux.calls.slice(before).map((c) => c.lastUser).join(" | ");
+  assert.match(sent, /第一条/, sent);
+  assert.match(sent, /第二条/, sent);
+  assert.match(agent.lastResult!.text, /echo:第二条/);
+});
+
 test("忙时 prompt() 抛错（锁住 SDK 行为）", async () => {
   const agent = await createAgent({ model: FAUX_MODEL_REF });
   const slow = agent.prompt("[[sleep:600]] 慢");

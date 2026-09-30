@@ -225,10 +225,14 @@ export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}
   /**
    * 投递一条消息。目标忙时排队，**永不抛错**（决策 #18/#19/#26）。
    * 空闲时直接跑，但**不 await** —— await 了 send 就变成同步 ask，会把死锁引进来（决策 #23）。
+   *
+   * 忙闲判据必须同时看 `running`：SDK 的 `isStreaming` 要等 `session.prompt()` 内部几个 await
+   * 之后才翻真，而 `send()` 是先发起再返回 —— 只看 isStreaming 的话，启动窗口里的第二次投递
+   * 会再调一次 `session.prompt()`，被 SDK 以 already-processing 拒掉，消息没跑却谎报 "ran"。
    */
   async function send(text: string, opts?: SendOpts): Promise<SendResult> {
     assertAlive();
-    if (session.isStreaming) {
+    if (running > 0 || session.isStreaming) {
       if (opts?.mode === "interrupt") await session.steer(text);
       else await session.followUp(text);
       return { delivered: "queued" };
