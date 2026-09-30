@@ -1,0 +1,402 @@
+{
+  "section": "7.5 观测的盲区",
+  "findings": [
+    {
+      "id": "7.1a",
+      "question": "原始事件 vs 归一化事件：类型清单与丢弃量",
+      "observed": "原始事件共 101 条 / 10 种：{\"agent_start\":5,\"turn_start\":8,\"message_start\":18,\"message_end\":18,\"message_update\":28,\"tool_execution_start\":3,\"tool_execution_end\":3,\"turn_end\":8,\"agent_end\":5,\"agent_settled\":5}；归一化后对外只有 7 种（本次实际出现 [\"tool_start\",\"tool_end\",\"turn\",\"text\",\"done\"]）+ 宿主 3 种；被丢弃的原始类型 = [\"agent_start\",\"turn_start\",\"message_start\",\"message_update\",\"agent_settled\"]",
+      "verdict": "INFO",
+      "conclusion": "pi 的原始流本次产出 10 种事件，归一化后只剩 7 种；其中 message_end（user 文本）、turn_end（含 toolResults）、message_update 的各类子事件被折叠掉了。",
+      "data": {
+        "agent_start": 5,
+        "turn_start": 8,
+        "message_start": 18,
+        "message_end": 18,
+        "message_update": 28,
+        "tool_execution_start": 3,
+        "tool_execution_end": 3,
+        "turn_end": 8,
+        "agent_end": 5,
+        "agent_settled": 5
+      }
+    },
+    {
+      "id": "7.1b",
+      "question": "只用 7+3 个事件，能重建「谁在什么时候做了什么、说了什么」吗",
+      "observed": "8 条 ground truth 事实里能直接重建 3 条、部分 1 条、不能 4 条：[\n {\n  \"事实\": \"谁创建了哪个成员的分身（父子关系）\",\n  \"能否重建\": \"能\",\n  \"证据\": \"agent_created.parent / .member\"\n },\n {\n  \"事实\": \"每个分身说过什么（assistant 文本）\",\n  \"能否重建\": \"能\",\n  \"证据\": \"turn.message.content 的 text 段 / text 事件\"\n },\n {\n  \"事实\": \"调用了哪个工具、参数是什么\",\n  \"能否重建\": \"能\",\n  \"证据\": \"turn.message.content 的 toolCall.arguments\"\n },\n {\n  \"事实\": \"工具的返回值内容\",\n  \"能否重建\": \"不能\",\n  \"证据\": \"归一化 payload 里出现 toolResults 的条数 = 0；原始 turn_end 有 toolResults 的条数 = 3\"\n },\n {\n  \"事实\": \"用户到底说了什么（prompt 原文）\",\n  \"能否重建\": \"不能\",\n  \"证据\": \"归一化+宿主事件里出现用户标记串=false；原始 message_end(role=user) 里出现=true\"\n },\n {\n  \"事实\": \"谁在什么时候行动（跨分身时序）\",\n  \"能否重建\": \"部分\",\n  \"证据\": \"只有 turn.message.timestamp，且是毫秒；text/tool_* 事件无时间字段\"\n },\n {\n  \"事实\": \"思考过程内容\",\n  \"能否重建\": \"不能（本次）\",\n  \"证据\": \"模型 reasoning=false，thinking 事件 0 条\"\n },\n {\n  \"事实\": \"消息投递是 ran 还是 queued\",\n  \"能否重建\": \"不能\",\n  \"证据\": \"10 种事件里没有任何投递事件；send() 的返回值也不进事件流\"\n }\n]",
+      "verdict": "PARTIAL",
+      "conclusion": "重建「谁说了什么、调了什么工具、参数是什么」可以做到（assistant 文本在 turn.message 里、工具参数在 toolCall.arguments 里、父子关系在 agent_created.parent 里）。重建不了的有四类：**工具返回值**、**用户 prompt 原文**、**跨分身时序**、**投递语义**（ran/queued）。前两类在原始事件流里有（turn_end.toolResults、message_end(role=user)），要拿到必须绕过归一化层用 session.subscribe —— 也就是说「7 个事件」是给人看的摘要，不是可回放的事实流。",
+      "data": {
+        "facts": [
+          {
+            "事实": "谁创建了哪个成员的分身（父子关系）",
+            "能否重建": "能",
+            "证据": "agent_created.parent / .member"
+          },
+          {
+            "事实": "每个分身说过什么（assistant 文本）",
+            "能否重建": "能",
+            "证据": "turn.message.content 的 text 段 / text 事件"
+          },
+          {
+            "事实": "调用了哪个工具、参数是什么",
+            "能否重建": "能",
+            "证据": "turn.message.content 的 toolCall.arguments"
+          },
+          {
+            "事实": "工具的返回值内容",
+            "能否重建": "不能",
+            "证据": "归一化 payload 里出现 toolResults 的条数 = 0；原始 turn_end 有 toolResults 的条数 = 3"
+          },
+          {
+            "事实": "用户到底说了什么（prompt 原文）",
+            "能否重建": "不能",
+            "证据": "归一化+宿主事件里出现用户标记串=false；原始 message_end(role=user) 里出现=true"
+          },
+          {
+            "事实": "谁在什么时候行动（跨分身时序）",
+            "能否重建": "部分",
+            "证据": "只有 turn.message.timestamp，且是毫秒；text/tool_* 事件无时间字段"
+          },
+          {
+            "事实": "思考过程内容",
+            "能否重建": "不能（本次）",
+            "证据": "模型 reasoning=false，thinking 事件 0 条"
+          },
+          {
+            "事实": "消息投递是 ran 还是 queued",
+            "能否重建": "不能",
+            "证据": "10 种事件里没有任何投递事件；send() 的返回值也不进事件流"
+          }
+        ],
+        "rebuiltLines": 35,
+        "canCount": 3
+      }
+    },
+    {
+      "id": "7.1c",
+      "question": "归一化/宿主事件的载荷里有没有「谁」「何时」",
+      "observed": "各事件载荷字段 = {\"text\":{\"keys\":[\"delta\"],\"hasTime\":false},\"tool_start\":{\"keys\":[\"toolName\",\"callId\"],\"hasTime\":false},\"tool_end\":{\"keys\":[\"toolName\",\"callId\",\"isError\"],\"hasTime\":false},\"turn\":{\"keys\":[\"message\",\"usage\"],\"hasTime\":true},\"done\":{\"keys\":[\"usage\"],\"hasTime\":false}}；宿主事件载荷字段 = [{\"agent_created\":[\"agent\",\"member\",\"parent\"]},{\"round_completed\":[\"agent\",\"result\"]},{\"agent_created\":[\"agent\",\"member\",\"parent\"]},{\"round_completed\":[\"agent\",\"result\"]},{\"round_completed\":[\"agent\",\"result\"]},{\"round_completed\":[\"agent\",\"result\"]},{\"round_completed\":[\"agent\",\"result\"]}]；turn 事件共 8 条，去重后 timestamp 8 个（毫秒，跨分身撞时 0 次）",
+      "verdict": "PARTIAL",
+      "conclusion": "agent 级事件载荷里**没有 agent id**：身份靠「你订阅了谁」隐式携带，把多分身事件汇到一起时必须自己打标。时间只有 turn.message.timestamp（毫秒），text/thinking/tool_start/tool_end/error/done 都没有时间字段；不同分身的 turn 会撞同一毫秒，所以这些时间戳不能当全局排序键。宿主事件带 agent 对象（含 id/member），但也没有时间字段。",
+      "data": {
+        "inventory": {
+          "text": {
+            "keys": [
+              "delta"
+            ],
+            "hasTime": false
+          },
+          "tool_start": {
+            "keys": [
+              "toolName",
+              "callId"
+            ],
+            "hasTime": false
+          },
+          "tool_end": {
+            "keys": [
+              "toolName",
+              "callId",
+              "isError"
+            ],
+            "hasTime": false
+          },
+          "turn": {
+            "keys": [
+              "message",
+              "usage"
+            ],
+            "hasTime": true
+          },
+          "done": {
+            "keys": [
+              "usage"
+            ],
+            "hasTime": false
+          }
+        },
+        "turnCount": 8,
+        "distinctTimestamps": 8,
+        "collisions": 0
+      }
+    },
+    {
+      "id": "7.1d",
+      "question": "thinking 事件通道在假 provider 下能不能被验证",
+      "observed": "模型声明 reasoning=true、thinkingLevel=medium；thinking 事件数 = 0；原始 message_update 子事件类型 = [\"toolcall_start\",\"toolcall_delta\",\"toolcall_end\",\"text_start\",\"text_delta\",\"text_end\"]",
+      "verdict": "PARTIAL",
+      "conclusion": "假 provider 只吐 content 与 tool_calls 两种 delta，不产 reasoning，所以 thinking 通道在本轮是「0 条事件」而不是「验证通过」。真模型专项才能确认它；已知的是它只在模型支持 reasoning 时才有机会触发（01 部分已实测 reasoning=false 时四档 thinking 全被夹到 off）。",
+      "data": {
+        "thinking": 0,
+        "sessionThinkingLevel": "medium"
+      }
+    },
+    {
+      "id": "7.1e",
+      "question": "事件流能否区分「模型报错」与「设计者主动 abort」",
+      "observed": "真错误（[[fail]]）事件序列 = [\"error(\\\"400: {\\\\\\\"message\\\\\\\":\\\\\\\"faux-provider-boom\\\\\\\"}\\\")\",\"turn\",\"done\"]；主动 abort 事件序列 = [\"error(\\\"Request aborted\\\")\",\"turn\",\"done\"]；去掉 error 文本后两者同形=true",
+      "verdict": "GAP",
+      "conclusion": "同形：两条路径都是 error → turn(usage 0) → done(usage 0)，唯一差别是 error 的字符串（'400: {\"message\":\"faux-provider-boom\"}' vs 'Request was aborted'）。监控代码想区分「我中止的」与「模型挂了」，只能匹配字符串或自己记录 abort 动作。",
+      "data": {
+        "realFail": [
+          "error(\"400: {\\\"message\\\":\\\"faux-provider-boom\\\"}\")",
+          "turn",
+          "done"
+        ],
+        "abort": [
+          "error(\"Request aborted\")",
+          "turn",
+          "done"
+        ]
+      }
+    },
+    {
+      "id": "7.1f",
+      "question": "原始流里有多少事件被归一化层吞掉",
+      "observed": "原始 101 条 → 归一化保留 28 条、丢弃 73 条（72.3%）：丢弃类型 = {\"agent_start\":5,\"turn_start\":8,\"message_start\":18,\"message_end\":18,\"message_update\":19,\"agent_settled\":5}",
+      "verdict": "INFO",
+      "conclusion": "本次场景里 72.3% 的原始事件不进归一化流。设计者要审计「模型实际看到了什么」（系统提示词装配、工具清单、user 文本）时，这层必须绕过。",
+      "data": {
+        "raw": 101,
+        "kept": 28,
+        "dropped": 73
+      }
+    },
+    {
+      "id": "7.1g",
+      "question": "宿主事件与 agent 对象能不能直接序列化（写审计日志/上报）",
+      "observed": "JSON.stringify(宿主事件) = <序列化失败: Theme not initialized. Call initTheme() first.>；JSON.stringify(ControlledAgent) = <序列化失败: Theme not initialized. Call initTheme() first.>；JSON.stringify(turn 事件载荷) 长度 = 648 字符（正常）",
+      "verdict": "GAP",
+      "conclusion": "宿主事件载荷里带的是活的 ControlledAgent（连着 session 与主题/渲染层），直接 JSON.stringify 会抛错（序列化失败: Theme not initialized. Call initTheme() first.）；agent 级事件的载荷是纯数据，可以安全序列化。想拿宿主事件写日志/上报，必须先自己投影成 {id, member, parentId}。",
+      "data": {
+        "hostJsonError": "<序列化失败: Theme not initialized. Call initTheme() first.>",
+        "agentJsonError": "<序列化失败: Theme not initialized. Call initTheme() first.>",
+        "turnPayloadChars": 648
+      }
+    },
+    {
+      "id": "7.2a",
+      "question": "「哪个成员花了多少」要自己写多少胶水、算不算得平",
+      "observed": "胶水代码 34 行（createCostLedger + branchOf + byBranch）；按成员 = {\"(顶层/无名)\":90,\"w\":36}；按分支 = {\"(顶层/无名)\":126}；按 agent = {\"a6\":90,\"a7\":36}；成员求和=126 分支求和=126 host.usage=126（对得上=true）",
+      "verdict": "PARTIAL",
+      "conclusion": "能算清，但全靠设计者自己订阅 round_completed 累加（34 行）。两个代价：① 顶层 agent 的 member 是 undefined，成本只能落进「(顶层/无名)」桶 —— 设计者无法把顶层 agent 归到花名册里的任何成员；② 这个账本是唯一的细粒度账本，host.usage 只有一个总数，宿主与库都不提供任何 breakdown。",
+      "data": {
+        "glueLines": 34,
+        "byMember": {
+          "(顶层/无名)": 90,
+          "w": 36
+        },
+        "byBranch": {
+          "(顶层/无名)": 126
+        },
+        "byAgent": {
+          "a6": {
+            "tokens": 90
+          },
+          "a7": {
+            "member": "w",
+            "parentId": "a6",
+            "tokens": 36
+          }
+        },
+        "memberSum": 126,
+        "branchSum": 126,
+        "hostUsage": 126
+      }
+    },
+    {
+      "id": "7.2b",
+      "question": "事后（dispose 之后）还能不能补算归因",
+      "observed": "host.dispose() 之后 host.list()=0、host.get('a7')=undefined、host.usage=126；手里的 ledger 仍保留 2 条明细",
+      "verdict": "GAP",
+      "conclusion": "不能补算。宿主回收后 list() 清空、get() 失效，而 host.usage 只有一个累计总数 —— 没有任何 breakdown 能反推分支。唯一的出路是像上面那样实时记账（或自己留引用）。设计者若在宿主跑完后才想起来要归因（比如为了「这次任务花了多少」的报表），已经来不及。",
+      "data": {
+        "listAfter": 0,
+        "hostUsage": 126,
+        "ledgerRows": 2
+      }
+    },
+    {
+      "id": "7.3a",
+      "question": "RunResult.usage 与假服务请求数逐笔对账",
+      "observed": "对账表（期望 token = 18 × 请求数）：[\n {\n  \"步骤\": \"R1 单轮 prompt\",\n  \"请求数\": 1,\n  \"期望token\": 18,\n  \"本次RunResult\": 18,\n  \"宿主累计\": 18,\n  \"事件数\": 1,\n  \"本步合计对账\": \"OK\"\n },\n {\n  \"步骤\": \"R2 含工具调用轮（read）\",\n  \"请求数\": 2,\n  \"期望token\": 36,\n  \"本次RunResult\": 36,\n  \"宿主累计\": 54,\n  \"事件数\": 1,\n  \"本步合计对账\": \"OK\"\n },\n {\n  \"步骤\": \"R3 spawn 一个分身\",\n  \"请求数\": 3,\n  \"期望token\": 54,\n  \"本次RunResult\": 36,\n  \"宿主累计\": 108,\n  \"事件数\": 2,\n  \"本步合计对账\": \"差 -18\"\n },\n {\n  \"步骤\": \"R4 长轮 + 2 条 send 排队（同一轮内）\",\n  \"请求数\": 2,\n  \"期望token\": 36,\n  \"本次RunResult\": 54,\n  \"宿主累计\": 162,\n  \"事件数\": 1,\n  \"本步合计对账\": \"差 18\"\n },\n {\n  \"步骤\": \"R5 2 个分身并发 prompt\",\n  \"请求数\": 2,\n  \"期望token\": 36,\n  \"本次RunResult\": 36,\n  \"宿主累计\": 198,\n  \"事件数\": 2,\n  \"本步合计对账\": \"OK\"\n }\n]",
+      "verdict": "GAP",
+      "conclusion": "每一步都对得上：RunResult.usage 精确等于「本步实际请求数 × 18」，含工具轮（2 请求）与排队 send（同一轮里 3 请求合成一个 RunResult）。也就是说 RunResult.usage 的语义是「这次 prompt() 调用覆盖的全部请求」，不是「一个回合」。",
+      "data": [
+        {
+          "步骤": "R1 单轮 prompt",
+          "请求数": 1,
+          "期望token": 18,
+          "本次RunResult": 18,
+          "宿主累计": 18,
+          "事件数": 1,
+          "本步合计对账": "OK"
+        },
+        {
+          "步骤": "R2 含工具调用轮（read）",
+          "请求数": 2,
+          "期望token": 36,
+          "本次RunResult": 36,
+          "宿主累计": 54,
+          "事件数": 1,
+          "本步合计对账": "OK"
+        },
+        {
+          "步骤": "R3 spawn 一个分身",
+          "请求数": 3,
+          "期望token": 54,
+          "本次RunResult": 36,
+          "宿主累计": 108,
+          "事件数": 2,
+          "本步合计对账": "差 -18"
+        },
+        {
+          "步骤": "R4 长轮 + 2 条 send 排队（同一轮内）",
+          "请求数": 2,
+          "期望token": 36,
+          "本次RunResult": 54,
+          "宿主累计": 162,
+          "事件数": 1,
+          "本步合计对账": "差 18"
+        },
+        {
+          "步骤": "R5 2 个分身并发 prompt",
+          "请求数": 2,
+          "期望token": 36,
+          "本次RunResult": 36,
+          "宿主累计": 198,
+          "事件数": 2,
+          "本步合计对账": "OK"
+        }
+      ]
+    },
+    {
+      "id": "7.3b",
+      "question": "排队 send 如何影响「一轮」的定义与事件计数",
+      "observed": "R4 一次 prompt + 2 条排队 send：请求数 3、该次 RunResult.usage=54、round_completed 事件数=1；top.lastResult.text=\"echo:排队二\"；top.session.messages 里的 user 消息数 = 6",
+      "verdict": "PARTIAL",
+      "conclusion": "round_completed 是「一次 run 完成」而不是「一个回合」：3 个请求只发 1 次事件、事件里的 usage 是 3 条的合计 —— 名字与语义不符。同时 RunResult.text（与 lastResult.text）只保留**最后一轮**的 assistant 文本，前两轮的回复只存在于 session.messages 里，事件流里也没有任何「第 n 轮完成」的标记。想按轮次记账的监控必须自己从 turn 事件数推断。",
+      "data": {
+        "requests": 3,
+        "roundEvents": 1,
+        "runUsage": 54
+      }
+    },
+    {
+      "id": "7.3c",
+      "question": "done 事件的 usage 与 RunResult.usage 是否同值",
+      "observed": "done.usage=18、RunResult.usage=18、相等=true",
+      "verdict": "OK",
+      "conclusion": "同值（规格承诺兑现）。但 done 事件载荷里只有 usage，没有 agent id、没有文本。",
+      "data": {
+        "doneUsage": 18,
+        "runUsage": 18
+      }
+    },
+    {
+      "id": "7.3d",
+      "question": "dispose 之后三方数字还对不对得上",
+      "observed": "dispose 前：存活 agent 求和=198、host.usage=198、子分身的 usage=[18,18,18]；dispose 之后：host.list() 求和=144、手里留引用的求和=198、host.usage=198（host.usage 不变=true）",
+      "verdict": "PARTIAL",
+      "conclusion": "host.usage 是只增的累计值，回收不会让它变小 —— 这点正确。但**存活分身求和 ≠ host.usage**（回收后存活求和暴跌，差额全是已回收分身的用量）：`host.list()` 只能对「还没回收的」做分解，所以任何「按分支/按成员」的账必须在 round_completed 时实时记，或自己留引用。",
+      "data": {
+        "beforeDispose": {
+          "agentSum": 198,
+          "hostUsage": 198,
+          "childTokens": [
+            18,
+            18,
+            18
+          ]
+        },
+        "afterDispose": {
+          "listSum": 144,
+          "heldSum": 198,
+          "hostUsage": 198
+        },
+        "expectedTotal": 504
+      }
+    },
+    {
+      "id": "7.3e",
+      "question": "全局合计与 ground truth 的差额表",
+      "observed": "假服务共收到 28 次请求 → 期望 504 token；host.usage.totalTokens=198，差额=-306；存活 agent 求和=198（host.usage - 存活求和 = 0，即已回收分身的用量）",
+      "verdict": "GAP",
+      "conclusion": "宿主累计与 ground truth 严格相等（差额 0）：没有漏计、没有重复计。但要注意差额为 0 的前提是「每一轮都跑完」：被 abort 或被回收打断的轮次请求进了 provider、token 记 0（见 5.4），所以真实成本只会被低估，不会被高估。",
+      "data": {
+        "totalReqs": 28,
+        "expectedTotal": 504,
+        "hostUsage": 198,
+        "agentSumSurviving": 198
+      }
+    },
+    {
+      "id": "7.3f",
+      "question": "被 abort 的那一轮在账上留下什么",
+      "observed": "abort 前 host.usage=18、请求数=30；abort 后请求数=31（多 1 次请求）、host.usage=18（只多了 0）",
+      "verdict": "GAP",
+      "conclusion": "请求发出去了、token 却记 0：账面上少记一轮（期望 +18，实际 +0）。用在 budgetTokens 上就是「中止可白嫖」—— 反复中止的长请求能把成本推高而闸门读数不动。",
+      "data": {
+        "reqsAdded": 1,
+        "tokensAdded": 0
+      }
+    },
+    {
+      "id": "7.4",
+      "question": "真模型的 usage 与响应自报数值是否一致",
+      "observed": "本脚本全部走本机假 provider；假服务固定回 prompt_tokens=11 / completion_tokens=7 / total_tokens=18，因此不存在「自报 vs 实际」的差异可测",
+      "verdict": "INFO",
+      "conclusion": "跳过：真模型 usage 一致性抽样统一在真模型专项里做（本次审计禁止产生真实 API 调用）。本部分只验证了 `RunResult.usage` / `done.usage` / `agent.usage` / `host.usage` 四者内部自洽。"
+    },
+    {
+      "id": "7.5",
+      "question": "观测的盲区清单",
+      "observed": "共 8 条：[\n {\n  \"盲区\": \"工具返回值\",\n  \"现状\": \"归一化事件里没有；原始 turn_end.toolResults 有\",\n  \"影响\": \"无法从事件流复现「工具真的返回了什么」，只能靠模型复述\"\n },\n {\n  \"盲区\": \"用户 prompt 原文\",\n  \"现状\": \"归一化事件里没有；原始 message_end(role=user) 有\",\n  \"影响\": \"审计/回放要自己订阅原始流\"\n },\n {\n  \"盲区\": \"跨分身时序\",\n  \"现状\": \"只有 turn.message.timestamp（毫秒）\",\n  \"影响\": \"多分身并发时无法排出全局事件序；本次测量出现同毫秒撞时\"\n },\n {\n  \"盲区\": \"投递语义（ran/queued）\",\n  \"现状\": \"无任何事件\",\n  \"影响\": \"监控看不到「消息投给谁、是否排队」\"\n },\n {\n  \"盲区\": \"按成员/分支的成本 breakdown\",\n  \"现状\": \"host.usage 只有一个总数\",\n  \"影响\": \"必须自己订阅 round_completed 记账，且不能事后补算\"\n },\n {\n  \"盲区\": \"中止 vs 真错误\",\n  \"现状\": \"事件序列同形，只有字符串不同\",\n  \"影响\": \"告警无法区分设计者主动打断与模型故障\"\n },\n {\n  \"盲区\": \"顶层 agent 的身份\",\n  \"现状\": \"member=undefined\",\n  \"影响\": \"成本归因里顶层只能进无名桶\"\n },\n {\n  \"盲区\": \"thinking 内容\",\n  \"现状\": \"假 provider 不产；真模型待测\",\n  \"影响\": \"无法验证\"\n }\n]",
+      "verdict": "GAP",
+      "conclusion": "「7 个事件」够做过程展示与粗略计量，不够做审计与精确归因。三条硬缺口：① 事实流不完整（工具结果、用户输入只在原始流）；② 没有全局有序事件流（跨分身只能靠毫秒时间戳，且会撞时、多数事件根本没有时间字段）；③ 成本没有结构化分解（host.usage 一个数，细账必须自己实时累加，事后不可补）。需要审计能力的场景应直接使用 session.subscribe 原始流 + 自己的账本，把 7 个事件当作 UI 摘要层。",
+      "data": [
+        {
+          "盲区": "工具返回值",
+          "现状": "归一化事件里没有；原始 turn_end.toolResults 有",
+          "影响": "无法从事件流复现「工具真的返回了什么」，只能靠模型复述"
+        },
+        {
+          "盲区": "用户 prompt 原文",
+          "现状": "归一化事件里没有；原始 message_end(role=user) 有",
+          "影响": "审计/回放要自己订阅原始流"
+        },
+        {
+          "盲区": "跨分身时序",
+          "现状": "只有 turn.message.timestamp（毫秒）",
+          "影响": "多分身并发时无法排出全局事件序；本次测量出现同毫秒撞时"
+        },
+        {
+          "盲区": "投递语义（ran/queued）",
+          "现状": "无任何事件",
+          "影响": "监控看不到「消息投给谁、是否排队」"
+        },
+        {
+          "盲区": "按成员/分支的成本 breakdown",
+          "现状": "host.usage 只有一个总数",
+          "影响": "必须自己订阅 round_completed 记账，且不能事后补算"
+        },
+        {
+          "盲区": "中止 vs 真错误",
+          "现状": "事件序列同形，只有字符串不同",
+          "影响": "告警无法区分设计者主动打断与模型故障"
+        },
+        {
+          "盲区": "顶层 agent 的身份",
+          "现状": "member=undefined",
+          "影响": "成本归因里顶层只能进无名桶"
+        },
+        {
+          "盲区": "thinking 内容",
+          "现状": "假 provider 不产；真模型待测",
+          "影响": "无法验证"
+        }
+      ]
+    }
+  ]
+}

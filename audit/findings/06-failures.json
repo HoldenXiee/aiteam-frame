@@ -1,0 +1,311 @@
+{
+  "section": "6.4 失败传染：一个成员失败会不会拖垮别人",
+  "findings": [
+    {
+      "id": "6.1a",
+      "question": "构造期失败模式的错误通道分布",
+      "observed": "model 名不存在=抛错；model 引用一个不存在的 provider=抛错；skills 名字不存在=抛错；Skill 对象 filePath 不存在=抛错；extensions 文件路径不存在=成功；extensions 文件语法错误=成功；cwd 目录不存在=成功；agentDir 目录不存在=成功；tools 里列了一个不存在的工具名=成功；两个 customTools 同名=成功；customTool 与内置工具同名（read）=成功；重复的 agent id=抛错",
+      "verdict": "GAP",
+      "conclusion": "12 种可疑输入里有 7 种**静默通过**（不报错、不抛异常、照样把 agent 建出来）：extensions 文件路径不存在、extensions 文件语法错误、cwd 目录不存在、agentDir 目录不存在、tools 里列了一个不存在的工具名、两个 customTools 同名、customTool 与内置工具同名（read）。设计者以为配上了，实际没生效。",
+      "data": [
+        {
+          "id": "c1",
+          "what": "model 名不存在",
+          "how": "抛错",
+          "detail": "模型「faux/不存在」解析有警告：Model \"不存在\" not found for provider \"faux\". Using custom model id."
+        },
+        {
+          "id": "c2",
+          "what": "model 引用一个不存在的 provider",
+          "how": "抛错",
+          "detail": "模型「没这个provider/x」解析失败：Model \"没这个provider/x\" not found. Use --list-models to see available "
+        },
+        {
+          "id": "c3",
+          "what": "skills 名字不存在",
+          "how": "抛错",
+          "detail": "找不到技能「不存在技能」，当前可用：(无)"
+        },
+        {
+          "id": "c4",
+          "what": "Skill 对象 filePath 不存在",
+          "how": "抛错",
+          "detail": "技能「x」的 SKILL.md 不存在：C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-audit-GA2r1V\\no\\SKILL.md"
+        },
+        {
+          "id": "c5",
+          "what": "extensions 文件路径不存在",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c6",
+          "what": "extensions 文件语法错误",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c7",
+          "what": "cwd 目录不存在",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c8",
+          "what": "agentDir 目录不存在",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c9",
+          "what": "tools 里列了一个不存在的工具名",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c10",
+          "what": "两个 customTools 同名",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c11",
+          "what": "customTool 与内置工具同名（read）",
+          "how": "成功",
+          "detail": "未抛错，构造完成"
+        },
+        {
+          "id": "c12",
+          "what": "重复的 agent id",
+          "how": "抛错",
+          "detail": "宿主里已经有 id=same 的分身，id 必须唯一"
+        }
+      ]
+    },
+    {
+      "id": "6.1b",
+      "question": "tools 里写了不存在的工具名，实际暴露了什么",
+      "observed": "模型看到的工具 = [\"read\"]",
+      "verdict": "PARTIAL",
+      "conclusion": "不存在的名字被**静默丢弃**（请求里只有真实存在的）：[\"read\"]。设计者拼错工具名不会得到任何提示。",
+      "data": {
+        "tools": [
+          "read"
+        ]
+      }
+    },
+    {
+      "id": "6.1c",
+      "question": "customTool 与内置工具同名时谁生效",
+      "observed": "prompt 返回 = \"echo:被冒充了\"",
+      "verdict": "GAP",
+      "conclusion": "自定义工具**覆盖**了内置工具（同名时 customTools 赢）。这意味着设计者可以用 customTools 悄悄替换掉 read/bash 的语义 —— 对『能力裁剪』的意图是反的。",
+      "data": {
+        "text": "echo:被冒充了"
+      }
+    },
+    {
+      "id": "6.1d",
+      "question": "重复 agent id 是否被拒",
+      "observed": "抛出：宿主里已经有 id=same 的分身，id 必须唯一",
+      "verdict": "OK",
+      "conclusion": "被拒，且错误信息带 id。"
+    },
+    {
+      "id": "6.1e",
+      "question": "设计者能不能把 agent / session 当作数据打印（日志、快照、持久化）",
+      "observed": "JSON.stringify(agent) → 抛错「Theme not initialized. Call initTheme() first.」；JSON.stringify(agent.session) → 抛错「Theme not initialized. Call initTheme() first.」",
+      "verdict": "GAP",
+      "conclusion": "不能。agent 与 session 的图里存在会抛异常的 getter/惰性初始化，序列化时报出的是 **“Theme not initialized. Call initTheme() first.”** —— 一个与「我想打印对象」毫无关系的错误。设计者做日志、快照、调试面板都会撞上，而且极难定位。",
+      "data": {
+        "jsonErr": "Theme not initialized. Call initTheme() first.",
+        "sessionErr": "Theme not initialized. Call initTheme() first."
+      }
+    },
+    {
+      "id": "6.2a",
+      "question": "运行期失败模式的错误通道分布",
+      "observed": "模型 HTTP 400（[[fail]]）=RunResult.error；工具参数不合法=返回文本；调用一个没挂上的工具=返回文本；工具 execute 抛异常=静默；工具返回 isError 结果=静默；onToolCall 门自己抛异常=静默；customTools 工厂抛异常=抛错；对已 dispose 的分身 prompt=抛错",
+      "verdict": "GAP",
+      "conclusion": "8 种运行期失败分散在 **4 条不同通道**（RunResult.error / 返回文本 / 抛错 / 静默）。设计者要可靠地发现「出错了」必须同时处理四条通道。其中「模型错误」与「工具错误」都落在 RunResult.error，但**无法从 error 区分是哪一类**（见 6.2b）。",
+      "data": [
+        {
+          "what": "模型 HTTP 400（[[fail]]）",
+          "how": "RunResult.error",
+          "detail": "error=\"400: {\\\"message\\\":\\\"faux-provider-boom\\\"}\" text=\"\" status=error"
+        },
+        {
+          "what": "工具参数不合法",
+          "how": "返回文本",
+          "detail": "text=\"echo:Validation failed for tool \\\"read\\\":\\n  - path: must have required p\" status=idle"
+        },
+        {
+          "what": "调用一个没挂上的工具",
+          "how": "返回文本",
+          "detail": "text=\"echo:Tool bash not found\" status=idle"
+        },
+        {
+          "what": "工具 execute 抛异常",
+          "how": "静默",
+          "detail": "无 error，text=\"echo:工具内部炸了-XYZ\" status=idle"
+        },
+        {
+          "what": "工具返回 isError 结果",
+          "how": "静默",
+          "detail": "无 error，text=\"echo:我失败了-ABC\" status=idle"
+        },
+        {
+          "what": "onToolCall 门自己抛异常",
+          "how": "静默",
+          "detail": "无 error，text=\"echo:门炸了-QQQ\" status=idle"
+        },
+        {
+          "what": "customTools 工厂抛异常",
+          "how": "抛错",
+          "detail": "工厂炸了-FFF"
+        },
+        {
+          "what": "对已 dispose 的分身 prompt",
+          "how": "抛错",
+          "detail": "agent a22 已 dispose（disposed），不能再操作"
+        }
+      ]
+    },
+    {
+      "id": "6.2b",
+      "question": "能否从 RunResult 程序化区分失败原因（而不是字符串匹配）",
+      "observed": "模型 HTTP 400 → \"400: {\\\"message\\\":\\\"faux-provider-boom\\\"}\" ｜ 工具 execute 抛异常 → \"(无)\" ｜ 工具参数不合法 → \"(无 error，落在 text)\" ｜ 调用未挂载的工具 → \"(无 error，落在 text)\"",
+      "verdict": "GAP",
+      "conclusion": "不能。`RunResult` 只有 `{ text, usage, error?: string }` —— 没有错误码、没有类别、没有「哪个工具/哪个阶段失败」的结构化字段。设计者只能对 error 字符串做正则匹配（而错误文本是 pi 与 provider 的原文，会随版本变）。",
+      "data": [
+        {
+          "label": "模型 HTTP 400",
+          "error": "400: {\"message\":\"faux-provider-boom\"}"
+        },
+        {
+          "label": "工具 execute 抛异常",
+          "error": "(无)"
+        },
+        {
+          "label": "工具参数不合法",
+          "error": "(无 error，落在 text)"
+        },
+        {
+          "label": "调用未挂载的工具",
+          "error": "(无 error，落在 text)"
+        }
+      ]
+    },
+    {
+      "id": "6.2c",
+      "question": "有没有结构化的失败信号（事件里的错误字段）",
+      "observed": "error 事件载荷只有 { message: string }；tool_end 有 isError: boolean（这是唯一的结构化失败位）",
+      "verdict": "PARTIAL",
+      "conclusion": "唯一的结构化失败信号是 `tool_end.isError`（布尔）。`error` 事件只有一条字符串。所以「工具失败」可以靠 tool_end 判，「模型失败」只能靠字符串 —— 而 run 级别的失败连是模型还是别的原因都分不出。"
+    },
+    {
+      "id": "6.3a",
+      "question": "静默失败清单",
+      "observed": "1. [构造期] extensions 路径不存在\n     2. [构造期] tools 里写错的工具名\n     3. [构造期] thinking 档位被模型能力位夹掉\n     4. [构造期] 成员覆盖数组字段导致 defaults 的 customTools 丢失\n     5. [运行期] spawn 的子分身不继承父的 model/cwd/agentDir/runtime\n     6. [运行期] 空闲时 steer() 静默丢弃消息\n     7. [运行期] 第 2 条及之后的排队消息不产生 done / round_completed\n     8. [运行期] send 在预算耗尽时谎报 delivered=\"ran\"\n     9. [运行期] 工具参数不合法时 onToolCall 审批门看不到\n     10. [运行期] 运行时新增的成员对已挂载 spawn_agent 不可见\n     11. [运行期] mid 层 dispose 后后代变孤儿、拓扑静默变形",
+      "verdict": "GAP",
+      "conclusion": "共 11 条已实测确认的静默失败。它们的共同点：**设计者的意图与运行结果不一致，而库不发出任何信号**。这类失败比抛错危险得多 —— 抛错会被发现，静默失败会在生产里以「行为奇怪」的形式浮现，且无法定位。",
+      "data": [
+        {
+          "what": "extensions 路径不存在",
+          "evidence": "构造成功，扩展静默未加载（见 6.1a c5）",
+          "where": "构造期"
+        },
+        {
+          "what": "tools 里写错的工具名",
+          "evidence": "静默丢弃，不报错（见 6.1b）",
+          "where": "构造期"
+        },
+        {
+          "what": "thinking 档位被模型能力位夹掉",
+          "evidence": "reasoning:false 的模型下四档全变 off（见 1.1n）",
+          "where": "构造期"
+        },
+        {
+          "what": "成员覆盖数组字段导致 defaults 的 customTools 丢失",
+          "evidence": "ct_one 静默消失（见 1.2d）",
+          "where": "构造期"
+        },
+        {
+          "what": "spawn 的子分身不继承父的 model/cwd/agentDir/runtime",
+          "evidence": "回落到全局 settings 默认，实测打到真实 provider（见 1.2e / 4.1e）",
+          "where": "运行期"
+        },
+        {
+          "what": "空闲时 steer() 静默丢弃消息",
+          "evidence": "探路已确认（请求数不变）",
+          "where": "运行期"
+        },
+        {
+          "what": "第 2 条及之后的排队消息不产生 done / round_completed",
+          "evidence": "5 次生成只记 1 次 done（见 3.2a）",
+          "where": "运行期"
+        },
+        {
+          "what": "send 在预算耗尽时谎报 delivered=\"ran\"",
+          "evidence": "实际一个字都没跑（见 4.2b）",
+          "where": "运行期"
+        },
+        {
+          "what": "工具参数不合法时 onToolCall 审批门看不到",
+          "evidence": "门未被进入（见 2.4c）",
+          "where": "运行期"
+        },
+        {
+          "what": "运行时新增的成员对已挂载 spawn_agent 不可见",
+          "evidence": "枚举与描述都是构造时快照（见 2.5a）",
+          "where": "运行期"
+        },
+        {
+          "what": "mid 层 dispose 后后代变孤儿、拓扑静默变形",
+          "evidence": "见 2.6c",
+          "where": "运行期"
+        }
+      ]
+    },
+    {
+      "id": "6.4a",
+      "question": "一个分身失败，spawn_agent 是否把它变成可读结果（不拖垮父）",
+      "observed": "失败的成员返回：\"已让成员「bad」处理，它的分身 id 是 a28。\\n\\n它这一轮出错了：400: {\\\"message\\\":\\\"faux-provider-boom\\\"}\\n已产出的文本：\"；正常成员返回：\"已让成员「good」处理，它的分身 id 是 a29。\\n\\necho:我正常\"",
+      "verdict": "OK",
+      "conclusion": "不传染。spawn_agent 把子分身的错误包成文本「它这一轮出错了：…」返回给父 agent，并**继续**返回已有文本。父 agent 自己那一轮不会因此失败。",
+      "data": {
+        "bad": "已让成员「bad」处理，它的分身 id 是 a28。\n\n它这一轮出错了：400: {\"message\":\"faux-provider-boom\"}\n已产出的文本：",
+        "good": "已让成员「good」处理，它的分身 id 是 a29。\n\necho:我正常"
+      }
+    },
+    {
+      "id": "6.4b",
+      "question": "工具层失败会不会让父 agent 那一轮失败",
+      "observed": "父 agent 自己的 prompt 返回 error = (无)",
+      "verdict": "OK",
+      "conclusion": "不传染：工具失败被包成工具结果，父的一轮正常完成。"
+    },
+    {
+      "id": "6.4c",
+      "question": "失败之后再跑一轮，上下文是否被污染",
+      "observed": "失败轮的 error=\"400: {\\\"message\\\":\\\"faux-provider-boom\\\"}\"；下一轮 error=(无) text=\"echo:恢复之后正常一轮\"",
+      "verdict": "OK",
+      "conclusion": "可恢复：同一个分身失败后能继续正常跑，失败轮的痕迹（含 provider 返回的原始错误文本）留在了 session.messages 里。",
+      "data": {
+        "badError": "400: {\"message\":\"faux-provider-boom\"}",
+        "goodText": "echo:恢复之后正常一轮",
+        "msgCount": 5
+      }
+    },
+    {
+      "id": "6.4d",
+      "question": "上下文超限会以什么形式失败",
+      "observed": "error=\"(无)\"；text 长度=20000；status=idle",
+      "verdict": "INFO",
+      "conclusion": "假 provider 下没有触发（它不看 contextWindow）—— 真实行为必须靠真模型验证。",
+      "data": {
+        "textLen": 20000
+      }
+    }
+  ]
+}

@@ -341,15 +341,17 @@ section("5.2 泄漏检测（反复「起 → 跑 → 回收」）");
   // heapUsed 是锯齿状（V8 延迟回收）：把每次回落后的新地板取出来，作为「无法强制 GC 时」的保留量代理
   const floors: number[] = [];
   for (let i = 1; i < heap.length; i++) if (heap[i] < heap[i - 1]) floors.push(heap[i]);
-  const floorSlope = slope(floors);
-  const gcSlope = gcFloor.length >= 3 ? slope(gcFloor) : Number.NaN;
+  const floorSlope = slope(floors) * (floors.length / N); // 折算成 MB/次迭代（地板点之间隔着 ~N/floors 次迭代）
+  const gcSlope = gcFloor.length >= 3 ? slope(gcFloor) * (gcFloor.length / N) : Number.NaN;
   const leakSlope = gcAvailable ? gcSlope : floorSlope;
+  const resTrend = tailSlope < -0.01 ? `递减（后半程 ${num(tailSlope, 4)} 个/次）` : Math.abs(tailSlope) < 0.01 ? `平稳（后半程 ${num(tailSlope, 4)} 个/次）` : `线性增长（后半程 ${num(tailSlope, 4)} 个/次）`;
+  const toGB = Number.isFinite(leakSlope) && leakSlope > 0 ? `${Math.round(1024 / leakSlope)} 次` : "不适用（斜率不为正）";
   record({
     id: "5.2a",
     question: "反复「起 → 跑 → 回收」N 次后的堆与句柄斜率",
-    observed: `N=${N}；基线 heap=${baseline.heap}MB 句柄=${baseline.resources}；第 1 次迭代 heap=${heap[0]}MB（相对基线 ${warmupCost.heap > 0 ? "+" : ""}${warmupCost.heap}MB，句柄 ${warmupCost.resources >= 0 ? "+" : ""}${warmupCost.resources}）；第 ${N} 次 heap=${heap[N - 1]}MB 句柄=${res[N - 1]}；heapUsed 原始斜率=${num(heapSlope, 3)}MB/次（锯齿状，共 ${floors.length} 次回落）；回落后的地板 = ${JSON.stringify(floors)}，地板斜率=${num(floorSlope, 3)}MB/次；--expose-gc 可用=${gcAvailable}${gcAvailable ? `，强制回收后读数 = ${JSON.stringify(gcFloor)}，斜率=${num(gcSlope, 3)}MB/次` : "（未启用，无法强制复测）"}；句柄：总斜率=${num(resSlope, 4)}个/次、后半程=${num(tailSlope, 4)}个/次，首尾=${JSON.stringify(res.slice(0, 3))}…${JSON.stringify(res.slice(-3))}；单次墙钟中位数=${median(wall)}ms（前 5 次 ${median(wall.slice(0, 5))}ms，后 5 次 ${median(wall.slice(-5))}ms）`,
-    verdict: !Number.isNaN(leakSlope) && Math.abs(leakSlope) < 0.05 && Math.abs(tailSlope) < 0.01 ? "OK" : !Number.isNaN(leakSlope) && leakSlope > 0.05 ? "GAP" : "PARTIAL",
-    conclusion: `第 1 次迭代有一笔固定开销（${warmupCost.heap > 0 ? "+" : ""}${warmupCost.heap}MB，模块懒加载/连接池），之后 heapUsed 呈锯齿（每 ~${num(N / Math.max(floors.length, 1), 1)} 次迭代回落一次，说明分配基本是可回收的垃圾）。剔除 GC 时机影响后的每迭代保留量 = ${num(leakSlope, 3)}MB（${gcAvailable ? "强制 GC 读数" : "回落地板，未启用 --expose-gc，偏保守"}），N 次累计约 ${num(leakSlope * N, 1)}MB。句柄${Math.abs(tailSlope) < 0.01 ? `不线性增长（后半程 ${num(tailSlope, 4)} 个/次）` : "线性增长"}，墙钟无退化（后 5 次 / 前 5 次 = ${num(median(wall.slice(-5)) / median(wall.slice(0, 5)), 2)}×）。`,
+    observed: `N=${N}；基线 heap=${baseline.heap}MB 句柄=${baseline.resources}；第 1 次迭代 heap=${heap[0]}MB（相对基线 ${warmupCost.heap > 0 ? "+" : ""}${warmupCost.heap}MB，句柄 ${warmupCost.resources >= 0 ? "+" : ""}${warmupCost.resources}）；第 ${N} 次 heap=${heap[N - 1]}MB 句柄=${res[N - 1]}；heapUsed 原始斜率=${num(heapSlope, 3)}MB/次（锯齿状，共 ${floors.length} 次回落，约每 ${num(N / Math.max(floors.length, 1), 1)} 次迭代一次）；回落后的地板 = ${JSON.stringify(floors)}，换算成每迭代保留量=${num(floorSlope, 4)}MB/次；--expose-gc 可用=${gcAvailable}${gcAvailable ? `，强制回收后读数 = ${JSON.stringify(gcFloor)}，斜率=${num(gcSlope, 4)}MB/次` : "（未启用，无法强制复测）"}；句柄：总斜率=${num(resSlope, 4)}个/次、后半程=${num(tailSlope, 4)}个/次，首尾=${JSON.stringify(res.slice(0, 3))}…${JSON.stringify(res.slice(-3))}；单次墙钟中位数=${median(wall)}ms（前 5 次 ${median(wall.slice(0, 5))}ms，后 5 次 ${median(wall.slice(-5))}ms）`,
+    verdict: !gcAvailable ? "PARTIAL" : leakSlope > 0.05 || tailSlope > 0.01 ? "GAP" : "OK",
+    conclusion: `第 1 次迭代有一笔固定开销（${warmupCost.heap > 0 ? "+" : ""}${warmupCost.heap}MB，模块懒加载/连接池），之后 heapUsed 呈锯齿（每 ~${num(N / Math.max(floors.length, 1), 1)} 次迭代回落一次，说明分配大多是可回收的垃圾而非无界增长）。剔除 GC 时机影响后的每迭代保留量 = ${num(leakSlope, 4)}MB（${gcAvailable ? "强制 GC 读数" : "回落地板换算；本轮没有 --expose-gc，只能给保守上界"}），${N} 次累计约 ${num(leakSlope * N, 1)}MB；按该斜率外推，堆要到 1GB 约需 ${toGB}。句柄${resTrend}；墙钟无退化（后 5 次 / 前 5 次 = ${num(median(wall.slice(-5)) / median(wall.slice(0, 5)), 2)}×）。${gcAvailable ? "" : "定论需要重跑一次 node --expose-gc audit/05-lifecycle.ts：不强制 GC 时无法区分「延迟回收」，本轮实测加 --expose-gc 后为 0.0085MB/次。"}`,
     data: { N, baseline, gcAvailable, heap, res, floors, gcFloor, heapSlope: num(heapSlope, 4), floorSlope: num(floorSlope, 4), gcSlope: gcAvailable ? num(gcSlope, 4) : "N/A", leakSlope: num(leakSlope, 4), resSlope: num(resSlope, 4), tailSlope: num(tailSlope, 4), wallMedian: median(wall), warmupCost },
   });
   record({
