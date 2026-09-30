@@ -139,6 +139,8 @@ export interface CreateAgentDeps {
   modelRuntime?: ModelRuntime;
   /** 内部使用：由 spawn_agent 设置，深度由 parent 链推出 */
   parent?: ControlledAgent;
+  /** 内部使用：由 spawn_agent 设置，标明这个分身是哪个成员 */
+  member?: string;
 }
 
 // ─────────────── 宿主与花名册（规格 §4.4） ───────────────
