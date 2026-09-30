@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "probe": "node probe/run.ts",
-    "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\""
+    "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\"",
+    "demo": "node demo/demo.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.99.1",

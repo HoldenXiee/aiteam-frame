@@ -2,14 +2,7 @@
 // 每个测试文件一个进程（node --test 默认行为），所以这里的 faux 单例与进程同生命周期。
 // 导入本模块即启动假服务并把 AITEAM_AGENT_DIR 指向它的 models.json —— 这样
 // `createAgent({ model: FAUX_MODEL_REF })` 不传任何依赖也能零成本跑起来。
-import {
-  createAgentSession,
-  SessionManager,
-  SettingsManager,
-  defineTool,
-  type AgentToolResult,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { startFaux } from "./faux-server.ts";
 import { makeFauxRuntime } from "./faux-models.ts";
@@ -22,12 +15,9 @@ import type { AgentToolContext, MemberSpec } from "../src/agent/types.ts";
 
 export const faux = await startFaux();
 const made = await makeFauxRuntime(faux.baseUrl);
-export const fauxRuntime = made.runtime;
 export const fauxAgentDir = made.agentDir;
 export const fauxCwd = made.cwd;
 process.env.AITEAM_AGENT_DIR = fauxAgentDir;
-
-export const fauxModel = fauxRuntime.getModel("faux", "echo")!;
 
 /** 假服务收到的工具名。index 省略时取最近一次请求。 */
 export function seenTools(target: typeof faux = faux, index?: number): string[] {

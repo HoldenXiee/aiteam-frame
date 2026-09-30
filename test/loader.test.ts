@@ -23,7 +23,7 @@ test("Skill 对象指向不存在的文件时抛错", async () => {
       buildLoader(
         {
           skills: [
-            { name: "x", description: "d", filePath: "D:/nope/SKILL.md", baseDir: "D:/nope", source: "custom" } as Skill,
+            { name: "x", description: "d", filePath: "D:/nope/SKILL.md", baseDir: "D:/nope" } as unknown as Skill,
           ],
         },
         deps(),

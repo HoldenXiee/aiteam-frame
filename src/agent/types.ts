@@ -1,15 +1,12 @@
 // 全部对外类型，无运行时代码。
 // 类型一律从 pi 的包复用，不自己重定义（规格 §3）。
-import type {
-  AgentSession,
-  InlineExtension,
-  ModelRuntime,
-  Skill,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import type { ImageContent, ThinkingLevel, Usage } from "@earendil-works/pi-ai";
+import type { AgentSession, InlineExtension, ModelRuntime, Skill, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ImageContent, Usage } from "@earendil-works/pi-ai";
 
-export type { ImageContent, ThinkingLevel, Usage };
+export type { ImageContent, ModelRuntime, Usage };
+
+/** 直接取会话自己的思考档类型（pi-agent-core 里那个，含 "off"），不自己重定义 */
+export type ThinkingLevel = AgentSession["thinkingLevel"];
 
 /** pi 会话里的消息类型（逃生口 session.messages 的元素） */
 export type AgentMessage = AgentSession["messages"][number];
