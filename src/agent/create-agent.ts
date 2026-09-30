@@ -10,10 +10,9 @@ import {
   resolveCliModel,
   type ExtensionAPI,
   type InlineExtension,
-  type Model,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { buildLoader } from "./loader.ts";
+import { buildLoader, declaredExtensionToolNames } from "./loader.ts";
 import { normalizeEvent } from "./events.ts";
 import { hostInternalsOf } from "./host.ts";
 import { createSpawnAgentTool } from "../tools/spawn-agent.ts";
@@ -61,11 +60,14 @@ function libraryTools(): Record<string, (ctx: AgentToolContext) => ToolDefinitio
   return { spawn_agent: createSpawnAgentTool, send_message: createSendMessageTool };
 }
 
+/** 解析出来的模型：直接取 resolveCliModel 的返回类型，不自己重定义 */
+type ResolvedModel = NonNullable<ReturnType<typeof resolveCliModel>["model"]>;
+
 /** 决策 #28：resolveCliModel 对不存在的模型只给 warning，必须自己判 */
 function resolveModel(
   spec: AgentSpec,
   modelRuntime: ModelRuntime,
-): { model?: Model<any>; thinkingLevel?: AgentSpec["thinking"] } {
+): { model?: ResolvedModel; thinkingLevel?: AgentSpec["thinking"] } {
   if (!spec.model) return { thinkingLevel: spec.thinking };
   const resolved = resolveCliModel({ cliModel: spec.model, modelRuntime });
   if (resolved.error || !resolved.model) {
@@ -125,15 +127,10 @@ export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}
 
   const loader = await buildLoader(spec, { cwd, agentDir, settingsManager, extensionFactories });
 
-  // 决策 #4：只有设计者给了 tools 白名单时才并入 customTools / 扩展工具名；不给就一个都不动
+  // 决策 #4：只有设计者给了 tools 白名单时才并入 customTools 与「他声明的」扩展工具名；
+  // 不给就一个都不动。环境里自动发现的扩展不算数，否则白名单形同虚设。
   const tools = spec.tools
-    ? [
-        ...new Set([
-          ...spec.tools,
-          ...customTools.map((t) => t.name),
-          ...loader.getExtensions().extensions.flatMap((e) => [...e.tools.keys()]),
-        ]),
-      ]
+    ? [...new Set([...spec.tools, ...customTools.map((t) => t.name), ...declaredExtensionToolNames(spec, loader)])]
     : undefined;
 
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);

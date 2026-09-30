@@ -31,6 +31,22 @@ function under(file: string, dir: string): boolean {
 }
 
 /**
+ * 设计者声明的扩展所提供的工具名。
+ * 只认 `spec.extensions` 里显式给的那些（路径或内联工厂），**不**包括用户级/项目级自动发现的扩展 ——
+ * 否则 `tools` 白名单会被环境里碰巧存在的扩展悄悄撑开，等于绕过设计者的能力裁剪。
+ * （探路实测：内联工厂在 getExtensions() 里的 path 形如 `<inline:1>`。）
+ */
+export function declaredExtensionToolNames(spec: MemberSpec, loader: DefaultResourceLoader): string[] {
+  const declaredPaths = new Set(
+    (spec.extensions ?? []).filter((e): e is string => typeof e === "string").map((p) => norm(p)),
+  );
+  return loader
+    .getExtensions()
+    .extensions.filter((e) => e.path.startsWith("<inline:") || declaredPaths.has(norm(e.path)))
+    .flatMap((e) => [...e.tools.keys()]);
+}
+
+/**
  * 配置收敛：把 MemberSpec 里声明的技能/扩展/角色变成 DefaultResourceLoader 的显式注入。
  * 技能名解析失败、Skill 对象指向不存在的文件 —— 一律抛错，不静默降级（决策 #2/#27）。
  */
