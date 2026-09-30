@@ -15,6 +15,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { buildLoader } from "./loader.ts";
 import { normalizeEvent } from "./events.ts";
+import { hostInternalsOf } from "./host.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import type {
   AgentEventMap,
@@ -68,13 +69,17 @@ function resolveModel(
   return { model: resolved.model, thinkingLevel: spec.thinking ?? resolved.thinkingLevel };
 }
 
-export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): Promise<ControlledAgent> {
+export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}): Promise<ControlledAgent> {
+  const host: AgentHost | undefined = deps.host;
+  const internals = hostInternalsOf(host);
+  // 配置优先级：成员定义（或顶层 spec）> host.defaults（决策 #13）
+  const spec: AgentSpec = internals ? { ...internals.defaults, ...rawSpec } : rawSpec;
+
   const id = spec.id ?? nextId();
   const cwd = spec.cwd ?? process.cwd();
   const agentDir = spec.agentDir ?? defaultAgentDir();
-  const modelRuntime = deps.modelRuntime ?? (await getSharedRuntime(agentDir));
+  const modelRuntime = deps.modelRuntime ?? internals?.modelRuntime ?? (await getSharedRuntime(agentDir));
   const settingsManager = SettingsManager.inMemory({});
-  const host: AgentHost | undefined = deps.host;
 
   // holder：工厂式工具在 createAgentSession 之前就要交出 name/parameters，
   // 而 ControlledAgent 那时还没构造完 —— 所以 ctx.agent 用 getter 惰性取（决策 #12）。
@@ -184,6 +189,10 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
 
   async function prompt(text: string, opts?: PromptOpts): Promise<RunResult> {
     assertAlive();
+    // 预算触顶就不再接新活（边界：0 = 一个都不许）
+    if (host?.budgetTokens !== undefined && host.usage.totalTokens >= host.budgetTokens) {
+      throw new Error(`宿主预算已耗尽（budgetTokens=${host.budgetTokens}）：不再接新的一轮`);
+    }
     state.status = "running";
     running += 1;
     try {
@@ -198,6 +207,7 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
     const result = collectRun();
     state.lastResult = result;
     if (state.status === "running") state.status = result.error ? "error" : "idle";
+    internals?.roundCompleted(holder.agent!, result);
     return result;
   }
 
@@ -249,9 +259,20 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
 
   function dispose(): void {
     if (state.status === "disposed") return;
+    const wasStreaming = session.isStreaming;
     state.status = "disposed";
     listeners.clear();
     unsubscribe();
+    internals?.agentDisposed(holder.agent!);
+    if (wasStreaming) {
+      // 先 abort，等它 settle，再真回收 —— 否则会留下悬挂的请求与永不 settle 的 promise
+      void session
+        .abort()
+        .catch(() => {})
+        .then(() => session.dispose())
+        .catch(() => {});
+      return;
+    }
     try {
       session.dispose();
     } catch {
@@ -286,5 +307,11 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
   } as unknown as ControlledAgent;
 
   holder.agent = agent;
+  try {
+    internals?.register(agent);
+  } catch (err) {
+    agent.dispose(); // 登记失败（重复 id / 超限）：把刚建好的 session 收干净再抛
+    throw err;
+  }
   return agent;
 }
