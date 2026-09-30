@@ -15,6 +15,7 @@ import { startFaux } from "./faux-server.ts";
 import { makeFauxRuntime } from "./faux-models.ts";
 import { buildLoader } from "../src/agent/loader.ts";
 import { createSpawnAgentTool } from "../src/tools/spawn-agent.ts";
+import { createSendMessageTool } from "../src/tools/send-message.ts";
 import type { AgentToolContext, MemberSpec } from "../src/agent/types.ts";
 
 export const faux = await startFaux();
@@ -70,6 +71,7 @@ export async function captureSystemPrompt(spec: MemberSpec = {}): Promise<{ syst
 /** 库自带的工具（不进 LLM，直接 execute）—— 用于测护栏与错误路径 */
 const LIBRARY_TOOLS: Record<string, (ctx: AgentToolContext) => ToolDefinition> = {
   spawn_agent: createSpawnAgentTool,
+  send_message: createSendMessageTool,
 };
 
 export async function runTool(

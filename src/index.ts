@@ -5,3 +5,4 @@ export { createAgentHost } from "./agent/host.ts";
 export { defineAgentTool } from "./tools/define-agent-tool.ts";
 export type { AgentToolDef } from "./tools/define-agent-tool.ts";
 export { createSpawnAgentTool } from "./tools/spawn-agent.ts";
+export { createSendMessageTool } from "./tools/send-message.ts";
