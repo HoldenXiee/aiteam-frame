@@ -27,7 +27,7 @@
 
 拆分的理由：将来「挑选成员的能力」「agent 之间沟通的能力」都以**自定义工具**的形式挂上来。地基没做实，阶段 2 只能推翻重写。
 
-**成功标准**：设计者能声明一张花名册；起一个顶层 agent；该 agent 能通过 `spawn_agent` 挑选成员、派活、拿到结果；同一成员能起多个互不干扰的分身；所有分身都受深度、数量、预算三道护栏约束。
+**成功标准**：设计者能声明一张花名册；起一个顶层 agent；该 agent 能通过 `spawn_agent` 挑选成员、派活、拿到结果，并能通过 `send_message` 给已有分身继续交办；同一成员能起多个互不干扰的分身；所有分身都受深度、数量、预算三道护栏约束；设计者代码也能直接把一个 agent 的输出喂给另一个 agent。
 
 ## 2. 范围
 
@@ -38,10 +38,11 @@
 | `createAgent(spec)` | 独立 skills / 扩展 / 工具 / 角色 / 模型 / cwd |
 | `createAgentHost({ members })` | 花名册 + 共享资源 + 护栏计数 |
 | 事件归一化 | pi 的 20+ 事件收敛成 7 个，保留原始 `session` 逃生口 |
-| 生命周期 | `prompt` / `steer` / `abort` / `dispose` + `status` / `isStreaming` |
+| 生命周期 | `prompt` / `steer` / `send` / `abort` / `dispose` / `waitForIdle` + `status` / `isStreaming` |
+| **投递原语** | 给一个 agent 发消息（忙时排队，**永不抛错**）；支持「等它做完」与「打断它」两种模式 |
 | 用量统计 | 每次运行的用量 + 累计用量 |
 | **自定义工具地基** | 工厂式工具定义 + 调用者上下文 + 显式依赖注入 |
-| **示例工具 `spawn_agent`** | 挑选成员 + 派活 + 拿结果；证明地基可用，是阶段 2 的种子 |
+| **能力工具** | `spawn_agent`（挑成员 + 派活 + 拿结果）与 `send_message`（给已有分身追加消息）；两条地基都被真工具验证过 |
 
 ### 不做（YAGNI）
 
@@ -49,7 +50,7 @@
 
 ### 不做（留阶段 2，本规格只留接缝）
 
-**工具形式**的寻址与通信：`list_agents` / `send_message` / `wait_agents` / `stop_agent` 工具、agent 间消息总线。宿主内部保留最小寻址能力（`host.list()` / `host.get()`）作为接缝。
+**工具形式**的寻址与批量编排：`list_agents` / `wait_agents` / `stop_agent` / `ask_agent` 工具、agent 间消息总线。宿主内部保留最小寻址能力（`host.list()` / `host.get()`）作为接缝。
 
 ### 不做（永不）
 
@@ -134,6 +135,17 @@ export interface PromptOpts {
   images?: ImageContent[];
 }
 
+/** 投递模式 */
+export interface SendOpts {
+  /** "next"（默认）：等目标当前工作做完再交付；"interrupt"：立刻改变它的方向 */
+  mode?: "next" | "interrupt";
+}
+
+export interface SendResult {
+  /** "ran" = 目标空闲，已直接执行；"queued" = 目标在忙，已排队 */
+  delivered: "ran" | "queued";
+}
+
 /** 本次运行的用量。agent.usage 是全生命周期的累计值 */
 export interface RunResult {
   text: string;
@@ -166,7 +178,14 @@ export interface ControlledAgent {
   readonly member: string | undefined;    // 由哪个成员创建；顶层 agent 为 undefined
 
   prompt(text: string, opts?: PromptOpts): Promise<RunResult>;
+  /**
+   * 投递一条消息给这个 agent。目标忙时排队，**永不抛错**
+   * （pi 的 prompt() 在目标 streaming 时会直接抛错，这里是必须补的那一层）
+   */
+  send(text: string, opts?: SendOpts): Promise<SendResult>;
   steer(text: string): Promise<void>;
+  /** 等该 agent 不再运行。阶段 2 的等待与结果聚合全建在它上面 */
+  waitForIdle(): Promise<void>;
   abort(): Promise<void>;
   on<E extends AgentEventName>(event: E, fn: (payload: AgentEventMap[E]) => void): () => void;
   dispose(): void;
@@ -214,7 +233,11 @@ export function createAgentHost(opts?: HostOptions): AgentHost;
 
 **配置优先级**：成员定义（或顶层 `spec`）> `host.defaults`。
 
-### 4.5 示例工具：`spawn_agent`
+### 4.5 能力工具
+
+阶段 1 提供两个工具：`spawn_agent`（验证 spawn 地基）与 `send_message`（验证投递地基）。两者都由 `spec.tools` 里的名字控制是否启用。
+
+#### `spawn_agent`
 
 ```
 spawn_agent({ member: "reviewer", task: "审查 src/foo.ts" })
@@ -241,6 +264,23 @@ spawn_agent({ member: "reviewer", task: "审查 src/foo.ts" })
 
 护栏触发时把错误信息作为**工具结果文本**返回给父 agent（而不是抛异常），让父 agent 有机会改用别的策略。
 
+#### `send_message`
+
+```
+send_message({ agentId: "a3", message: "把刚才的结论写成 md" })
+  -> "已投递（目标空闲，已开始处理）" | "已排队（目标正在忙）" | 错误文本
+```
+
+给一个已存在的分身追加消息。`agentId` 来自此前 `spawn_agent` 的返回文本。
+
+**只能投递给自己的后代分身**（自己创建的分身，以及它们的后代）。这不是额外限制，而是三个收益：
+
+1. 防干扰：A 无法插手 B 那边正在跑的工作
+2. **免费消灭一类死锁**：后代关系是一棵树，禁止反向投递就切断了发送环
+3. 与实际信息一致：阶段 1 agent 本来也只知道自己创建的那些 id（没有 `list_agents`）
+
+跨分支的对等交流留到阶段 2，届时才需要配护栏。
+
 ## 5. 关键实现决策
 
 | # | 决策 | 理由 |
@@ -262,6 +302,10 @@ spawn_agent({ member: "reviewer", task: "审查 src/foo.ts" })
 | 15 | 分身在 `spawn_agent` 返回后**保留**在宿主中 | 阶段 2 的 `send_message(id)` / `wait_agents(ids)` / 聚合都需要 id 与存活实例。若此时丢弃，阶段 2 必须改工具契约 |
 | 16 | `spawn_agent` 的 `member` 用枚举约束 + 描述动态列出花名册 | 模型在类型层面就无法请求不存在的成员，也无从挑选如果它不知道有哪些成员 |
 | 17 | 依赖版本固定为 `@earendil-works/pi-coding-agent@0.84.2` | 本规格所有 API 均针对该版本核对；npm 上已有更新版本，升级是独立任务，需重新核对 API |
+| 18 | **`send()` 是必需的一层，不是便利方法** | pi 的 `prompt()` 在目标 streaming 且无 `streamingBehavior` 时**直接抛错**。团队交流里目标正忙是常态，不补这层，阶段 2 的消息功能一写就崩 |
+| 19 | `send()` 忙时用 `followUp`（mode `next`）/ `steer`（mode `interrupt`）排队，空闲时直接 `prompt` | 投递者不应被迫关心目标当前是否在忙。精确的 SDK 语义（如空闲时调 `steer` 会怎样）实现时需实跑核实 |
+| 20 | `send_message` 只能投递给**自己的后代分身** | 防跨分支干扰；同时因为后代关系是树，禁止反向投递就免费消灭了发送环 |
+| 21 | `waitForIdle()` 包裹 `session.agent.waitForIdle()`，且已 `dispose` 时直接 resolve | 阶段 2 不该为了等待穿到逃生口；已回收的 agent 永远“已静下来” |
 
 ## 6. 目录结构
 
@@ -280,7 +324,8 @@ D:/space/aiteam/test/
       host.ts             # createAgentHost + 花名册 + 护栏 + 回收
     tools/
       define-agent-tool.ts
-      spawn-agent.ts      # 示例工具：挑选成员 + 派活
+      spawn-agent.ts      # 挑选成员 + 派活
+      send-message.ts     # 给已有分身追加消息
   test/
     fake-provider.ts      # 假 provider 扩展，零成本确定性
     *.test.ts
@@ -306,11 +351,14 @@ D:/space/aiteam/test/
 6. **花名册**：`spawn_agent` 的描述里列出了全部成员；请求不存在的成员被拒
 7. **分身**：同一成员起两个分身，各自独立（各自的 messages / usage 不串）
 8. **三道护栏**：深度、总数、预算超限各自返回错误结果而非崩溃
-9. **回收**：`host.dispose()` 后 `list()` 为空，且分身的 status 为 `disposed`
-10. 工厂式工具能拿到正确的 `ctx.agent` 与 `ctx.host`
-11. `onToolCall` 返回 block 时对应工具确实没执行
+9. **投递**：目标空闲时 `send` 返回 `ran`；目标正在跑时返回 `queued` 且**不抛错**（决策 #18 的回归测试）
+10. **投递范围**：`send_message` 给非后代分身被拒
+11. **`waitForIdle`**：忙时调用会等到静下来；已 dispose 的分身立即 resolve
+12. **回收**：`host.dispose()` 后 `list()` 为空，且分身的 status 为 `disposed`
+13. 工厂式工具能拿到正确的 `ctx.agent` 与 `ctx.host`
+14. `onToolCall` 返回 block 时对应工具确实没执行
 
-`demo/demo.ts`：真模型 + 一张两三个成员的花名册，顶层 agent 挑选成员派活，人工跑一次确认端到端。
+`demo/demo.ts`：真模型 + 一张两三个成员的花名册，顶层 agent 挑选成员派活、再给同一个分身追加一条消息，人工跑一次确认端到端。
 
 ## 8. 验收标准
 
@@ -321,7 +369,8 @@ D:/space/aiteam/test/
 5. 同一成员能起多个互不干扰的分身
 6. `host.dispose()` 能级联回收干净
 7. 三道护栏有独立测试且都通过
-8. `spawn_agent` 在 demo 中真实跑通一次
+8. 设计者代码能把 A 的输出喂给 B（`b.prompt(r.text)`），且 agent 能通过 `send_message` 给已有分身追加消息
+9. `spawn_agent` 与 `send_message` 在 demo 中真实跑通一次
 
 ## 9. 风险
 
@@ -332,6 +381,7 @@ D:/space/aiteam/test/
 | 同进程多 agent 的并发与资源上限（进程/cpu/网络） | 阶段 2 的并发闸门负责。阶段 1 的 `spawn_agent` 是同步的，但 pi 会并发执行同一消息里的兄弟工具调用 → 实际可能出现并发分身，由 `maxAgents` 兜住 |
 | 分身保留会累积内存 | `maxAgents` 封顶 + `host.dispose()` 回收 |
 | 成本 | 阶段 1 只用假 provider 测试；`budgetTokens` 护栏已就位，阶段 2 落地为硬闸门 |
+| **死锁**（等待型能力必然引来） | 阶段 1 的 `send` 是**非阻塞**的，本身不产生等待，所以阶段 1 无死锁。预埋规则，避免阶段 2 踩坑：① 后代关系是树 + `send_message` 只能向后代投递 → 切断了发送环；② 阶段 2 的 `ask_agent`（同步等答复）**必须带超时**，且**禁止等待祖先**；③ 任何无超时的等待都是死锁的充分条件，一律不允许 |
 
 ### 已定
 
