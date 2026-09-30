@@ -27,6 +27,8 @@ import type {
   CreateAgentDeps,
   PromptOpts,
   RunResult,
+  SendOpts,
+  SendResult,
   Usage,
 } from "./types.ts";
 
@@ -151,6 +153,15 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
     if (state.status === "disposed") throw new Error(`agent ${id} 已 dispose（disposed），不能再操作`);
   }
 
+  // session.waitForIdle() 在「还没开始 streaming」的窗口里会直接返回，
+  // 而 send() 正是先启动再返回 —— 所以自己要记得「有几个跑在飞」（决策 #21/#23）
+  let running = 0;
+  let idleWaiters: Array<() => void> = [];
+  function endRun(): void {
+    running -= 1;
+    if (running === 0) for (const wake of idleWaiters.splice(0)) wake();
+  }
+
   /** 本次运行新增的 assistant 用量 + 最后一段文本 + 错误 */
   function collectRun(): RunResult {
     let fresh = emptyUsage();
@@ -174,17 +185,56 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
   async function prompt(text: string, opts?: PromptOpts): Promise<RunResult> {
     assertAlive();
     state.status = "running";
+    running += 1;
     try {
       await session.prompt(text, opts?.images ? { images: opts.images } : undefined);
     } catch (err) {
       // 未接受就失败（目标正忙、没有可用模型…）：抛出去，这不是「跑完但出错」
-      state.status = session.isStreaming ? "running" : "idle";
+      if (state.status === "running") state.status = session.isStreaming ? "running" : "idle";
       throw err;
+    } finally {
+      endRun();
     }
     const result = collectRun();
     state.lastResult = result;
-    state.status = result.error ? "error" : "idle";
+    if (state.status === "running") state.status = result.error ? "error" : "idle";
     return result;
+  }
+
+  /**
+   * 投递一条消息。目标忙时排队，**永不抛错**（决策 #18/#19/#26）。
+   * 空闲时直接跑，但**不 await** —— await 了 send 就变成同步 ask，会把死锁引进来（决策 #23）。
+   */
+  async function send(text: string, opts?: SendOpts): Promise<SendResult> {
+    assertAlive();
+    if (session.isStreaming) {
+      if (opts?.mode === "interrupt") await session.steer(text);
+      else await session.followUp(text);
+      return { delivered: "queued" };
+    }
+    void prompt(text).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      for (const fn of listeners.get("error") ?? []) fn({ message });
+    });
+    return { delivered: "ran" };
+  }
+
+  async function steer(text: string): Promise<void> {
+    assertAlive();
+    await session.steer(text);
+  }
+
+  async function waitForIdle(): Promise<void> {
+    // 已回收的分身永远「已静下来」，不抛错（决策 #21）
+    if (state.status === "disposed") return;
+    if (running > 0) await new Promise<void>((resolve) => idleWaiters.push(resolve));
+    await session.waitForIdle();
+  }
+
+  async function abort(): Promise<void> {
+    assertAlive();
+    state.status = "aborted";
+    await session.abort();
   }
 
   function on<E extends AgentEventName>(event: E, fn: (payload: AgentEventMap[E]) => void): () => void {
@@ -227,7 +277,10 @@ export async function createAgent(spec: AgentSpec, deps: CreateAgentDeps = {}): 
       return state.lastResult;
     },
     prompt,
-    // send / steer / waitForIdle / abort 在任务 5 落地
+    send,
+    steer,
+    waitForIdle,
+    abort,
     on,
     dispose,
   } as unknown as ControlledAgent;
