@@ -20,6 +20,8 @@ export interface HostInternals {
   defaults: Partial<MemberSpec>;
   modelRuntime: ModelRuntime | undefined;
   register(agent: ControlledAgent): void;
+  /** spawn 之前的预检（不登记）：返回违反的那条护栏说明，没违反返回 undefined */
+  checkCanCreate(parent: ControlledAgent | undefined): string | undefined;
   roundCompleted(agent: ControlledAgent, result: RunResult): void;
   agentDisposed(agent: ControlledAgent): void;
 }
@@ -42,11 +44,14 @@ export function createAgentHost(opts: HostOptions = {}): AgentHost {
     for (const fn of listeners.get(event) ?? []) fn(payload);
   }
 
-  /** 0 一律表示「一个都不许」，undefined 才表示不限制 */
-  function assertBudget(what: string): void {
+  /** 三道护栏的单一出处；顺序固定：深度 → 总数 → 预算 */
+  function limitProblem(depth: number): string | undefined {
+    if (depth > maxDepth) return `分身深度 ${depth} 超过 maxDepth=${maxDepth}，不能再往下一层`;
+    if (created >= maxAgents) return `宿主已达到 maxAgents=${maxAgents} 的分身上限，不能再创建`;
     if (budgetTokens !== undefined && usage.totalTokens >= budgetTokens) {
-      throw new Error(`宿主预算已耗尽（budgetTokens=${budgetTokens}，已用 ${usage.totalTokens}）：不再${what}`);
+      return `宿主预算已耗尽（budgetTokens=${budgetTokens}，已用 ${usage.totalTokens}）`;
     }
+    return undefined;
   }
 
   function depthOf(agent: ControlledAgent): number {
@@ -70,14 +75,8 @@ export function createAgentHost(opts: HostOptions = {}): AgentHost {
       if (agents.has(agent.id)) {
         throw new Error(`宿主里已经有 id=${agent.id} 的分身，id 必须唯一`);
       }
-      if (created >= maxAgents) {
-        throw new Error(`宿主已达到 maxAgents=${maxAgents} 的分身上限，不能再创建`);
-      }
-      const depth = depthOf(agent);
-      if (depth > maxDepth) {
-        throw new Error(`分身深度 ${depth} 超过 maxDepth=${maxDepth}，不能再往下一层`);
-      }
-      assertBudget("创建新分身");
+      const problem = limitProblem(depthOf(agent));
+      if (problem) throw new Error(problem);
       agents.set(agent.id, agent);
       created += 1;
       emit("agent_created", {
@@ -85,6 +84,9 @@ export function createAgentHost(opts: HostOptions = {}): AgentHost {
         member: agent.member,
         parent: agent.parentId ? agents.get(agent.parentId) : undefined,
       });
+    },
+    checkCanCreate(parent) {
+      return limitProblem(parent ? depthOf(parent) + 1 : 0);
     },
     roundCompleted(agent, result) {
       usage = addUsage(usage, result.usage);

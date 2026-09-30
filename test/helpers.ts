@@ -2,12 +2,20 @@
 // 每个测试文件一个进程（node --test 默认行为），所以这里的 faux 单例与进程同生命周期。
 // 导入本模块即启动假服务并把 AITEAM_AGENT_DIR 指向它的 models.json —— 这样
 // `createAgent({ model: FAUX_MODEL_REF })` 不传任何依赖也能零成本跑起来。
-import { createAgentSession, SessionManager, SettingsManager, defineTool } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSession,
+  SessionManager,
+  SettingsManager,
+  defineTool,
+  type AgentToolResult,
+  type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { startFaux } from "./faux-server.ts";
 import { makeFauxRuntime } from "./faux-models.ts";
 import { buildLoader } from "../src/agent/loader.ts";
-import type { MemberSpec } from "../src/agent/types.ts";
+import { createSpawnAgentTool } from "../src/tools/spawn-agent.ts";
+import type { AgentToolContext, MemberSpec } from "../src/agent/types.ts";
 
 export const faux = await startFaux();
 const made = await makeFauxRuntime(faux.baseUrl);
@@ -57,4 +65,28 @@ export async function captureSystemPrompt(spec: MemberSpec = {}): Promise<{ syst
   const before = faux.calls.length;
   await session.prompt("hi");
   return { system: faux.calls[before]?.system ?? "" };
+}
+
+/** 库自带的工具（不进 LLM，直接 execute）—— 用于测护栏与错误路径 */
+const LIBRARY_TOOLS: Record<string, (ctx: AgentToolContext) => ToolDefinition> = {
+  spawn_agent: createSpawnAgentTool,
+};
+
+export async function runTool(
+  name: string,
+  args: unknown,
+  ctx: AgentToolContext,
+): Promise<AgentToolResult<any>> {
+  const make = LIBRARY_TOOLS[name];
+  if (!make) throw new Error(`runTool: 测试助手不认识工具「${name}」`);
+  const tool = make(ctx);
+  return tool.execute("call_test_1", args as never, undefined, undefined, undefined as never);
+}
+
+/** 工具结果里的文本 */
+export function textOf(result: AgentToolResult<any>): string {
+  return result.content
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
+    .join("\n");
 }

@@ -16,6 +16,7 @@ import {
 import { buildLoader } from "./loader.ts";
 import { normalizeEvent } from "./events.ts";
 import { hostInternalsOf } from "./host.ts";
+import { createSpawnAgentTool } from "../tools/spawn-agent.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import type {
   AgentEventMap,
@@ -51,6 +52,12 @@ function getSharedRuntime(agentDir: string): Promise<ModelRuntime> {
     authPath: join(agentDir, "auth.json"),
   });
   return sharedRuntime;
+}
+
+/** 库自带的能力工具：spec.tools 里点了名就自动挂上（规格 §9「已定」）。
+ *  做成函数而不是模块级常量，避免 create-agent ↔ tools 的循环初始化顺序敏感。 */
+function libraryTools(): Record<string, (ctx: AgentToolContext) => ToolDefinition> {
+  return { spawn_agent: createSpawnAgentTool };
 }
 
 /** 决策 #28：resolveCliModel 对不存在的模型只给 warning，必须自己判 */
@@ -96,6 +103,12 @@ export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}
   const customTools: ToolDefinition[] = [];
   for (const tool of spec.customTools ?? []) {
     customTools.push(typeof tool === "function" ? tool(makeCtx()) : tool);
+  }
+  const providedNames = new Set(customTools.map((t) => t.name));
+  for (const [toolName, make] of Object.entries(libraryTools())) {
+    if (spec.tools?.includes(toolName) && !providedNames.has(toolName)) {
+      customTools.push(make(makeCtx()));
+    }
   }
 
   const extensionFactories: InlineExtension[] = [];

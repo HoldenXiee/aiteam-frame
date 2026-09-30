@@ -92,6 +92,9 @@ function respond(res: ServerResponse, payload: any, lastUser: string): void {
 
   const sleepMs = Number(pick(lastUser, /\[\[sleep:(\d+)\]\]/) ?? 0);
   const toolName = lastIsToolResult ? undefined : pick(lastUser, /\[\[tool:([a-zA-Z0-9_-]+)\]\]/);
+  // [[args:{...}]] 给这次工具调用指定参数（默认 {}）
+  const argsMatches = [...lastUser.matchAll(/\[\[args:(\{[\s\S]*?\})\]\]/g)];
+  const toolArgs = argsMatches.length ? argsMatches[argsMatches.length - 1][1] : "{}";
   const huge = Number(pick(lastUser, /\[\[huge:(\d+)\]\]/) ?? 0);
   const text = huge > 0 ? "x".repeat(huge) : `echo:${lastUser.slice(0, 80)}`;
 
@@ -114,7 +117,7 @@ function respond(res: ServerResponse, payload: any, lastUser: string): void {
     if (toolName) {
       chunk({
         tool_calls: [
-          { index: 0, id: "call_faux_1", type: "function", function: { name: toolName, arguments: "{}" } },
+          { index: 0, id: "call_faux_1", type: "function", function: { name: toolName, arguments: toolArgs } },
         ],
       });
       chunk({}, "tool_calls");
