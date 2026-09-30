@@ -40,6 +40,7 @@
 | 事件归一化 | pi 的 20+ 事件收敛成 7 个，保留原始 `session` 逃生口 |
 | 生命周期 | `prompt` / `steer` / `send` / `abort` / `dispose` / `waitForIdle` + `status` / `isStreaming` |
 | **投递原语** | 给一个 agent 发消息（忙时排队，**永不抛错**）；支持「等它做完」与「打断它」两种模式 |
+| **宿主观测事件** | `agent_created` / `agent_disposed` / `round_completed` + `agent.lastResult`；库只发射事件，不固化任何监控策略 |
 | 用量统计 | 每次运行的用量 + 累计用量 |
 | **自定义工具地基** | 工厂式工具定义 + 调用者上下文 + 显式依赖注入 |
 | **能力工具** | `spawn_agent`（挑成员 + 派活 + 拿结果）与 `send_message`（给已有分身追加消息）；两条地基都被真工具验证过 |
