@@ -1,0 +1,189 @@
+{
+  "script": "e1-fields",
+  "section": "1.1 字段逐个验证",
+  "findings": [
+    {
+      "id": "1.1-F1",
+      "question": "description 生效吗（是否只进花名册、不污染 system）",
+      "observed": "system 含标记=false；spawn_agent 工具描述含标记=true",
+      "verdict": "OK",
+      "conclusion": "生效（用途正确）：只在 spawn_agent 的描述里给「上级 agent」看，成员自己的 system 里没有。",
+      "data": {
+        "inSystem": false,
+        "inSpawnToolDesc": true
+      }
+    },
+    {
+      "id": "1.1-F2",
+      "question": "cwd 生效吗（相对路径的工具真的落到那个目录吗）",
+      "observed": "session.getCwd()=C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-audit-NXEzFV\\cwd-A；read \"probe-cwd.txt\" 拿到 A 目录内容=true、B 目录内容=false",
+      "verdict": "OK",
+      "conclusion": "生效：相对路径解析到 spec.cwd。",
+      "data": {
+        "sessionCwd": "C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-audit-NXEzFV\\cwd-A",
+        "sawA": true,
+        "sawB": false
+      }
+    },
+    {
+      "id": "1.1-F3",
+      "question": "agentDir 生效吗（决定读哪份 models.json / auth.json / skills）",
+      "observed": "主环境模型 id=echo；换成第二个 agentDir 后请求 model=another-model",
+      "verdict": "OK",
+      "conclusion": "生效：每个 agentDir 一份 runtime（按目录缓存）。"
+    },
+    {
+      "id": "1.1-F4",
+      "question": "role 生效吗（追加到 system 的什么位置、默认提示词还在不在）",
+      "observed": "含角色标记=true（偏移 2610）；含 <tools>=true（偏移 171）；system 长度=2710",
+      "verdict": "OK",
+      "conclusion": "生效：默认 pi 提示词保留，role 追加在 <tools> 段之后（即最后）。",
+      "data": {
+        "iRole": 2610,
+        "iTools": 171
+      }
+    },
+    {
+      "id": "1.1-F5",
+      "question": "skills 生效吗（名字 / 目录 / SKILL.md / Skill 对象四种形式）",
+      "observed": "system 含 by-name=true by-dir=true by-file=true；含技能正文 SKILL-BODY-SECRET-5150=false；system 长度=3665",
+      "verdict": "OK",
+      "conclusion": "生效，四种形式都进 system；正文不预载，只给 name+description（正文需模型自己按需读）。",
+      "data": {
+        "byName": true,
+        "byDir": true,
+        "byFile": true,
+        "bodyPreloaded": false,
+        "systemLen": 3665
+      }
+    },
+    {
+      "id": "1.1-F6",
+      "question": "extensions 生效吗（路径 / 内联工厂，且不给 tools 白名单时）",
+      "observed": "模型收到的工具 = [\"read\",\"bash\",\"edit\",\"write\",\"ext_path_probe\",\"ext_inline_probe\"]",
+      "verdict": "OK",
+      "conclusion": "两种形式都生效。"
+    },
+    {
+      "id": "1.1-F8",
+      "question": "excludeTools 生效吗（只在给 excludeTools、不给 tools 时）",
+      "observed": "excludeTools=[\"write\",\"edit\"] → [\"read\",\"bash\"]",
+      "verdict": "OK",
+      "conclusion": "生效：默认工具集里剔掉了这两把。",
+      "data": {
+        "tools": [
+          "read",
+          "bash"
+        ]
+      }
+    },
+    {
+      "id": "1.1-F7",
+      "question": "tools 白名单的并入规则（customTools? 设计者声明的扩展? 用户级扩展?）",
+      "observed": "tools=[\"read\"] + customTools=[ct_merged] + extensions=[declared_ext_probe] + agentDir 里有 user_ext_probe → 实际 = [\"read\",\"ct_merged\",\"declared_ext_probe\"]",
+      "verdict": "OK",
+      "conclusion": "只在 tools 非空时并入：customTools ✅、设计者 extensions ✅、环境自动发现的用户级扩展 ❌（决策 #4 生效）。",
+      "data": {
+        "tools": [
+          "read",
+          "ct_merged",
+          "declared_ext_probe"
+        ]
+      }
+    },
+    {
+      "id": "1.1-F9",
+      "question": "customTools 生效吗（静态对象 vs 工厂函数；工厂在创建期能不能读 ctx.agent）",
+      "observed": "工具 = [\"read\",\"bash\",\"edit\",\"write\",\"ct_static\",\"ct_eager\",\"ct_lazy\"]；工厂创建期读 ctx.agent 抛错=[\"工具上下文里的 agent 尚未构造完成\"]；execute 里读到的 agent.id=[\"a10\"]（真实 id=a10）",
+      "verdict": "OK",
+      "conclusion": "静态与工厂都生效。**但工厂调用于 createAgent 内部、agent 还没构造完**：工厂体内同步读 ctx.agent 会抛「工具上下文里的 agent 尚未构造完成」；只有在 execute 里惰性读才拿得到（类型上 ctx.agent 是非可选的 ControlledAgent，不提示这个时序限制）。",
+      "data": {
+        "tools": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "ct_static",
+          "ct_eager",
+          "ct_lazy"
+        ],
+        "eagerError": [
+          "工具上下文里的 agent 尚未构造完成"
+        ],
+        "lazySeen": [
+          "a10"
+        ],
+        "agentId": "a10"
+      }
+    },
+    {
+      "id": "1.1-F10",
+      "question": "model 生效吗（含 `:thinking` 后缀的写法）",
+      "observed": "model=\"faux/smart\" → 请求 model=smart；model=\"faux/echo:high\" → 请求 model=echo；session.thinkingLevel=off",
+      "verdict": "OK",
+      "conclusion": "生效：模型 id 与后缀都被正确拆分（后缀进 thinkingLevel）。",
+      "data": {
+        "m1": "smart",
+        "m2": "echo",
+        "thinkingLevel": "off"
+      }
+    },
+    {
+      "id": "1.1-F11",
+      "question": "thinking 生效吗（session 档位 + 是否真的改变了请求体）",
+      "observed": "{\"off\":{\"session\":\"off\",\"bodyFields\":{}},\"low\":{\"session\":\"low\",\"bodyFields\":{\"reasoning_effort\":\"low\"}},\"high\":{\"session\":\"high\",\"bodyFields\":{\"reasoning_effort\":\"high\"}}}",
+      "verdict": "OK",
+      "conclusion": "生效：档位落到 session，且请求体随之变化（reasoning:true 的模型）。",
+      "data": {
+        "off": {
+          "session": "off",
+          "bodyFields": {}
+        },
+        "low": {
+          "session": "low",
+          "bodyFields": {
+            "reasoning_effort": "low"
+          }
+        },
+        "high": {
+          "session": "high",
+          "bodyFields": {
+            "reasoning_effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "1.1-F11b",
+      "question": "thinking 在 reasoning:false 的模型上会怎样",
+      "observed": "reasoning:false 模型 + thinking=high → session.thinkingLevel=off",
+      "verdict": "PARTIAL",
+      "conclusion": "能力位是天花板：模型声明 reasoning:false 时档位被夹回 off，不报错（静默）。",
+      "data": {
+        "session": "off"
+      }
+    },
+    {
+      "id": "1.1-F12",
+      "question": "onToolCall 生效吗（能拿到 name/input、拦截是否真的阻止执行）",
+      "observed": "门收到=[{\"name\":\"read\",\"input\":{\"path\":\"probe-cwd.txt\"}}]；tool_end=[\"read:true\"]；拦截理由出现在对话里=true；read 的真实输出出现在对话里=false",
+      "verdict": "OK",
+      "conclusion": "生效：拿到真实 name/input，拦截后工具以错误结果结束、未执行。",
+      "data": {
+        "gateCalls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "probe-cwd.txt"
+            }
+          }
+        ],
+        "ends": [
+          "read:true"
+        ],
+        "blockedReasonInDialog": true,
+        "toolOutputInDialog": false
+      }
+    }
+  ]
+}

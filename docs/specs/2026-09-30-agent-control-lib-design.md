@@ -301,7 +301,7 @@ send_message({ agentId: "a3", message: "把刚才的结论写成 md" })
 | 1 | 自己构造 `DefaultResourceLoader`，用 `additionalSkillPaths` / `extensionFactories` / `additionalExtensionPaths` / `appendSystemPrompt` / `agentsFilesOverride` **显式注入**，不依赖磁盘发现 | 理由不是「绕开 trust」（探路证伪：SDK 路径下 `projectTrusted` 默认就是 `true`，项目资源正常加载），而是**确定性**：注入什么就是什么，不受磁盘布局与 cwd 影响 |
 | 2 | skill 名字解析：建 `DefaultResourceLoader` + `reload()`，用 `getSkills().skills` 做名字→Skill 映射；找不到**抛错** | 静默降级会让运行时行为不可预测。注意 0.99.1 的 `getSkills()` 返回 `{ skills, diagnostics }` 而**不是**数组 |
 | 3 | 模型解析直接用导出的 `resolveCliModel({ cliModel, modelRuntime })` | 已支持 `provider/id:thinking` 语法，不自造。**但它对不存在的模型只给 warning 不报错**，库必须自己判 warning（见决策 #28） |
-| 4 | 仅当 `spec.tools` **非空**时才把 customTools 与**设计者声明的**扩展工具名并入白名单；`tools: []` 表示一个工具都不给，完全未提供则不动白名单 | 探路实测：不传 `tools` 时 customTools 自动生效，传了就必须把 customTools 名列进去。只认 `spec.extensions`、**不认环境里自动发现**的扩展（用户级 `.pi/extensions` 会把白名单悄悄撑开）。空数组走真值判断会被吃掉，所以判据用 `?.length` |
+| 4 | 仅当 `spec.tools` **非空**时才把 customTools 与**设计者声明的**扩展工具名并入白名单；`tools: []` 表示一个工具都不给，完全未提供则不动白名单 | 两轮审计实测更正：customTools **不需要**列进 `tools` —— 白名单非空时库强制并入它的名字（`create-agent.ts:139`），白名单**关不掉** customTool，要关只能用 `excludeTools`。需要设计者在 `spec.extensions` 里声明的只有**扩展**工具名；环境里自动发现的扩展不算，否则用户级 `.pi/extensions` 会把白名单悄悄撑开。`tools: []` 走真值判断会被吃掉，所以判据用 `?.length` |
 | 5 | `RunResult.error` 显式暴露 | pi 的 `prompt()` 在**接受后**失败是通过事件流报告的，不 reject。不暴露的话调用方会误判成功 |
 | 6 | `RunResult.usage` = 本次运行；`ControlledAgent.usage` = 全生命周期累计 | 两者都叫 usage 极易误用，必须在类型注释与文档里写死语义 |
 | 7 | 事件归一化只对外暴露 7 个 + `session` 逃生口；载荷用 `AgentEventMap` 收窄 | 全透传等于没封装；`unknown` 会逼用户到处 cast |
@@ -323,7 +323,7 @@ send_message({ agentId: "a3", message: "把刚才的结论写成 md" })
 | 23 | `send()` 不带回复通道，用 `agent.lastResult` 配合 | 带回复的 `send` 就是同步 `ask`，会把死锁引进来。督导等场景只需「投递 → `waitForIdle()` → 读 `lastResult`」 |
 | 24 | 不做轮次硬上限 | 「轮次上限 + 督导 agent」是一种可用方案，不是唯一方案。硬上限会阻止合法的长任务；统一由 `budgetTokens` 兑底，需要更早千预时用决策 #22 的事件 |
 | 25 | **`role` 用 `appendSystemPrompt` 实现，不用 `systemPrompt` 也不用 `systemPromptOverride`** | 探路实测：`systemPromptOverride(base)` 的 base 是 `systemPrompt` **选项的值**，不是 pi 内置默认提示词；`systemPrompt` 是整体替换，会把 `<tools>` 段一起换掉。`appendSystemPrompt` 保留默认行为，角色说明追加在 `<tools>` 之后、`<available_skills>` 之前 |
-| 26 | `send()` 必须自己分派状态：`running > 0 \|\| isStreaming` → `steer`/`followUp`，否则 → `prompt` | 探路实测：**空闲时 `steer()` 不抛错但静默丢弃消息**（请求数不变）；忙时 `prompt()` 抛错并要求 `streamingBehavior`。只看 `isStreaming` 不够 —— 它要等 `session.prompt()` 内部几个 await 才翻真，而 `send()` 是先发起再返回，启动窗口里的第二次投递会再调一次 `prompt()` 被拒，消息没跑却谎报 `ran`。所以库自己维护「有几个跑在飞」 |
+| 26 | `send()` 必须自己分派状态：`running > 0 \|\| isStreaming` → `steer`/`followUp`，否则 → `prompt` | 第二轮审计实测更正：空闲时 `steer()` 不是「静默**丢弃**」，而是「**静默停放 + 下一次 `prompt()` 被唤醒并顶替那次 prompt 的返回文本**」（请求数不变，但那条消息会在几秒后另一个业务分支里冒出来偷走结果）。比丢弃更难查。忙时 `prompt()` 抛错并要求 `streamingBehavior`。只看 `isStreaming` 不够 —— 它要等 `session.prompt()` 内部几个 await 才翻真，而 `send()` 是先发起再返回，启动窗口里的第二次投递会再调一次 `prompt()` 被拒，消息没跑却谎报 `ran`。所以库自己维护「有几个跑在飞」 |
 | 27 | `skills` 里的 `Skill` 对象必须指向**真实存在**的文件 | 探路实测：虚拟 `filePath` 会在 `getDefaultSourceInfoForPath` 里 `ENOENT` 崩掉。按名字解析也必须走磁盘上的真技能 |
 | 28 | `resolveCliModel` 返回的 `warning` 必须自己处理，不得忽略 | 探路实测：不存在的模型返回 `model` **仍然有值** + `warning: 'Model "nope" not found ... Using custom model id'`。直接信任 `model` 会把拼写错误变成静默的奇怪行为 |
 | 29 | 依赖必须**显式声明**：至少 `@earendil-works/pi-coding-agent` + `typebox`；若要用 `calculateCost` / `Usage` 则还需 `@earendil-works/pi-ai` | 探路实测：三者中只有 pi-coding-agent 是顶层依赖，`typebox` 与 `pi-ai` 都只是它的嵌套依赖，**从项目根不可解析**。不加 `typebox` 连 `defineTool` 都写不出来 |

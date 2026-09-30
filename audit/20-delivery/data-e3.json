@@ -1,0 +1,134 @@
+{
+  "e3a": [
+    {
+      "n": 1,
+      "createMs": 11.7091,
+      "runMs": 237.1146,
+      "totalMs": 248.8237,
+      "perAgentMs": 237.1146,
+      "serialWouldBeMs": 100,
+      "heapMB": 57.9
+    },
+    {
+      "n": 4,
+      "createMs": 8.1865,
+      "runMs": 121.9145,
+      "totalMs": 130.101,
+      "perAgentMs": 30.478625,
+      "serialWouldBeMs": 400,
+      "heapMB": 63.9
+    },
+    {
+      "n": 8,
+      "createMs": 19.5088,
+      "runMs": 154.1152,
+      "totalMs": 173.624,
+      "perAgentMs": 19.2644,
+      "serialWouldBeMs": 800,
+      "heapMB": 52.5
+    },
+    {
+      "n": 16,
+      "createMs": 29.6164,
+      "runMs": 144.6989,
+      "totalMs": 174.3153,
+      "perAgentMs": 9.04368125,
+      "serialWouldBeMs": 1600,
+      "heapMB": 73
+    },
+    {
+      "n": 32,
+      "createMs": 48.522,
+      "runMs": 182.6022,
+      "totalMs": 231.1242,
+      "perAgentMs": 5.70631875,
+      "serialWouldBeMs": 3200,
+      "heapMB": 63.2
+    }
+  ],
+  "e3b": [
+    {
+      "mode": "default",
+      "k": 1,
+      "ms": 355
+    },
+    {
+      "mode": "default",
+      "k": 3,
+      "ms": 342
+    },
+    {
+      "mode": "parallel",
+      "k": 1,
+      "ms": 335
+    },
+    {
+      "mode": "parallel",
+      "k": 3,
+      "ms": 328
+    },
+    {
+      "mode": "sequential",
+      "k": 1,
+      "ms": 331
+    },
+    {
+      "mode": "sequential",
+      "k": 3,
+      "ms": 935
+    }
+  ],
+  "e3c": {
+    "sends": [
+      "queued",
+      "queued",
+      "queued",
+      "queued",
+      "queued",
+      "queued",
+      "queued",
+      "queued",
+      "queued",
+      "queued"
+    ],
+    "mainText": "echo:积压10",
+    "mainTok": 198,
+    "requests": 11,
+    "seq": [
+      "[[sleep:300]] 主干",
+      "积压1",
+      "积压2",
+      "积压3",
+      "积压4",
+      "积压5",
+      "积压6",
+      "积压7",
+      "积压8",
+      "积压9",
+      "积压10"
+    ],
+    "fifo": true,
+    "totalMs": 203,
+    "lastResult": "echo:积压10",
+    "agentUsage": 198,
+    "roundCompleted": 1,
+    "roundToks": [
+      198
+    ]
+  },
+  "e3d": {
+    "roundCompleted": 10,
+    "usages": [
+      18,
+      18,
+      18,
+      18,
+      18,
+      18,
+      18,
+      18,
+      18,
+      18
+    ]
+  }
+}

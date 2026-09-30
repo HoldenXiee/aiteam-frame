@@ -1,0 +1,252 @@
+{
+  "e5a": {
+    "controlTokens": 18,
+    "injectTokens": 36,
+    "injectText": "echo:追加",
+    "agentUsage": 36
+  },
+  "e5b": [
+    {
+      "v": "M1-prompt",
+      "overlap": "concurrent",
+      "ok": "8/8",
+      "sample": [
+        {
+          "v": "M1-prompt",
+          "trial": 1,
+          "overlap": "concurrent",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        },
+        {
+          "v": "M1-prompt",
+          "trial": 2,
+          "overlap": "concurrent",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        }
+      ]
+    },
+    {
+      "v": "M1-prompt",
+      "overlap": "settle",
+      "ok": "8/8",
+      "sample": [
+        {
+          "v": "M1-prompt",
+          "trial": 1,
+          "overlap": "settle",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        },
+        {
+          "v": "M1-prompt",
+          "trial": 2,
+          "overlap": "settle",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        }
+      ]
+    },
+    {
+      "v": "M2-send",
+      "overlap": "concurrent",
+      "ok": "0/8",
+      "sample": [
+        {
+          "v": "M2-send",
+          "trial": 1,
+          "overlap": "concurrent",
+          "aGetsA": false,
+          "bGetsB": false,
+          "finalLast": "echo:B"
+        },
+        {
+          "v": "M2-send",
+          "trial": 2,
+          "overlap": "concurrent",
+          "aGetsA": false,
+          "bGetsB": false,
+          "finalLast": "echo:B"
+        }
+      ]
+    },
+    {
+      "v": "M2-send",
+      "overlap": "settle",
+      "ok": "0/8",
+      "sample": [
+        {
+          "v": "M2-send",
+          "trial": 1,
+          "overlap": "settle",
+          "innerRet": "echo:A",
+          "aGetsA": false,
+          "bGetsB": false,
+          "finalLast": "echo:A"
+        },
+        {
+          "v": "M2-send",
+          "trial": 2,
+          "overlap": "settle",
+          "innerRet": "echo:A",
+          "aGetsA": false,
+          "bGetsB": false,
+          "finalLast": "echo:A"
+        }
+      ]
+    },
+    {
+      "v": "M3-send+waitForIdle",
+      "overlap": "concurrent",
+      "ok": "8/8",
+      "sample": [
+        {
+          "v": "M3-send+waitForIdle",
+          "trial": 1,
+          "overlap": "concurrent",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        },
+        {
+          "v": "M3-send+waitForIdle",
+          "trial": 2,
+          "overlap": "concurrent",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        }
+      ]
+    },
+    {
+      "v": "M3-send+waitForIdle",
+      "overlap": "settle",
+      "ok": "8/8",
+      "sample": [
+        {
+          "v": "M3-send+waitForIdle",
+          "trial": 1,
+          "overlap": "settle",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        },
+        {
+          "v": "M3-send+waitForIdle",
+          "trial": 2,
+          "overlap": "settle",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        }
+      ]
+    },
+    {
+      "v": "M4-send+自读messages",
+      "overlap": "concurrent",
+      "ok": "8/8",
+      "sample": [
+        {
+          "v": "M4-send+自读messages",
+          "trial": 1,
+          "overlap": "concurrent",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        },
+        {
+          "v": "M4-send+自读messages",
+          "trial": 2,
+          "overlap": "concurrent",
+          "outerRet": "echo:A",
+          "innerRet": "echo:B",
+          "aGetsA": true,
+          "bGetsB": true,
+          "finalLast": "echo:B"
+        }
+      ]
+    },
+    {
+      "v": "M4-send+自读messages",
+      "overlap": "settle",
+      "ok": "0/8",
+      "sample": [
+        {
+          "v": "M4-send+自读messages",
+          "trial": 1,
+          "overlap": "settle",
+          "outerRet": "echo:A",
+          "innerRet": "(找不到自己的 user 消息)",
+          "aGetsA": true,
+          "bGetsB": false,
+          "finalLast": "echo:A"
+        },
+        {
+          "v": "M4-send+自读messages",
+          "trial": 2,
+          "overlap": "settle",
+          "outerRet": "echo:A",
+          "innerRet": "(找不到自己的 user 消息)",
+          "aGetsA": true,
+          "bGetsB": false,
+          "finalLast": "echo:A"
+        }
+      ]
+    }
+  ],
+  "e5c": [
+    {
+      "when": "busy",
+      "ok": "0/6",
+      "sample": {
+        "when": "busy",
+        "sentAt": "忙时",
+        "spawnKeepsTask": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a68。\n\necho:追加"
+      }
+    },
+    {
+      "when": "after-spawn",
+      "ok": "6/6",
+      "sample": {
+        "when": "after-spawn",
+        "sentAt": "spawn 返回之后",
+        "spawnKeepsTask": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a80。\n\necho:[[sleep:400]] 子任务原文"
+      }
+    },
+    {
+      "when": "when-idle",
+      "ok": "6/6",
+      "sample": {
+        "when": "when-idle",
+        "sentAt": "确认 !isStreaming 后",
+        "spawnKeepsTask": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a92。\n\necho:[[sleep:400]] 子任务原文"
+      }
+    }
+  ]
+}

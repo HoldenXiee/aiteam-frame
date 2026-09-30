@@ -1,0 +1,10 @@
+Error: Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.
+    at AgentSession.prompt (file:///D:/space/aiteam/test/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js:1485:23)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.prompt (file:///D:/space/aiteam/test/src/agent/create-agent.ts:216:7)
+    at async Promise.all (index 1)
+    at async file:///D:/space/aiteam/test/audit/07-observability/e1-live-reconstruct.ts:169:19
+    at async step (file:///D:/space/aiteam/test/audit/07-observability/e1-live-reconstruct.ts:138:11)
+    at async file:///D:/space/aiteam/test/audit/07-observability/e1-live-reconstruct.ts:165:1
+
+Node.js v24.18.0

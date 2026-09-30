@@ -1,0 +1,9 @@
+
+═══════ F2 一个成员极慢（阻塞 25s）═══════
+  [基线] 3 个快工人：顶层墙钟 20375ms；各轮 fast3=4797ms fast1=5433ms fast2=11054ms
+  slow_worker 实际调用的工具：["slow_probe"]
+  [混跑] 顶层墙钟 36317ms；slow_worker 轮长 30627ms；fast 结束时刻 fast3@10827 fast1@11463 fast2@17084 fast1@24974 fast2@26592 fast3@27394
+  → 快分支是否被推迟到慢分支之后才结束：见上面 fast 各轮的结束时刻 vs slow 的结束时刻 53686
+
+故障注入合计花费 $0.001378
+写出 data-faults-f2.json / log-faults-f2.txt

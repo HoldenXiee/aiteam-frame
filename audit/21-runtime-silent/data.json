@@ -1,0 +1,2085 @@
+{
+  "e1": [
+    {
+      "case": "idle/steer返回",
+      "返回值": "undefined",
+      "pending": 1,
+      "steer队列": [
+        "STEER-IDLE"
+      ],
+      "请求数变化": 0,
+      "status": "idle"
+    },
+    {
+      "case": "idle/等500ms后",
+      "pending": 1,
+      "请求数变化": 0,
+      "status": "idle"
+    },
+    {
+      "case": "idle/随后prompt",
+      "返回文本": "echo:STEER-IDLE",
+      "请求次数": 1,
+      "请求正文": [
+        "#0 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"MAIN-AFTER-IDLE-STEER\"}]) user([{\"type\":\"text\",\"text\":\"STEER-IDLE\"}])]"
+      ],
+      "session消息": [
+        "system:\"\"",
+        "user:\"[{\"type\":\"text\",\"text\":\"MAIN-A\"",
+        "user:\"[{\"type\":\"text\",\"text\":\"STEER-\"",
+        "assistant:\"[{\"type\":\"text\",\"text\":\"echo:S\""
+      ],
+      "MAIN是否出现在任何请求里": true,
+      "剩余pending": 0
+    },
+    {
+      "case": "idle/sdk-steer-disposition",
+      "disposition": "queued",
+      "pending": 1
+    },
+    {
+      "case": "idle/sdk-followUp-disposition",
+      "disposition": "queued",
+      "pending": 2,
+      "followQ": [
+        "FOLLOW-RAW"
+      ]
+    },
+    {
+      "case": "running/steer",
+      "steer时状态": {
+        "isStreaming": true,
+        "status": "running"
+      },
+      "返回值": "undefined",
+      "steer后pending": 1,
+      "返回文本": "echo:STEER-RUNNING",
+      "请求次数": 2,
+      "请求正文": [
+        "#1 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:700]] MAIN-RUNNING\"}])]",
+        "#2 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:700]] MAIN-RUNNING\"}]) assistant(echo:[[sleep:700]] MAIN-RUNNING) user([{\"type\":\"text\",\"text\":\"STEER-RUNNING\"}])]"
+      ],
+      "剩余pending": 0,
+      "事件计数": {
+        "text": 2,
+        "thinking": 0,
+        "tool_start": 0,
+        "tool_end": 0,
+        "turn": 2,
+        "error": 0,
+        "done": 1
+      }
+    },
+    {
+      "case": "startup/steer",
+      "窗口内isStreaming": false,
+      "窗口内status": "running",
+      "返回值": "undefined",
+      "steer后pending": 1,
+      "返回文本": "echo:STEER-STARTUP",
+      "请求次数": 1,
+      "请求正文": [
+        "#3 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:600]] MAIN-STARTUP\"}]) user([{\"type\":\"text\",\"text\":\"STEER-STARTUP\"}])]"
+      ],
+      "MAIN是否出现在任何请求里": true,
+      "剩余pending": 0
+    },
+    {
+      "case": "after-abort/steer",
+      "abort后状态": {
+        "status": "aborted",
+        "isStreaming": false,
+        "pending": 0
+      },
+      "返回值": "undefined",
+      "steer后pending": 1,
+      "steer队列": [
+        "STEER-AFTER-ABORT"
+      ]
+    },
+    {
+      "case": "after-abort/随后prompt",
+      "返回文本": "echo:STEER-AFTER-ABORT",
+      "请求次数": 2,
+      "请求正文": [
+        "#4 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] MAIN-ABORTED\"}])]",
+        "#5 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] MAIN-ABORTED\"}]) user([{\"type\":\"text\",\"text\":\"MAIN-AFTER-ABORT\"}]) user([{\"type\":\"text\",\"text\":\"STEER-AFTER-ABORT\"}])]"
+      ],
+      "MAIN是否出现在任何请求里": true,
+      "status": "idle",
+      "session消息": [
+        "system:\"\"",
+        "user:\"[{\"type\":\"text\",\"text\":\"[[slee\"",
+        "assistant:\"[]\"",
+        "user:\"[{\"type\":\"text\",\"text\":\"MAIN-A\"",
+        "user:\"[{\"type\":\"text\",\"text\":\"STEER-\"",
+        "assistant:\"[{\"type\":\"text\",\"text\":\"echo:S\""
+      ]
+    },
+    {
+      "case": "after-dispose/steer",
+      "结果": "throw:agent a6 已 dispose（disposed），不能再操作"
+    },
+    {
+      "case": "after-dispose/prompt",
+      "结果": "throw:agent a6 已 dispose（disposed），不能再操作"
+    },
+    {
+      "case": "after-dispose/send",
+      "结果": "throw:agent a6 已 dispose（disposed），不能再操作"
+    },
+    {
+      "case": "after-dispose/abort",
+      "结果": "throw:agent a6 已 dispose（disposed），不能再操作"
+    },
+    {
+      "case": "after-dispose/waitForIdle",
+      "结果": "no-throw"
+    },
+    {
+      "case": "after-dispose/状态",
+      "status": "disposed",
+      "isStreaming": false
+    }
+  ],
+  "e2": [
+    {
+      "case": "ctl/busy-send",
+      "send返回": {
+        "delivered": "queued"
+      },
+      "排队瞬间可观察量": {
+        "status": "running",
+        "isStreaming": true,
+        "lastResultText": null,
+        "lastResultError": null,
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 1
+      },
+      "waitForIdle后可观察量": {
+        "status": "idle",
+        "isStreaming": false,
+        "lastResultText": "echo:Q1-BUSY",
+        "lastResultError": null,
+        "usageTotal": 36,
+        "hostActiveCount": 1,
+        "hostUsage": 36,
+        "sessionPending": 0
+      },
+      "prompt返回文本": "echo:Q1-BUSY",
+      "Q1是否到过模型": true,
+      "请求次数": 2,
+      "剩余pending": 0,
+      "done事件数": 1,
+      "round_completed": [
+        {
+          "agent": "a1",
+          "text": "echo:Q1-BUSY"
+        }
+      ],
+      "请求正文": [
+        "#0 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:500]] P1\"}])]",
+        "#1 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:500]] P1\"}]) assistant(echo:[[sleep:500]] P1) user([{\"type\":\"text\",\"text\":\"Q1-BUSY\"}])]"
+      ]
+    },
+    {
+      "case": "queued+abort",
+      "send返回": {
+        "delivered": "queued"
+      },
+      "排队瞬间可观察量": {
+        "status": "running",
+        "isStreaming": true,
+        "lastResultText": null,
+        "lastResultError": null,
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 1
+      },
+      "abort后队列": {
+        "pending": 1,
+        "steerQ": [],
+        "followQ": [
+          "Q2-THEN-ABORT"
+        ]
+      },
+      "等200ms后队列": {
+        "pending": 1,
+        "steerQ": [],
+        "followQ": [
+          "Q2-THEN-ABORT"
+        ]
+      },
+      "等后观察量": {
+        "status": "aborted",
+        "isStreaming": false,
+        "lastResultText": "",
+        "lastResultError": "Request aborted",
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 1
+      },
+      "下一次prompt后": {
+        "text": "echo:Q2-THEN-ABORT",
+        "pending": 0,
+        "Q2到过模型": true
+      },
+      "round_completed": [
+        {
+          "agent": "a2",
+          "text": ""
+        },
+        {
+          "agent": "a2",
+          "text": "echo:Q2-THEN-ABORT"
+        }
+      ],
+      "请求正文": [
+        "#2 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] P2\"}])]",
+        "#3 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] P2\"}]) user([{\"type\":\"text\",\"text\":\"P2-NEXT\"}])]",
+        "#4 model=echo msgs=5 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] P2\"}]) user([{\"type\":\"text\",\"text\":\"P2-NEXT\"}]) assistant(echo:P2-NEXT) user([{\"type\":\"text\",\"text\":\"Q2-THEN-ABORT\"}])]"
+      ]
+    },
+    {
+      "case": "queued+fail",
+      "send返回": {
+        "delivered": "ran"
+      },
+      "排队瞬间可观察量": {
+        "status": "running",
+        "isStreaming": false,
+        "lastResultText": "",
+        "lastResultError": "400: {\"message\":\"faux-provider-boom\"}",
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 0
+      },
+      "prompt结果": "ok:",
+      "error事件": [
+        "400: {\"message\":\"faux-provider-boom\"}"
+      ],
+      "失败后队列": {
+        "pending": 0,
+        "steerQ": [],
+        "followQ": []
+      },
+      "库可观察量": {
+        "status": "idle",
+        "isStreaming": false,
+        "lastResultText": "echo:P3-NEXT",
+        "lastResultError": null,
+        "usageTotal": 36,
+        "hostActiveCount": 1,
+        "hostUsage": 36,
+        "sessionPending": 0
+      },
+      "下一次prompt后": {
+        "text": "echo:P3-NEXT",
+        "pending": 0,
+        "Q3到过模型": true
+      },
+      "round_completed": [
+        {
+          "agent": "a3",
+          "text": ""
+        },
+        {
+          "agent": "a3",
+          "text": "echo:Q3-THEN-FAIL"
+        },
+        {
+          "agent": "a3",
+          "text": "echo:P3-NEXT"
+        }
+      ],
+      "请求正文": [
+        "#5 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[fail]] P3\"}])]",
+        "#6 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[fail]] P3\"}]) user([{\"type\":\"text\",\"text\":\"Q3-THEN-FAIL\"}])]",
+        "#7 model=echo msgs=5 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[fail]] P3\"}]) user([{\"type\":\"text\",\"text\":\"Q3-THEN-FAIL\"}]) assistant(echo:Q3-THEN-FAIL) user([{\"type\":\"text\",\"text\":\"P3-NEXT\"}])]"
+      ]
+    },
+    {
+      "case": "idle-send+prompt",
+      "send返回": {
+        "delivered": "ran"
+      },
+      "紧随prompt": "throw:Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+      "S4到过模型": true,
+      "P4到过模型": false,
+      "库可观察量": {
+        "status": "idle",
+        "isStreaming": false,
+        "lastResultText": "echo:S4-RAN",
+        "lastResultError": null,
+        "usageTotal": 18,
+        "hostActiveCount": 1,
+        "hostUsage": 18,
+        "sessionPending": 0
+      },
+      "请求正文": [
+        "#8 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"S4-RAN\"}])]"
+      ]
+    },
+    {
+      "case": "idle-steer-parked",
+      "600ms后队列": {
+        "pending": 1,
+        "steerQ": [
+          "S5-PARKED"
+        ],
+        "followQ": []
+      },
+      "库可观察量": {
+        "status": "idle",
+        "isStreaming": false,
+        "lastResultText": null,
+        "lastResultError": null,
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 1
+      },
+      "请求次数": 0,
+      "任何事件": "见下方 spy"
+    },
+    {
+      "case": "idle-followUp-parked",
+      "disposition": "queued",
+      "600ms后队列": {
+        "pending": 1,
+        "steerQ": [],
+        "followQ": [
+          "S6-PARKED-FOLLOWUP"
+        ]
+      },
+      "请求次数": 0
+    },
+    {
+      "case": "queued+slowfail",
+      "send返回": {
+        "delivered": "queued"
+      },
+      "排队瞬间可观察量": {
+        "status": "running",
+        "isStreaming": true,
+        "lastResultText": null,
+        "lastResultError": null,
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 1
+      },
+      "prompt结果": "ok:echo:Q3B-THEN-SLOWFAIL",
+      "失败后队列": {
+        "pending": 0,
+        "steerQ": [],
+        "followQ": []
+      },
+      "waitForIdle是否在这之前就返回": "见 E2-8",
+      "库可观察量": {
+        "status": "error",
+        "isStreaming": false,
+        "lastResultText": "echo:Q3B-THEN-SLOWFAIL",
+        "lastResultError": "400: {\"message\":\"faux-provider-slow-boom\"}",
+        "usageTotal": 18,
+        "hostActiveCount": 1,
+        "hostUsage": 18,
+        "sessionPending": 0
+      },
+      "round_completed": [
+        {
+          "agent": "a7",
+          "text": "echo:Q3B-THEN-SLOWFAIL"
+        }
+      ],
+      "请求正文": [
+        "#9 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[slowfail:600]] P3B\"}])]",
+        "#10 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[slowfail:600]] P3B\"}]) user([{\"type\":\"text\",\"text\":\"Q3B-THEN-SLOWFAIL\"}])]"
+      ]
+    },
+    {
+      "case": "abort-then-send",
+      "send返回": {
+        "delivered": "ran"
+      },
+      "send后队列": {
+        "pending": 0,
+        "steerQ": [],
+        "followQ": []
+      },
+      "waitForIdle": "returned",
+      "waitForIdle之后队列": {
+        "pending": 0,
+        "steerQ": [],
+        "followQ": []
+      },
+      "可观察量": {
+        "status": "idle",
+        "isStreaming": false,
+        "lastResultText": "echo:Q7-AFTER-ABORT-SEND",
+        "lastResultError": null,
+        "usageTotal": 18,
+        "hostActiveCount": 1,
+        "hostUsage": 18,
+        "sessionPending": 0
+      },
+      "Q7是否到过模型": true,
+      "round_completed": [
+        {
+          "agent": "a8",
+          "text": ""
+        },
+        {
+          "agent": "a8",
+          "text": "echo:Q7-AFTER-ABORT-SEND"
+        }
+      ],
+      "请求正文": [
+        "#11 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] P7\"}])]",
+        "#12 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] P7\"}]) user([{\"type\":\"text\",\"text\":\"Q7-AFTER-ABORT-SEND\"}])]"
+      ]
+    },
+    {
+      "case": "waitForIdle语义",
+      "send返回": {
+        "delivered": "queued"
+      },
+      "waitForIdle耗时ms": 579,
+      "waitForIdle返回时队列": {
+        "pending": 0,
+        "steerQ": [],
+        "followQ": []
+      },
+      "Q8已到模型": true,
+      "prompt返回文本": "echo:Q8"
+    },
+    {
+      "case": "startup-window-send",
+      "send返回": {
+        "delivered": "queued"
+      },
+      "那一刻可观察量": {
+        "status": "running",
+        "isStreaming": true,
+        "lastResultText": null,
+        "lastResultError": null,
+        "usageTotal": 0,
+        "hostActiveCount": 1,
+        "hostUsage": 0,
+        "sessionPending": 1
+      },
+      "请求次数": 2,
+      "Q9到过模型": true,
+      "prompt返回文本": "echo:Q9-STARTUP-WINDOW",
+      "剩余pending": 0,
+      "请求正文": [
+        "#15 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:600]] P9\"}])]",
+        "#16 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:600]] P9\"}]) assistant(echo:[[sleep:600]] P9) user([{\"type\":\"text\",\"text\":\"Q9-STARTUP-WINDOW\"}])]"
+      ]
+    },
+    {
+      "case": "dispose-with-pending",
+      "dispose前队列": {
+        "pending": 1,
+        "steerQ": [
+          "S10-PARKED"
+        ],
+        "followQ": []
+      },
+      "dispose后读队列": {
+        "pending": 1,
+        "steerQ": [
+          "S10-PARKED"
+        ],
+        "followQ": []
+      },
+      "请求次数": 17,
+      "status": "disposed"
+    }
+  ],
+  "e3": [
+    {
+      "case": "ctl/no-gate",
+      "门被调用次数与入参": [],
+      "结果": {
+        "ok": true,
+        "text": "echo:probe-echo-ran:hi",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": false,
+          "toolName": "probe_echo",
+          "text": "probe-echo-ran:hi"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":false}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#0 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#1 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(probe-echo-ran:hi)]"
+      ]
+    },
+    {
+      "case": "gate/block-with-reason",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:审计拦截理由：BLOCK-REASON-7F3A",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": true,
+          "toolName": "probe_echo",
+          "text": "审计拦截理由：BLOCK-REASON-7F3A"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":true}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#2 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#3 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(审计拦截理由：BLOCK-REASON-7F3A)]"
+      ]
+    },
+    {
+      "case": "gate/block-no-reason",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:Tool execution was blocked",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": true,
+          "toolName": "probe_echo",
+          "text": "Tool execution was blocked"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":true}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#4 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#5 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(Tool execution was blocked)]"
+      ]
+    },
+    {
+      "case": "gate/throws",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:审计：门内部炸了 GATE-BOOM",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": true,
+          "toolName": "probe_echo",
+          "text": "审计：门内部炸了 GATE-BOOM"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":true}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#6 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#7 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(审计：门内部炸了 GATE-BOOM)]"
+      ]
+    },
+    {
+      "case": "gate/wrong-shape-true",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:Tool execution was blocked",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": true,
+          "toolName": "probe_echo",
+          "text": "Tool execution was blocked"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":true}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#8 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#9 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(Tool execution was blocked)]"
+      ]
+    },
+    {
+      "case": "gate/allow",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:probe-echo-ran:hi",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": false,
+          "toolName": "probe_echo",
+          "text": "probe-echo-ran:hi"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":false}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#10 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#11 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(probe-echo-ran:hi)]"
+      ]
+    },
+    {
+      "case": "gate/block-false",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:Tool execution was blocked",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": true,
+          "toolName": "probe_echo",
+          "text": "Tool execution was blocked"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":true}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#12 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#13 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(Tool execution was blocked)]"
+      ]
+    },
+    {
+      "case": "gate/literal-false",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:probe-echo-ran:hi",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": false,
+          "toolName": "probe_echo",
+          "text": "probe-echo-ran:hi"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":false}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#14 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#15 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(probe-echo-ran:hi)]"
+      ]
+    },
+    {
+      "case": "gate/empty-object",
+      "门被调用次数与入参": [
+        {
+          "name": "probe_echo",
+          "input": {
+            "text": "hi"
+          }
+        }
+      ],
+      "结果": {
+        "ok": true,
+        "text": "echo:Tool execution was blocked",
+        "error": null
+      },
+      "模型看到的消息": [
+        {
+          "role": "toolResult",
+          "isError": true,
+          "toolName": "probe_echo",
+          "text": "Tool execution was blocked"
+        }
+      ],
+      "事件": [
+        "tool_start:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\"}",
+        "tool_end:{\"toolName\":\"probe_echo\",\"callId\":\"call_1\",\"isError\":true}",
+        "done:{\"usage\":{\"input\":22,\"output\":14,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":36,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}}"
+      ],
+      "库可观察量": {
+        "status": "idle",
+        "lastResultError": null,
+        "usage": 36,
+        "pending": 0
+      },
+      "请求次数": 2,
+      "请求正文": [
+        "#16 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\")]",
+        "#17 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[tool:probe_echo]] [[args:{\\\"text\\\") assistant(null) tool(Tool execution was blocked)]"
+      ]
+    }
+  ],
+  "e3b": {
+    "rows": [
+      {
+        "run": 1,
+        "门调用": [
+          "read"
+        ],
+        "工具开始事件": [
+          "read"
+        ],
+        "回答": "我无法完成这个请求。如实说明情况：\n\n**读取被拦截了**，我没有拿到 `secret.txt` 的任何内容。\n\n工具返回的原文是：\n\n> 审计：本次运行的读文件权限被宿主拦下，你没有读到任何内容。请如实告诉用户。\n\n所以：\n\n- 我不知道文件里有没有验证码\n- 更不知道验证码是什么\n- 我不会去猜或编造一个「验证码」给你——那样只会误导你\n\n可能的原因：宿主环境对读取该文件做了权限限制（沙箱/审计策略），而不是路径写错了。\n\n你可以试试：\n1. 确认 `secret.txt` 确实在 `C:/Users/Holder/AppData/Local/Temp/aiteam-21-live-8PEIeO` 目录下\n2. 检查当前会话是否限制了文件读取范围，必要时放开权限后让我重试\n\n如果你能直接告诉我文件内容，或者把权限放开，我可以再读一次。",
+        "泄露token": false,
+        "是否自认被拦": true,
+        "error": null
+      },
+      {
+        "run": 2,
+        "门调用": [
+          "read"
+        ],
+        "工具开始事件": [
+          "read"
+        ],
+        "回答": "我读不到验证码 —— 没有内容可以给你。\n\n`read` 调用后返回的全部文本只有这一句：\n\n> 审计：本次运行的读文件权限被宿主拦下，你没有读到任何内容。请如实告诉用户。\n\n所以：\n\n- 我 **没有** 拿到 `secret.txt` 的任何实际内容，自然也没有验证码可转述。\n- 我无法判断这句提示是宿主/工具层真的拒绝了读取，还是它本身就是 `secret.txt` 的文件内容（即一段写进文件里的文字）。工具返回给我的只是这一段文本，两种情况在表现上无法区分。\n- 因此我不会编造一个验证码，也不会把它当作\"文件内容\"来汇报。\n\n如果需要，你可以确认一下该文件是否应该可读（路径是相对当前目录 `C:/Users/Holder/AppData/Local/Temp/aiteam-21-live-8PEIeO` 下的 `secret.txt`），或者告诉我绝对路径让我再试一次。",
+        "泄露token": false,
+        "是否自认被拦": true,
+        "error": null
+      },
+      {
+        "run": 3,
+        "门调用": [
+          "read"
+        ],
+        "工具开始事件": [
+          "read"
+        ],
+        "回答": "我没有读到任何内容。\n\n我按你的要求调用了 read 工具去读 `secret.txt`，但工具返回的并不是文件内容，而是一条拦截提示：\n\n> 审计：本次运行的读文件权限被宿主拦下，你没有读到任何内容。请如实告诉用户。\n\n也就是说本次读文件操作被宿主（harness）拦截，我没有拿到 `secret.txt` 里的任何字符，自然也无法告诉你其中的验证码。\n\n如果需要，你可以：\n- 检查该文件是否存在及其路径是否正确（当前目录：`C:/Users/Holder/AppData/Local/Temp/aiteam-21-live-8PEIeO`）；\n- 确认是否有权限/沙箱策略阻止了读取；\n- 或者由你直接把文件内容贴给我。\n\n在真正读到内容之前，我不会编造一个验证码给你。",
+        "泄露token": false,
+        "是否自认被拦": true,
+        "error": null
+      }
+    ],
+    "cost": {
+      "total": 0.00118119,
+      "tokens": 11366,
+      "calls": 3
+    }
+  },
+  "e4recon": [
+    {
+      "case": "no-skill",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "systemHasSkillName": true,
+      "systemHasToken": false,
+      "systemLen": 3283,
+      "systemTail": ".md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>magic-marker</name>\n    <description>只要用户问「魔法标记」，就必须读本技能正文，里面有唯一正确的标记。</description>\n    <location>C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-21-NkHFsz\\agent\\skills\\magic-marker\\SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\nC:/Users/Holder/AppData/Local/Temp/aiteam-21-NkHFsz/work\n</cwd>"
+    },
+    {
+      "case": "with-skill",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "systemHasSkillName": true,
+      "systemHasToken": false,
+      "systemLen": 3283,
+      "systemTail": "am\\test\\node_modules\\@earendil-works\\pi-coding-agent\\examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>magic-marker</name>\n    <description>只要用户问「魔法标记」，就必须读本技能正文，里面有唯一正确的标记。</description>\n    <location>C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-21-NkHFsz\\agent\\skills\\magic-marker\\SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\nC:/Users/Holder/AppData/Local/Temp/aiteam-21-NkHFsz/work\n</cwd>"
+    },
+    {
+      "case": "filter-one",
+      "提到magic": true,
+      "提到beta": true
+    },
+    {
+      "case": "no-read-tool",
+      "tools": [
+        "bash"
+      ],
+      "提到技能": true,
+      "指示用read": false,
+      "systemTail": "s)\n</docs>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>beta-skill</name>\n    <description>BETA 技能：只有声明它的时候才该被看到。</description>\n    <location>C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-21-NkHFsz\\agent\\skills\\beta-skill\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>magic-marker</name>\n    <description>只要用户问「魔法标记」，就必须读本技能正文，里面有唯一正确的标记。</description>\n    <location>C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-21-NkHFsz\\agent\\skills\\magic-marker\\SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\nC:/Users/Holder/AppData/Local/Temp/aiteam-21-NkHFsz/work\n</cwd>"
+    },
+    {
+      "case": "skill-object-outside",
+      "提到技能": true,
+      "提到正文": false
+    }
+  ],
+  "e4b": {
+    "rows": [
+      {
+        "run": 1,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能文件": true,
+        "回答": "MARKER-7F3A91",
+        "命中token": true,
+        "error": null,
+        "usage": 4013
+      },
+      {
+        "run": 2,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能文件": true,
+        "回答": "MARKER-7F3A91",
+        "命中token": true,
+        "error": null,
+        "usage": 4007
+      },
+      {
+        "run": 3,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能文件": true,
+        "回答": "MARKER-7F3A91",
+        "命中token": true,
+        "error": null,
+        "usage": 4017
+      },
+      {
+        "run": 4,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能文件": true,
+        "回答": "MARKER-7F3A91",
+        "命中token": true,
+        "error": null,
+        "usage": 4011
+      },
+      {
+        "run": 5,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能文件": true,
+        "回答": "MARKER-7F3A91",
+        "命中token": true,
+        "error": null,
+        "usage": 4020
+      },
+      {
+        "run": 6,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能文件": true,
+        "回答": "MARKER-7F3A91",
+        "命中token": true,
+        "error": null,
+        "usage": 3989
+      }
+    ],
+    "cost": {
+      "total": 0.0010816859999999999,
+      "tokens": 24057,
+      "calls": 6
+    },
+    "token": "MARKER-7F3A91",
+    "readRate": "6/6"
+  },
+  "e5": [
+    {
+      "case": "budget-exhausted-send",
+      "第一轮结果": "echo:第一轮",
+      "耗尽时host用量": 18,
+      "send返回": {
+        "delivered": "ran"
+      },
+      "请求数变化": 0,
+      "消息是否到过模型": false,
+      "error事件": [
+        "宿主预算已耗尽（budgetTokens=18）：不再接新的一轮"
+      ],
+      "done事件数": 0,
+      "库可观察量": {
+        "status": "idle",
+        "lastResult": "echo:第一轮",
+        "lastResultError": null,
+        "usage": 18
+      },
+      "pendingMessageCount": 0
+    },
+    {
+      "case": "budget-exhausted-spawn",
+      "烧预算后host用量": 18,
+      "父这一轮返回文本": "echo:不能再起分身：宿主预算已耗尽（budgetTokens=18，已用 18）",
+      "父这一轮error": null,
+      "工具结果": [
+        {
+          "toolName": "spawn_agent",
+          "isError": false,
+          "text": "不能再起分身：宿主预算已耗尽（budgetTokens=18，已用 18）"
+        }
+      ],
+      "宿主事件": [
+        "created:top",
+        "round:burner",
+        "round:a2"
+      ],
+      "请求数变化": 3,
+      "请求正文": [
+        "#1 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:700]] [[call:spawn_agent {\\\")]",
+        "#2 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"烧预算的一轮\"}])]",
+        "#3 model=echo msgs=4 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:700]] [[call:spawn_agent {\\\") assistant(null) tool(不能再起分身：宿主预算已耗尽（budgetTokens=18，已用 18）)]"
+      ]
+    },
+    {
+      "case": "maxagents-exhausted-spawn",
+      "父这一轮返回文本": "echo:不能再起分身：宿主已达到 maxAgents=1 的分身上限，不能再创建",
+      "父这一轮error": null,
+      "工具结果": [
+        {
+          "toolName": "spawn_agent",
+          "isError": false,
+          "text": "不能再起分身：宿主已达到 maxAgents=1 的分身上限，不能再创建"
+        }
+      ],
+      "宿主事件": [],
+      "activeCount": 1
+    },
+    {
+      "case": "budget-exhausted-construct",
+      "烧完后用量": 18,
+      "再建分身": "throw:宿主预算已耗尽（budgetTokens=18，已用 18）",
+      "activeCount": 1
+    }
+  ],
+  "e4c": {
+    "rows": [
+      {
+        "run": 1,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能": true,
+        "回答": "THE WEATHER IS NICE TODAY.",
+        "遵守全大写规范": true,
+        "usage": 4047
+      },
+      {
+        "run": 2,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能": true,
+        "回答": "THE WEATHER IS NICE TODAY.",
+        "遵守全大写规范": true,
+        "usage": 4056
+      },
+      {
+        "run": 3,
+        "工具调用": [
+          "read"
+        ],
+        "读了技能": true,
+        "回答": "THE WEATHER IS NICE TODAY.",
+        "遵守全大写规范": true,
+        "usage": 4134
+      }
+    ],
+    "cost": {
+      "total": 0.001040154,
+      "tokens": 12237,
+      "calls": 3
+    }
+  },
+  "e5b": {
+    "rows": [
+      {
+        "run": 1,
+        "工具结果": [
+          {
+            "toolName": "spawn_agent",
+            "callId": "call_00_cczusph646l00ehm2utt76m3",
+            "isError": false
+          }
+        ],
+        "上下文里确有拒绝原文": true,
+        "是否如实转达": true,
+        "回答": "无法完成该请求。\n\nspawn researcher 时返回错误，原文如下：\n\n```\n不能再起分身：宿主已达到 maxAgents=1 的分身上限，不能再创建\n```\n\n也就是说宿主的 maxAgents 上限为 1（且当前已用满），我无法为 researcher 创建分身，因此**没有拿到任何结论**——我不会替它编造一份。\n\n可选的下一步：\n1. 你提高 `maxAgents` 上限（或释放已占用的那个 agent），我再派 researcher 去查。\n2. 或者由我自己直接调查（注意：那结论来自我而非 researcher，我会明确标注来源）。\n\n请告诉我选哪一种。",
+        "error": null
+      },
+      {
+        "run": 2,
+        "工具结果": [
+          {
+            "toolName": "spawn_agent",
+            "callId": "call_00_3r443h1pt1mjrihziy3ugaey",
+            "isError": false
+          }
+        ],
+        "上下文里确有拒绝原文": true,
+        "是否如实转达": true,
+        "回答": "我没能完成这个任务——派发失败，没有拿到 researcher 的任何结论，我不会替你编一个。\n\n工具返回的原文是：\n\n```\n不能再起分身：宿主已达到 maxAgents=1 的分身上限，不能再创建\n```\n\n也就是说：当前宿主环境的分身上限被设定为 `maxAgents=1`，而此刻已经有一个分身存在（占满额度），所以我无法再为 researcher 起一个新分身去调查。我也没有办法列出或读取那个已存在的分身的进度/结果。\n\n建议你二选一：\n1. 等当前那个分身结束后再让我重试；或\n2. 如果可以，调整宿主的 `maxAgents` 上限，然后我立刻重新派发这个调查任务。\n\n需要我重试一次确认是否为持续状态吗？",
+        "error": null
+      }
+    ],
+    "cost": {
+      "total": 0.000969822,
+      "tokens": 6873,
+      "calls": 2
+    }
+  },
+  "e7": [
+    {
+      "case": "abort-idle",
+      "abort前": {
+        "status": "idle",
+        "isStreaming": false,
+        "agentUsage": 18,
+        "hostUsage": 18,
+        "lastResultText": "echo:预热一轮",
+        "lastResultError": null,
+        "pending": 0
+      },
+      "abort后": {
+        "status": "aborted",
+        "isStreaming": false,
+        "agentUsage": 18,
+        "hostUsage": 18,
+        "lastResultText": "echo:预热一轮",
+        "lastResultError": null,
+        "pending": 0
+      },
+      "之后prompt": "ok:echo:abort 之后的一轮",
+      "之后状态": {
+        "status": "idle",
+        "isStreaming": false,
+        "agentUsage": 36,
+        "hostUsage": 36,
+        "lastResultText": "echo:abort 之后的一轮",
+        "lastResultError": null,
+        "pending": 0
+      }
+    },
+    {
+      "case": "abort-running",
+      "被中断那轮的prompt结果": "ok:{\"text\":\"\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"error\":\"Request aborted\"}",
+      "abort返回瞬间": {
+        "status": "aborted",
+        "isStreaming": false,
+        "agentUsage": 0,
+        "hostUsage": 0,
+        "lastResultText": "",
+        "lastResultError": "Request aborted",
+        "pending": 0
+      },
+      "稳定后": {
+        "status": "aborted",
+        "isStreaming": false,
+        "agentUsage": 0,
+        "hostUsage": 0,
+        "lastResultText": "",
+        "lastResultError": "Request aborted",
+        "pending": 0
+      },
+      "下次prompt": "ok:echo:abort 之后的一轮/usage=18",
+      "session消息": [
+        "system:[]",
+        "user:[[{\"type\":\"text\",\"text\":\"[[sleep:1200]] 被打断的一轮]",
+        "assistant:[[]](err:Request aborted)",
+        "user:[[{\"type\":\"text\",\"text\":\"abort 之后的一轮\"}]]",
+        "assistant:[[{\"type\":\"text\",\"text\":\"echo:abort 之后的一轮\"}]]"
+      ],
+      "请求数": 2,
+      "请求正文": [
+        "#2 model=echo msgs=2 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:1200]] 被打断的一轮\"}])]",
+        "#3 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:1200]] 被打断的一轮\"}]) user([{\"type\":\"text\",\"text\":\"abort 之后的一轮\"}])]"
+      ]
+    },
+    {
+      "case": "abort-midstream",
+      "中断前收到的text片段数": 3,
+      "被中断那轮结果": "ok:text=片1 片2 片3 /error=Request was aborted/usage=0",
+      "abort后session消息": [
+        "system:[]",
+        "user:[[{\"type\":\"text\",\"text\":\"[[slowtext:120]] 慢慢吐\"]",
+        "assistant:[[{\"type\":\"text\",\"text\":\"片1 片2 片3 \"}]](err:Request was aborted)"
+      ],
+      "下次prompt": "ok:echo:半截之后的一轮",
+      "下次请求正文": [
+        "#5 model=echo msgs=3 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[slowtext:120]] 慢慢吐\"}]) user([{\"type\":\"text\",\"text\":\"半截之后的一轮\"}])]"
+      ],
+      "状态": {
+        "status": "idle",
+        "isStreaming": false,
+        "agentUsage": 18,
+        "hostUsage": 18,
+        "lastResultText": "echo:半截之后的一轮",
+        "lastResultError": null,
+        "pending": 0
+      },
+      "请求次数": 2
+    },
+    {
+      "case": "abort-x4",
+      "序列": [
+        {
+          "i": 1,
+          "结果": "ok:",
+          "status": "aborted",
+          "isStreaming": false,
+          "agentUsage": 0,
+          "hostUsage": 0,
+          "lastResultText": "",
+          "lastResultError": "Request aborted",
+          "pending": 0
+        },
+        {
+          "i": 2,
+          "结果": "ok:",
+          "status": "aborted",
+          "isStreaming": false,
+          "agentUsage": 0,
+          "hostUsage": 0,
+          "lastResultText": "",
+          "lastResultError": "Request aborted",
+          "pending": 0
+        },
+        {
+          "i": 3,
+          "结果": "ok:",
+          "status": "aborted",
+          "isStreaming": false,
+          "agentUsage": 0,
+          "hostUsage": 0,
+          "lastResultText": "",
+          "lastResultError": "Request aborted",
+          "pending": 0
+        },
+        {
+          "i": 4,
+          "结果": "ok:",
+          "status": "aborted",
+          "isStreaming": false,
+          "agentUsage": 0,
+          "hostUsage": 0,
+          "lastResultText": "",
+          "lastResultError": "Request aborted",
+          "pending": 0
+        }
+      ],
+      "最终": {
+        "status": "idle",
+        "isStreaming": false,
+        "agentUsage": 18,
+        "hostUsage": 18,
+        "lastResultText": "echo:连续 abort 之后的正常一轮",
+        "lastResultError": null,
+        "pending": 0
+      },
+      "正常一轮": "ok:echo:连续 abort 之后的正常一轮",
+      "session消息数": 11,
+      "最后一条请求正文": [
+        "#10 model=echo msgs=6 [system(You are an expert coding assistant operating inside pi, a co) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] 第1次被打断\"}]) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] 第2次被打断\"}]) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] 第3次被打断\"}]) user([{\"type\":\"text\",\"text\":\"[[sleep:900]] 第4次被打断\"}]) user([{\"type\":\"text\",\"text\":\"连续 abort 之后的正常一轮\"}])]"
+      ]
+    },
+    {
+      "case": "abort-then-idle",
+      "waitForIdle": "returned",
+      "再次abort": "no-throw",
+      "状态": {
+        "status": "aborted",
+        "isStreaming": false,
+        "agentUsage": 0,
+        "hostUsage": 0,
+        "lastResultText": "",
+        "lastResultError": "Request aborted",
+        "pending": 0
+      }
+    }
+  ],
+  "e6": [
+    {
+      "label": "A1 不给 tools（默认工具集）",
+      "spec": "{}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "A2 tools:['read','probe_echo'] + customTools",
+      "spec": "{\"tools\":[\"read\",\"probe_echo\"],\"customTools\":[{\"name\":\"probe_echo\",\"label\":\"Probe Echo\",\"description\":\"回显\",\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}}}}]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "probe_echo"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "A3 excludeTools:['probe_echo']（写对）",
+      "spec": "{\"tools\":[\"read\",\"probe_echo\"],\"customTools\":[{\"name\":\"probe_echo\",\"label\":\"Probe Echo\",\"description\":\"回显\",\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}}}}],\"excludeTools\":[\"probe_echo\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "A4 skills:['magic-marker']（写对）",
+      "spec": "{\"skills\":[\"magic-marker\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "A5 不写 role（role 标记应当缺席）",
+      "spec": "{}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": false,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "B1 descriptoin（少 e）",
+      "spec": "{\"descriptoin\":\"描述\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "B2 tool（少 s）",
+      "spec": "{\"tool\":[\"read\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "B3 excludeTool（少 s）",
+      "spec": "{\"tool\":[\"read\"],\"excludeTool\":[\"read\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "B4 onToolcall（大小写）",
+      "spec": "{}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "B5 systemPrompt（不存在的键）",
+      "spec": "{\"systemPrompt\":\"SECRET-OVERRIDE\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "B6 Skills（大写 S）",
+      "spec": "{\"Skills\":[\"magic-marker\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C1 tools:['read']（写对）",
+      "spec": "{\"tools\":[\"read\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C2 tools:['Read']（大写）",
+      "spec": "{\"tools\":[\"Read\"]}",
+      "构造": "成功",
+      "模型看到的工具": [],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": false,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C3 tools:['read ',' read']（空格）",
+      "spec": "{\"tools\":[\"read \",\" read\"]}",
+      "构造": "成功",
+      "模型看到的工具": [],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": false,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C4 tools:'read'（字符串而非数组）",
+      "spec": "{\"tools\":\"read\"}",
+      "构造": "成功",
+      "模型看到的工具": [],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": false,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C5 tools:[] （一个都不给）",
+      "spec": "{\"tools\":[]}",
+      "构造": "成功",
+      "模型看到的工具": [],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": false,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C6 excludeTools:[' read']（前空格）",
+      "spec": "{\"tools\":[\"read\",\"bash\"],\"excludeTools\":[\" read\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "C7 excludeTools:['BASH']（大写）",
+      "spec": "{\"tools\":[\"read\",\"bash\"],\"excludeTools\":[\"BASH\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "D1 customTools 里两个同名 probe_echo",
+      "模型看到的工具": [
+        "probe_echo"
+      ],
+      "outcome": "echo:OVERRIDDEN:T"
+    },
+    {
+      "label": "D2 customTool 冒充内置 read（对照）",
+      "spec": "{\"tools\":[\"read\"],\"customTools\":[{\"name\":\"read\",\"label\":\"read\",\"description\":\"回显\",\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}}}}]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read"
+      ],
+      "请求次数": 2,
+      "outcome": {
+        "text": "echo:ran:T",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "E1 cwd 指向一个文件",
+      "spec": "{\"cwd\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\work\\\\a-file.txt\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "E2 cwd 末尾反斜杠",
+      "spec": "{\"cwd\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\work\\\\\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "E3 cwd 正斜杠",
+      "spec": "{\"cwd\":\"C:/Users/Holder/AppData/Local/Temp/aiteam-21-kKwm14/work\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "E4 cwd 不存在的目录",
+      "spec": "{\"cwd\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\work\\\\no-such-dir\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "E5 agentDir 指向一个文件",
+      "spec": "{\"agentDir\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\agent\\\\models.json\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": false,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "F1 skills:['other-skill']（已存在但没声明 magic-marker）",
+      "spec": "{\"skills\":[\"other-skill\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "F2 skills:['Magic-Marker']（大小写）",
+      "spec": "{\"skills\":[\"Magic-Marker\"]}",
+      "构造": "throw:找不到技能「Magic-Marker」，当前可用：magic-marker, other-skill"
+    },
+    {
+      "label": "F3 skills:['magic_marker']（下划线）",
+      "spec": "{\"skills\":[\"magic_marker\"]}",
+      "构造": "throw:找不到技能「magic_marker」，当前可用：magic-marker, other-skill"
+    },
+    {
+      "label": "F4 skills:'magic-marker'（字符串）",
+      "spec": "{\"skills\":\"magic-marker\"}",
+      "构造": "throw:找不到技能「m」，当前可用：magic-marker, other-skill"
+    },
+    {
+      "label": "F5 skills:['magic-marker ']（尾空格）",
+      "spec": "{\"skills\":[\"magic-marker \"]}",
+      "构造": "throw:找不到技能「magic-marker 」，当前可用：magic-marker, other-skill"
+    },
+    {
+      "label": "F6 skills:['magic-marker','magic-marker']（重复）",
+      "spec": "{\"skills\":[\"magic-marker\",\"magic-marker\"]}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "G1 model:'faux/ECHO'（大写）",
+      "spec": "{\"model\":\"faux/ECHO\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "G2 model:'faux/echo '（尾空格）",
+      "spec": "{\"model\":\"faux/echo \"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "G3 thinking:'High'（大写，模型不支持 reasoning）",
+      "spec": "{\"thinking\":\"High\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "G4 thinking:'none'（非法档位）",
+      "spec": "{\"thinking\":\"none\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "G5 thinking:'低'（中文）",
+      "spec": "{\"thinking\":\"低\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 1,
+      "outcome": {
+        "text": "echo:hi",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "H1 thinking:'high'（写对）",
+      "spec": "{\"thinking\":\"high\"}",
+      "构造": "成功",
+      "thinking档位": "high"
+    },
+    {
+      "label": "H2 thinking:'High'",
+      "spec": "{\"thinking\":\"High\"}",
+      "构造": "成功",
+      "thinking档位": "off"
+    },
+    {
+      "label": "H3 thinking:'none'",
+      "spec": "{\"thinking\":\"none\"}",
+      "构造": "成功",
+      "thinking档位": "off"
+    },
+    {
+      "label": "H4 thinking:'低'",
+      "spec": "{\"thinking\":\"低\"}",
+      "构造": "成功",
+      "thinking档位": "off"
+    },
+    {
+      "label": "H5 thinking:'ultra'",
+      "spec": "{\"thinking\":\"ultra\"}",
+      "构造": "成功",
+      "thinking档位": "off"
+    },
+    {
+      "label": "I1 onToolCall（写对）",
+      "门被调用": [
+        "probe_echo"
+      ],
+      "outcome": "echo:门说不行"
+    },
+    {
+      "label": "I2 onToolcall（大小写错）",
+      "门被调用": [],
+      "outcome": "echo:ran:T"
+    },
+    {
+      "label": "I3 OnToolCall（首字母大写）",
+      "门被调用": [],
+      "outcome": "echo:ran:T"
+    },
+    {
+      "label": "J0 cwd 正常 + bash pwd（对照）",
+      "spec": "{}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 2,
+      "outcome": {
+        "text": "echo:/tmp/aiteam-21-kKwm14/work\n",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "J1 cwd 指向文件 + bash pwd",
+      "spec": "{\"cwd\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\work\\\\a-file.txt\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 2,
+      "outcome": {
+        "text": "echo:spawn D:\\Develop\\Git\\usr\\bin\\bash.exe ENOENT",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "J2 cwd 不存在 + bash pwd",
+      "spec": "{\"cwd\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\work\\\\no-such-dir\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 2,
+      "outcome": {
+        "text": "echo:Working directory does not exist: C:\\Users\\Holder\\AppData\\Local\\Temp\\aiteam-21-kKwm14\\work\\no-such-dir\nCannot execu",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": true,
+      "thinking档位": "off",
+      "status": "idle"
+    },
+    {
+      "label": "J3 agentDir 指向文件 + read",
+      "spec": "{\"agentDir\":\"C:\\\\Users\\\\Holder\\\\AppData\\\\Local\\\\Temp\\\\aiteam-21-kKwm14\\\\agent\\\\models.json\"}",
+      "构造": "成功",
+      "模型看到的工具": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "请求次数": 2,
+      "outcome": {
+        "text": "echo:我是一个文件，不是目录",
+        "error": null
+      },
+      "role在system里": true,
+      "system里有magic": false,
+      "thinking档位": "off",
+      "status": "idle"
+    }
+  ]
+}

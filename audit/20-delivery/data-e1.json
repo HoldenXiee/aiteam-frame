@@ -1,0 +1,947 @@
+{
+  "e1a": {
+    "rateInject": "20/20",
+    "rateControl": "0/20",
+    "withInject": [
+      {
+        "i": 1,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a2。\n\necho:追加第1条",
+        "childLast": "echo:追加第1条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文1",
+          "追加第1条"
+        ]
+      },
+      {
+        "i": 2,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a4。\n\necho:追加第2条",
+        "childLast": "echo:追加第2条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文2",
+          "追加第2条"
+        ]
+      },
+      {
+        "i": 3,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a6。\n\necho:追加第3条",
+        "childLast": "echo:追加第3条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文3",
+          "追加第3条"
+        ]
+      },
+      {
+        "i": 4,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a8。\n\necho:追加第4条",
+        "childLast": "echo:追加第4条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文4",
+          "追加第4条"
+        ]
+      },
+      {
+        "i": 5,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a10。\n\necho:追加第5条",
+        "childLast": "echo:追加第5条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文5",
+          "追加第5条"
+        ]
+      },
+      {
+        "i": 6,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a12。\n\necho:追加第6条",
+        "childLast": "echo:追加第6条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文6",
+          "追加第6条"
+        ]
+      },
+      {
+        "i": 7,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a14。\n\necho:追加第7条",
+        "childLast": "echo:追加第7条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文7",
+          "追加第7条"
+        ]
+      },
+      {
+        "i": 8,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a16。\n\necho:追加第8条",
+        "childLast": "echo:追加第8条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文8",
+          "追加第8条"
+        ]
+      },
+      {
+        "i": 9,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a18。\n\necho:追加第9条",
+        "childLast": "echo:追加第9条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文9",
+          "追加第9条"
+        ]
+      },
+      {
+        "i": 10,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a20。\n\necho:追加第10条",
+        "childLast": "echo:追加第10条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文10",
+          "追加第10条"
+        ]
+      },
+      {
+        "i": 11,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a22。\n\necho:追加第11条",
+        "childLast": "echo:追加第11条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文11",
+          "追加第11条"
+        ]
+      },
+      {
+        "i": 12,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a24。\n\necho:追加第12条",
+        "childLast": "echo:追加第12条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文12",
+          "追加第12条"
+        ]
+      },
+      {
+        "i": 13,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a26。\n\necho:追加第13条",
+        "childLast": "echo:追加第13条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文13",
+          "追加第13条"
+        ]
+      },
+      {
+        "i": 14,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a28。\n\necho:追加第14条",
+        "childLast": "echo:追加第14条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文14",
+          "追加第14条"
+        ]
+      },
+      {
+        "i": 15,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a30。\n\necho:追加第15条",
+        "childLast": "echo:追加第15条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文15",
+          "追加第15条"
+        ]
+      },
+      {
+        "i": 16,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a32。\n\necho:追加第16条",
+        "childLast": "echo:追加第16条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文16",
+          "追加第16条"
+        ]
+      },
+      {
+        "i": 17,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a34。\n\necho:追加第17条",
+        "childLast": "echo:追加第17条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文17",
+          "追加第17条"
+        ]
+      },
+      {
+        "i": 18,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a36。\n\necho:追加第18条",
+        "childLast": "echo:追加第18条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文18",
+          "追加第18条"
+        ]
+      },
+      {
+        "i": 19,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a38。\n\necho:追加第19条",
+        "childLast": "echo:追加第19条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文19",
+          "追加第19条"
+        ]
+      },
+      {
+        "i": 20,
+        "inject": true,
+        "sent": {
+          "delivered": "queued"
+        },
+        "spawnTextHasTask": false,
+        "spawnTextHasAppend": true,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a40。\n\necho:追加第20条",
+        "childLast": "echo:追加第20条",
+        "childUsage": 36,
+        "seq": [
+          "[[sleep:400]] 子任务原文20",
+          "追加第20条"
+        ]
+      }
+    ],
+    "control": [
+      {
+        "i": 1,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a42。\n\necho:[[sleep:400]] 子任务原文1",
+        "childLast": "echo:[[sleep:400]] 子任务原文1",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文1"
+        ]
+      },
+      {
+        "i": 2,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a44。\n\necho:[[sleep:400]] 子任务原文2",
+        "childLast": "echo:[[sleep:400]] 子任务原文2",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文2"
+        ]
+      },
+      {
+        "i": 3,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a46。\n\necho:[[sleep:400]] 子任务原文3",
+        "childLast": "echo:[[sleep:400]] 子任务原文3",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文3"
+        ]
+      },
+      {
+        "i": 4,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a48。\n\necho:[[sleep:400]] 子任务原文4",
+        "childLast": "echo:[[sleep:400]] 子任务原文4",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文4"
+        ]
+      },
+      {
+        "i": 5,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a50。\n\necho:[[sleep:400]] 子任务原文5",
+        "childLast": "echo:[[sleep:400]] 子任务原文5",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文5"
+        ]
+      },
+      {
+        "i": 6,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a52。\n\necho:[[sleep:400]] 子任务原文6",
+        "childLast": "echo:[[sleep:400]] 子任务原文6",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文6"
+        ]
+      },
+      {
+        "i": 7,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a54。\n\necho:[[sleep:400]] 子任务原文7",
+        "childLast": "echo:[[sleep:400]] 子任务原文7",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文7"
+        ]
+      },
+      {
+        "i": 8,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a56。\n\necho:[[sleep:400]] 子任务原文8",
+        "childLast": "echo:[[sleep:400]] 子任务原文8",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文8"
+        ]
+      },
+      {
+        "i": 9,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a58。\n\necho:[[sleep:400]] 子任务原文9",
+        "childLast": "echo:[[sleep:400]] 子任务原文9",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文9"
+        ]
+      },
+      {
+        "i": 10,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a60。\n\necho:[[sleep:400]] 子任务原文10",
+        "childLast": "echo:[[sleep:400]] 子任务原文10",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文10"
+        ]
+      },
+      {
+        "i": 11,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a62。\n\necho:[[sleep:400]] 子任务原文11",
+        "childLast": "echo:[[sleep:400]] 子任务原文11",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文11"
+        ]
+      },
+      {
+        "i": 12,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a64。\n\necho:[[sleep:400]] 子任务原文12",
+        "childLast": "echo:[[sleep:400]] 子任务原文12",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文12"
+        ]
+      },
+      {
+        "i": 13,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a66。\n\necho:[[sleep:400]] 子任务原文13",
+        "childLast": "echo:[[sleep:400]] 子任务原文13",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文13"
+        ]
+      },
+      {
+        "i": 14,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a68。\n\necho:[[sleep:400]] 子任务原文14",
+        "childLast": "echo:[[sleep:400]] 子任务原文14",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文14"
+        ]
+      },
+      {
+        "i": 15,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a70。\n\necho:[[sleep:400]] 子任务原文15",
+        "childLast": "echo:[[sleep:400]] 子任务原文15",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文15"
+        ]
+      },
+      {
+        "i": 16,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a72。\n\necho:[[sleep:400]] 子任务原文16",
+        "childLast": "echo:[[sleep:400]] 子任务原文16",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文16"
+        ]
+      },
+      {
+        "i": 17,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a74。\n\necho:[[sleep:400]] 子任务原文17",
+        "childLast": "echo:[[sleep:400]] 子任务原文17",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文17"
+        ]
+      },
+      {
+        "i": 18,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a76。\n\necho:[[sleep:400]] 子任务原文18",
+        "childLast": "echo:[[sleep:400]] 子任务原文18",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文18"
+        ]
+      },
+      {
+        "i": 19,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a78。\n\necho:[[sleep:400]] 子任务原文19",
+        "childLast": "echo:[[sleep:400]] 子任务原文19",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文19"
+        ]
+      },
+      {
+        "i": 20,
+        "inject": false,
+        "sent": null,
+        "spawnTextHasTask": true,
+        "spawnTextHasAppend": false,
+        "spawnText": "已让成员「w」处理，它的分身 id 是 a80。\n\necho:[[sleep:400]] 子任务原文20",
+        "childLast": "echo:[[sleep:400]] 子任务原文20",
+        "childUsage": 18,
+        "seq": [
+          "[[sleep:400]] 子任务原文20"
+        ]
+      }
+    ]
+  },
+  "e1b": [
+    {
+      "method": "prompt",
+      "outerText": "echo:窗口内消息",
+      "outerTokens": 18,
+      "inner": {
+        "ret": "echo:外层第一轮",
+        "text": "echo:外层第一轮"
+      },
+      "innerRan": true,
+      "lastResult": "echo:窗口内消息",
+      "agentUsage": 36,
+      "requests": 2
+    },
+    {
+      "method": "send",
+      "outerText": "echo:外层第一轮",
+      "outerTokens": 18,
+      "inner": {
+        "ret": "queued"
+      },
+      "innerRan": false,
+      "lastResult": "echo:外层第一轮",
+      "agentUsage": 18,
+      "requests": 1,
+      "pendingAfterWindow": 1,
+      "nextPromptText": "echo:窗口内消息",
+      "windowMsgRanLater": true,
+      "windowMsgHijackedNextPrompt": true
+    },
+    {
+      "method": "steer",
+      "outerText": "echo:外层第一轮",
+      "outerTokens": 18,
+      "inner": {
+        "ret": "(void)"
+      },
+      "innerRan": false,
+      "lastResult": "echo:外层第一轮",
+      "agentUsage": 18,
+      "requests": 1,
+      "pendingAfterWindow": 1,
+      "nextPromptText": "echo:窗口内消息",
+      "windowMsgRanLater": true,
+      "windowMsgHijackedNextPrompt": true
+    },
+    {
+      "method": "followUp",
+      "outerText": "echo:外层第一轮",
+      "outerTokens": 18,
+      "inner": {
+        "ret": "(void)"
+      },
+      "innerRan": false,
+      "lastResult": "echo:外层第一轮",
+      "agentUsage": 18,
+      "requests": 1,
+      "pendingAfterWindow": 1,
+      "nextPromptText": "echo:窗口内消息",
+      "windowMsgRanLater": true,
+      "windowMsgHijackedNextPrompt": true
+    }
+  ],
+  "e1c": [
+    {
+      "method": "send",
+      "k": 1,
+      "injectReturns": [
+        "queued"
+      ],
+      "mainText": "echo:追加1",
+      "mainTokens": 36,
+      "agentUsage": 36,
+      "lastResult": "echo:追加1",
+      "requests": 2,
+      "appendedRan": 1,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1"
+      ]
+    },
+    {
+      "method": "send",
+      "k": 2,
+      "injectReturns": [
+        "queued",
+        "queued"
+      ],
+      "mainText": "echo:追加2",
+      "mainTokens": 54,
+      "agentUsage": 54,
+      "lastResult": "echo:追加2",
+      "requests": 3,
+      "appendedRan": 2,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1",
+        "追加2"
+      ]
+    },
+    {
+      "method": "send",
+      "k": 5,
+      "injectReturns": [
+        "queued",
+        "queued",
+        "queued",
+        "queued",
+        "queued"
+      ],
+      "mainText": "echo:追加5",
+      "mainTokens": 108,
+      "agentUsage": 108,
+      "lastResult": "echo:追加5",
+      "requests": 6,
+      "appendedRan": 5,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1",
+        "追加2",
+        "追加3",
+        "追加4",
+        "追加5"
+      ]
+    },
+    {
+      "method": "steer",
+      "k": 1,
+      "injectReturns": [
+        "(void)"
+      ],
+      "mainText": "echo:追加1",
+      "mainTokens": 36,
+      "agentUsage": 36,
+      "lastResult": "echo:追加1",
+      "requests": 2,
+      "appendedRan": 1,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1"
+      ]
+    },
+    {
+      "method": "steer",
+      "k": 2,
+      "injectReturns": [
+        "(void)",
+        "(void)"
+      ],
+      "mainText": "echo:追加2",
+      "mainTokens": 54,
+      "agentUsage": 54,
+      "lastResult": "echo:追加2",
+      "requests": 3,
+      "appendedRan": 2,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1",
+        "追加2"
+      ]
+    },
+    {
+      "method": "steer",
+      "k": 5,
+      "injectReturns": [
+        "(void)",
+        "(void)",
+        "(void)",
+        "(void)",
+        "(void)"
+      ],
+      "mainText": "echo:追加5",
+      "mainTokens": 108,
+      "agentUsage": 108,
+      "lastResult": "echo:追加5",
+      "requests": 6,
+      "appendedRan": 5,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1",
+        "追加2",
+        "追加3",
+        "追加4",
+        "追加5"
+      ]
+    },
+    {
+      "method": "followUp",
+      "k": 1,
+      "injectReturns": [
+        "(void)"
+      ],
+      "mainText": "echo:追加1",
+      "mainTokens": 36,
+      "agentUsage": 36,
+      "lastResult": "echo:追加1",
+      "requests": 2,
+      "appendedRan": 1,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1"
+      ]
+    },
+    {
+      "method": "followUp",
+      "k": 2,
+      "injectReturns": [
+        "(void)",
+        "(void)"
+      ],
+      "mainText": "echo:追加2",
+      "mainTokens": 54,
+      "agentUsage": 54,
+      "lastResult": "echo:追加2",
+      "requests": 3,
+      "appendedRan": 2,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1",
+        "追加2"
+      ]
+    },
+    {
+      "method": "followUp",
+      "k": 5,
+      "injectReturns": [
+        "(void)",
+        "(void)",
+        "(void)",
+        "(void)",
+        "(void)"
+      ],
+      "mainText": "echo:追加5",
+      "mainTokens": 108,
+      "agentUsage": 108,
+      "lastResult": "echo:追加5",
+      "requests": 6,
+      "appendedRan": 5,
+      "seq": [
+        "[[sleep:500]] 主干任务",
+        "追加1",
+        "追加2",
+        "追加3",
+        "追加4",
+        "追加5"
+      ]
+    }
+  ],
+  "e1d": [
+    {
+      "method": "steer",
+      "ret": "(void)",
+      "ranAlone": 0,
+      "pendingBefore": 1,
+      "afterPromptText": "echo:空闲投递的消息",
+      "promptRequests": 1,
+      "idleMsgRan": true,
+      "seq": [
+        "空闲投递的消息"
+      ],
+      "lastResult": "echo:空闲投递的消息",
+      "agentUsage": 18
+    },
+    {
+      "method": "followUp",
+      "ret": "(void)",
+      "ranAlone": 0,
+      "pendingBefore": 1,
+      "afterPromptText": "echo:空闲投递的消息",
+      "promptRequests": 2,
+      "idleMsgRan": true,
+      "seq": [
+        "后续的 prompt",
+        "空闲投递的消息"
+      ],
+      "lastResult": "echo:空闲投递的消息",
+      "agentUsage": 36
+    }
+  ],
+  "e1e": [
+    {
+      "d": "D1 裸 prompt 并发",
+      "outer": "echo:B",
+      "inner": "echo:A",
+      "outerCorrect": false,
+      "innerCorrect": false
+    },
+    {
+      "d": "D2 消费者侧互斥链",
+      "outer": "echo:A",
+      "inner": "echo:B",
+      "outerCorrect": true,
+      "innerCorrect": true
+    },
+    {
+      "d": "D3 send+waitForIdle+lastResult",
+      "ret": {
+        "delivered": "ran"
+      },
+      "last": "echo:X",
+      "correct": true
+    },
+    {
+      "d": "D4 send+waitForIdle，两名投递者",
+      "firstSees": "echo:Y",
+      "equalsX": false,
+      "agentUsage": 54
+    },
+    {
+      "d": "D5 自读 session.messages 切片",
+      "mineIndex": 0,
+      "sliceTexts": [
+        "echo:X"
+      ],
+      "correct": true
+    }
+  ],
+  "e1f": [
+    {
+      "senders": [
+        {
+          "who": "甲",
+          "ret": {
+            "delivered": "queued"
+          },
+          "reads": "echo:丙的消息"
+        },
+        {
+          "who": "乙",
+          "ret": {
+            "delivered": "queued"
+          },
+          "reads": "echo:丙的消息"
+        },
+        {
+          "who": "丙",
+          "ret": {
+            "delivered": "queued"
+          },
+          "reads": "echo:丙的消息"
+        }
+      ],
+      "finalLast": "echo:丙的消息",
+      "agentUsage": 72
+    }
+  ],
+  "e1g": {
+    "spawnText": "已让成员「w」处理，它的分身 id 是 a103。\n\necho:追加",
+    "messages": [
+      "system:",
+      "user:[[sleep:400]] 子任务原文",
+      "assistant:echo:[[sleep:400]] 子任务原文",
+      "user:追加",
+      "assistant:echo:追加"
+    ],
+    "recoverable": true
+  }
+}

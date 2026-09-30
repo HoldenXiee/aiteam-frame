@@ -1,0 +1,44 @@
+run=b-20260930160717  写法=B-安全投递纪律  成员=10 个  maxAgents=20 maxDepth=3
+
+── R1 顶层并行派两个组长（两组长各自再往下派两层） ──
+  [R1 顶层并行派两个组长（两组长各自再往下派两层）] 墙钟 164425ms ｜ 宿主累计 120241 tok ｜ $0.015318
+  spawn_agent 工具结果 2 条：[CAP=true LIMIT=false 澄清串台=false] [CAP=false LIMIT=true 澄清串台=false]
+
+── R2 顶层派 reviewer 挑错 ──
+  [R2 顶层派 reviewer 挑错] 墙钟 43221ms ｜ 宿主累计 167085 tok ｜ $0.019387
+  reviewer 意见：已让成员「reviewer」处理，它的分身 id 是 a11。 1. 小结一「agent/tools/spawn-agent.ts:33」路径错，应作 src/tools/。 2. 小结二「遭重叠投递时结果会串台」不成立：send 忙时排队，需直调 prompt。 3. 小结二「无进度、无重试、无归因」不实：结果 details 已回 agentId。
+
+── R3 顶层把审查意见回灌给两个组长，收修订小结 ──
+  [R3 顶层把审查意见回灌给两个组长，收修订小结] 墙钟 93633ms ｜ 宿主累计 218369 tok ｜ $0.024663
+  CAP 修订（via=SafeMember.ask(cursor)）：【CAP-组小结】（修订版） 1. **能力真实存在**：`src/agent/create-agent.ts:65` 返回 `spawn_agent`/`send_message` 工具工厂，spec.tools 点名即自动挂载——派活是真实接线。 2. **边界被代码锁死**（路径已修正）：`src/tools/spawn-agent.ts:33` 用 `Type.Union(names.ma
+  LIMIT 修订（via=SafeMember.ask(cursor)）：【LIMIT-组小结】（据审查意见 + src 复核修订） **逐条认错/收紧** 1. 路径错：spawn-agent 工具实现在 `src/tools/spawn-agent.ts`（由 `agent/create-agent.ts:18` 的 `../tools/spawn-agent.ts` 上跳一级证实），不是 `src/agent/tools/`。 2. 原「重叠投递会静默串台」**降
+
+── R4 顶层派写手把全部内容落盘成 report.md ──
+  [R4 顶层派写手把全部内容落盘成 report.md] 墙钟 36421ms ｜ 宿主累计 244691 tok ｜ $0.028858
+
+落盘验收：exists=true bytes=8771 headings=["## 能力证据","## 风险证据","## 实测输出","## 审查意见处理"]
+  CAP标签=true LIMIT标签=true 澄清串台标记=false 实测输出=false
+
+═══ B-安全投递纪律 总账 ═══
+  总墙钟 337789ms ｜ 总 token 244691 ｜ 总花费 $0.028858
+  同刻在跑最多的轮数（按轮次区间重叠估算）= 9
+  每轮明细（轮起点 / 轮终点 / 轮长）：
+    t=  9837→ 22846ms  长=13009ms  code_probe(a7)  4236tok  $0.001869    「原始输出：`src/agent 文件行数：create-agent.ts=339 events.ts」
+    t= 14577→ 30068ms  长=15491ms  doc_reader(a9)  14725tok  $0.002324    「**结论（挑 2 条对"跑一个 8–10 人真实团队"影响最大的缺口）：** 1. **排序 #4：」
+    t=  9837→ 30577ms  长=20740ms  src_reader(a6)  15474tok  $0.001651    「结论（框架确实实现了什么）： 1. **agent/create-agent.ts:65** — `」
+    t= 14577→ 43927ms  长=29350ms  audit_reader(a8)  21349tok  $0.001507    「已读 `audit/verification-of-report.md` K 节，结论如下： **症」
+    t=  6495→ 44256ms  长=37761ms  sub_cap(a4)  4850tok  $0.000225    「**src_reader 结论（框架确实实现了什么）：** 1. **agent/create-ag」
+    t=  3571→ 48597ms  长=45026ms  lead_cap(a2)  5729tok  $0.000407    「【CAP-组小结】 能力组调研结论（证据来自 src_reader 与 code_probe）： 1」
+    t= 48597→ 55712ms  长=7115ms  lead_cap(a2)  7955tok  $0.000578    「【澄清回复】 已按补充要求补读 `src/agent/events.ts` 并加入结论： **src」
+    t=  8583→ 57318ms  长=48735ms  sub_limit(a5)  5328tok  $0.001085    「## 合并结果（原样保留） **audit_reader 的结论：** 已读 `audit/veri」
+    t=  3571→ 64407ms  长=60836ms  lead_limit(a3)  5780tok  $0.000416    「【LIMIT-组小结】 **一、静默串台（最硬的极限面）**：同一 agent 在被跑期间遭重叠投递」
+    t=    86→ 68535ms  长=68449ms  host(a1)  5141tok  $0.000557    「两份小结已返回，原样贴出如下： --- **【CAP-组小结】** 能力组调研结论（证据来自 src」
+    t= 70244→156651ms  长=86407ms  src_reader(a10)  21415tok  $0.004092    「**1) events.ts 存在** — `agent/events.ts` - 职责：`norm」
+    t= 64407→164512ms  长=100105ms  lead_limit(a3)  8259tok  $0.000606    「【澄清回复】 补上 events.ts 的定位（已核到行号）：`src/agent/events.t」
+    t=171072→205400ms  长=34328ms  reviewer(a11)  38965tok  $0.00341    「1. 小结一「agent/tools/spawn-agent.ts:33」路径错，应作 src/to」
+    t= 68535→207733ms  长=139198ms  host(a1)  7879tok  $0.00066    「reviewer 的意见原样贴出： --- 1. 小结一「agent/tools/spawn-age」
+    t= 55712→217550ms  长=161838ms  lead_cap(a2)  11114tok  $0.000847    「【CAP-组小结】（修订版） 1. **能力真实存在**：`src/agent/create-age」
+    t=215935→283107ms  长=67172ms  src_reader(a12)  28707tok  $0.003537    「## 裁决 **A) 路径** — 真实路径是 `src/tools/spawn-agent.ts`」
+    t=164512→301367ms  长=136855ms  lead_limit(a3)  11463tok  $0.000891    「【LIMIT-组小结】（据审查意见 + src 复核修订） **逐条认错/收紧** 1. 路径错：s」
+    t=314918→335621ms  长=20703ms  writer(a13)  12401tok  $0.002636    「已写入 `D:\space\aiteam\test\audit\25-e2e-stress\out\」
+    t=207733→337788ms  长=130055ms  host(a1)  13921tok  $0.001559    「writer 的确认原样贴出： --- 已写入 `D:\space\aiteam\test\audi」

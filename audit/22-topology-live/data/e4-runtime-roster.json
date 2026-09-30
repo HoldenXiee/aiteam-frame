@@ -1,0 +1,92 @@
+{
+  "name": "e4-runtime-roster",
+  "findings": [
+    {
+      "id": "E4.1a",
+      "question": "运行期给花名册加成员：已挂载工具/模型真实请求里会变吗",
+      "method": "createSpawnAgentTool 后在 members 上加 b，对比 tool.parameters/tool.description，并看假服务收到的 tools 列表",
+      "observed": "已挂载：枚举 {\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]} → {\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]}；描述含「成员 B」false → false\n     重新构造：枚举 {\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"},{\"type\":\"string\",\"const\":\"b\"}]}；描述含「成员 B」true\n     模型请求里收到的工具名：[\"spawn_agent\"]",
+      "verdict": "GAP",
+      "conclusion": "不会。已挂载的 spawn_agent 的**描述与 member 枚举都是构造时快照**，运行期加成员后模型完全发现不了它；只有重新构造工具实例才看得到。量化：影响 100% —— 不是「有时漏」，是「一定漏」。",
+      "data": {
+        "before": {
+          "enum": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]}",
+          "hasB": false
+        },
+        "after": {
+          "enum": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"}]}",
+          "hasB": false
+        },
+        "freshView": {
+          "enum": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"},{\"type\":\"string\",\"const\":\"b\"}]}",
+          "hasB": true
+        },
+        "tools": [
+          "spawn_agent"
+        ]
+      }
+    },
+    {
+      "id": "E4.2a",
+      "question": "扩编后，旧分身的工具是不是永久失去新成员",
+      "method": "两个已挂载 spawn_agent 的旧 agent，扩编后看它们的工具描述",
+      "observed": "t1 描述含 B=true；t2 描述含 B=true",
+      "verdict": "OK",
+      "conclusion": "旧分身永久失去新成员：扩编对**已在运行**的 agent 一律不可见。要让它看见只能 dispose 重建（见 E4.3）。",
+      "data": {}
+    },
+    {
+      "id": "E4.3a",
+      "question": "dispose 旧 agent 再重建，能不能把新成员接上（且旧分身不残留）",
+      "method": "old.dispose() → createAgent(同 host) → createSpawnAgentTool → 真的 spawn 一次成员 b",
+      "observed": "重建后工具描述含「成员 B」=true；调用 member=b 返回=«已让成员「b」处理，它的分身 id 是 a6。\n\n它这一轮出错了：402: {\"message\":\"This reque»；宿主里出现 member=b 的分身=true；宿主活跃数=2，历史累计 maxAgents 计数仍受 maxAgents=20 限制",
+      "verdict": "OK",
+      "conclusion": "可用。绕法成立且只有 2 行：`old.dispose(); const next = await createAgent(...)`。代价是**旧分身的多轮上下文全丢**（dispose 不清 session.messages，但对象已不可操作），以及 maxAgents 的**终身计数**照旧被旧分身占掉一份。",
+      "data": {
+        "canSeeB": true,
+        "bSpawned": true,
+        "activeCount": 2
+      }
+    },
+    {
+      "id": "E4.4a",
+      "question": "运行时改花名册有哪几条可运行的路子，各自的代价",
+      "method": "同进程里分别跑 4 种绕法并记录实际结果",
+      "observed": "重建整个 host：新 host 的 lead 能看见 2 个成员；上下文字符串搬运成功=true；host.usage 归零=false\n     一开始给全 + 设计者侧过滤：成员 b 从一开始就在枚举里=true；运行期想靠已有 API 拦住它：spawn_agent 的工具描述/枚举无法被设计者改写，onToolCall 是创建期配置 —— 实测这一次 spawn 成功（拦不住）；返回=«已让成员「b」处理，它的分身 id 是 a10。\n\n它这一轮出错了：402: {»\n     自建 customTool 读活对象：设计者自建工具读到的花名册=a,b；模型看到=\"echo:当前成员：a,b\"\n     设计者直接 createAgent + 同步花名册 + 重建工具：新分身 a13 已挂到 lead 下；重建后的工具看得见 late=true；spawn 返回=«已让成员「late」处理，它的分身 id 是 a14。\n\n它这一轮出错了：402»",
+      "verdict": "PARTIAL",
+      "conclusion": "四个绕法里，只有两个是**完整可用**的：(1) 重建 agent（旧上下文丢，maxAgents 终身计数照旧占用）；(2) 设计者侧直接 createAgent + 同步花名册 + 重建工具（不动 host，最省）。「一开始给全 + 运行期过滤」做不到：spawn_agent 的描述/枚举设计者改不了，onToolCall 也是创建期配置。「自建 customTool 读活对象」能让模型看到最新花名册，但那只是读取，模型拿到名单后仍然没有工具去起新成员。",
+      "data": {
+        "重建整个 host": "新 host 的 lead 能看见 2 个成员；上下文字符串搬运成功=true；host.usage 归零=false",
+        "一开始给全 + 设计者侧过滤": "成员 b 从一开始就在枚举里=true；运行期想靠已有 API 拦住它：spawn_agent 的工具描述/枚举无法被设计者改写，onToolCall 是创建期配置 —— 实测这一次 spawn 成功（拦不住）；返回=«已让成员「b」处理，它的分身 id 是 a10。\n\n它这一轮出错了：402: {»",
+        "自建 customTool 读活对象": "设计者自建工具读到的花名册=a,b；模型看到=\"echo:当前成员：a,b\"",
+        "设计者直接 createAgent + 同步花名册 + 重建工具": "新分身 a13 已挂到 lead 下；重建后的工具看得见 late=true；spawn 返回=«已让成员「late」处理，它的分身 id 是 a14。\n\n它这一轮出错了：402»"
+      }
+    },
+    {
+      "id": "E4.5a",
+      "question": "运行期删成员：查询与『可挑选列表』是否一致",
+      "method": "delete members.a 后用同一工具实例 spawn member=a",
+      "observed": "工具描述里仍列着「成员 A：」=false；spawn 返回=«花名册里没有成员「a」。可挑选的成员只有：a、b»",
+      "verdict": "PARTIAL",
+      "conclusion": "不一致：查询走**活对象**（说『花名册里没有成员 a』），描述与枚举走**构造时快照**（同一句里又把 a 列为可挑选成员）。对模型来说这是自相矛盾的工具结果，对设计者来说是『删了还在』。",
+      "data": {
+        "stillInEnum": false,
+        "r": "花名册里没有成员「a」。可挑选的成员只有：a、b"
+      }
+    },
+    {
+      "id": "E4.6a",
+      "question": "agent 能不能通过给 spawn_agent 多塞参数来改拓扑/配置",
+      "method": "调用 spawn_agent 时额外传 tools/model/cwd 三个参数",
+      "observed": "调用返回=«已让成员「a」处理，它的分身 id 是 a17。\n\n它这一轮出错了：402: {\"message\":\"This request requir»；被创建的分身 model=\"moonshotai/kimi-k2.6\"，member=a，parent=a16",
+      "verdict": "OK",
+      "conclusion": "多塞的参数被完全忽略（schema 只声明 member/task，多余键不影响执行）—— agent 确实改不了配置。设计红线在这一层是硬约束。",
+      "data": {
+        "r1": "已让成员「a」处理，它的分身 id 是 a17。\n\n它这一轮出错了：402: {\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 5475. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\",\"provider_name\":null,\"previous_errors\":[{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 8940. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 11955. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 9126. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 228952 tokens, but can only afford 8691. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 6423. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 6442. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 6442. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 5475. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 4761. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 6084. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 5475. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 8869. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 6258. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"},{\"code\":402,\"message\":\"This request requires more credits, or fewer max_tokens. You requested up to 234481 tokens, but can only afford 6258. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account\"}]}}\n已产出的文本：",
+        "model": "moonshotai/kimi-k2.6",
+        "configVisible": true
+      }
+    }
+  ],
+  "ledgers": {}
+}

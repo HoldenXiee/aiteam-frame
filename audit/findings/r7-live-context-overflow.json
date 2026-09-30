@@ -1,0 +1,98 @@
+{
+  "section": "G1  上下文超限会发生什么（清单 6.5）",
+  "findings": [
+    {
+      "id": "G1b",
+      "question": "输入超过上下文窗口时，失败以什么形式出现、能否被程序识别",
+      "observed": "基线（无长输入）单轮 810 tok\n     远低于窗口（20000 字符 / 约 5k token）: **失败** RunResult.error=\"400: {\\\"message\\\":\\\"Provider returned error\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"raw\\\":\\\"{\\\\\\\"error\\\\\\\":{\\\\\\\"message\\\\\\\":\\\\\\\"The request was rejected as invalid\\\\\\\",\\\\\\\"type\\\\\\\":\\\\\\\"invalid_request_error\\\\\\\",\\\\\\\"code\\\\\\\":null,\\\\\\\"param\\\\\\\":null}}\\\",\\\"provider_name\\\":\\\"Phala\\\",\\\"is_byok\\\":false}}\\n{\\\"error\\\":{\\\"message\\\":\\\"The request was rejected as invalid\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"code\\\":null,\\\"param\\\":null}}\"（21774ms）\n     接近窗口（100000 字符 / 约 25k token，窗口 32768）: **失败** RunResult.error=\"400: {\\\"message\\\":\\\"Provider returned error\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"raw\\\":\\\"{\\\\\\\"error\\\\\\\":{\\\\\\\"message\\\\\\\":\\\\\\\"The request was rejected as invalid\\\\\\\",\\\\\\\"type\\\\\\\":\\\\\\\"invalid_request_error\\\\\\\",\\\\\\\"code\\\\\\\":null,\\\\\\\"param\\\\\\\":null}}\\\",\\\"provider_name\\\":\\\"Phala\\\",\\\"is_byok\\\":false}}\\n{\\\"error\\\":{\\\"message\\\":\\\"The request was rejected as invalid\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"code\\\":null,\\\"param\\\":null}}\"（22920ms）\n     超过窗口（200000 字符 / 约 50k token，明显超出）: 成功（0 tok，19770ms，$0）\n     超限后同一分身再问一句（0 字符 / 检验会话是否被污染）: 成功（0 tok，1740ms，$0）\n     远超窗口（400000 字符 / 约 100k token，3 倍于窗口）: 成功（0 tok，2361ms，$0）",
+      "verdict": "OK",
+      "conclusion": "超限时失败以 RunResult.error=\"400: {\\\"message\\\":\\\"Provider returned error\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"raw\\\":\\\"{\\\\\\\"error\\\\\\\":{\\\\\\\"message\\\\\\\":\\\\\\\"The request was rejected as invalid\\\\\\\",\\\\\\\"type\\\\\\\":\\\\\\\"invalid_request_error\\\\\\\",\\\\\\\"code\\\\\\\":null,\\\\\\\"param\\\\\\\":null}}\\\",\\\"provider_name\\\":\\\"Phala\\\",\\\"is_byok\\\":false}}\\n{\\\"error\\\":{\\\"message\\\":\\\"The request was rejected as invalid\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"code\\\":null,\\\"param\\\":null}}\" 的形式出现 —— 不抛错，只填 error 字段，设计者必须检查返回值。含义：超限是**可识别的**，但识别方式与其它失败混在一起，没有专门的错误码。",
+      "data": {
+        "model": "openrouter/qwen/qwen-2.5-7b-instruct",
+        "declaredContextWindow": 32768,
+        "baseTokens": 810,
+        "rows": [
+          {
+            "key": "远低于窗口",
+            "note": "约 5k token",
+            "chars": 20000,
+            "ok": false,
+            "errorText": "400: {\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\"error\\\":{\\\"message\\\":\\\"The request was rejected as invalid\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"code\\\":null,\\\"param\\\":null}}\",\"provider_name\":\"Phala\",\"is_byok\":false}}\n{\"error\":{\"message\":\"The request was rejected as invalid\",\"type\":\"invalid_request_error\",\"code\":null,\"param\":null}}",
+            "tokens": 0,
+            "ms": 21774,
+            "cost": 0,
+            "threw": null,
+            "answerHead": ""
+          },
+          {
+            "key": "接近窗口",
+            "note": "约 25k token，窗口 32768",
+            "chars": 100000,
+            "ok": false,
+            "errorText": "400: {\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\"error\\\":{\\\"message\\\":\\\"The request was rejected as invalid\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"code\\\":null,\\\"param\\\":null}}\",\"provider_name\":\"Phala\",\"is_byok\":false}}\n{\"error\":{\"message\":\"The request was rejected as invalid\",\"type\":\"invalid_request_error\",\"code\":null,\"param\":null}}",
+            "tokens": 0,
+            "ms": 22920,
+            "cost": 0,
+            "threw": null,
+            "answerHead": ""
+          },
+          {
+            "key": "超过窗口",
+            "note": "约 50k token，明显超出",
+            "chars": 200000,
+            "ok": true,
+            "errorText": null,
+            "tokens": 0,
+            "ms": 19770,
+            "cost": 0,
+            "threw": null,
+            "answerHead": ""
+          },
+          {
+            "key": "超限后同一分身再问一句",
+            "note": "检验会话是否被污染",
+            "chars": 0,
+            "ok": true,
+            "errorText": null,
+            "tokens": 0,
+            "ms": 1740,
+            "cost": 0,
+            "threw": null,
+            "answerHead": ""
+          },
+          {
+            "key": "远超窗口",
+            "note": "约 100k token，3 倍于窗口",
+            "chars": 400000,
+            "ok": true,
+            "errorText": null,
+            "tokens": 0,
+            "ms": 2361,
+            "cost": 0,
+            "threw": null,
+            "answerHead": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "G1c",
+      "question": "一次超限之后，同一个分身还能继续正常对话吗",
+      "observed": "超限后同一分身再问一句：成功（0 tok，回答=\"\"）",
+      "verdict": "OK",
+      "conclusion": "超限失败**不污染会话**：同一个分身接着问一句仍然正常回答。含义：设计者可以在 catch/检查 error 之后直接降级重试（例如把长输入切短），不需要重建分身。",
+      "data": {
+        "key": "超限后同一分身再问一句",
+        "note": "检验会话是否被污染",
+        "chars": 0,
+        "ok": true,
+        "errorText": null,
+        "tokens": 0,
+        "ms": 1740,
+        "cost": 0,
+        "threw": null,
+        "answerHead": ""
+      }
+    }
+  ]
+}

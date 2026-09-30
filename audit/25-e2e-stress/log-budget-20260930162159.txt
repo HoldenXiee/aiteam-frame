@@ -1,0 +1,26 @@
+budgetTokens=130000（完整 A 跑实测 217,777 tok 的 59.7%）
+  R1 墙钟 151371ms ｜ 驱动层抛错=无 ｜ busy 通道投递=[{"delivered":"queued"},{"delivered":"queued"}]
+  busy 通道投递前后 host.usage：0 → 0（投递本身不结算，结算发生在轮末）
+  [R1 结束] host.usage=117245 / 130000  超支 0.90×
+  R2 墙钟 38526ms ｜ 抛错=无
+  [R2 结束] host.usage=143960 / 130000  超支 1.11×
+  R3 墙钟 4013ms
+  send 返回：[{"delivered":"ran"},{"delivered":"ran"}]
+  send 路径上的 error 事件：["宿主预算已耗尽（budgetTokens=130000）：不再接新的一轮","宿主预算已耗尽（budgetTokens=130000）：不再接新的一轮"]
+  紧随其后的 prompt 抛错：宿主预算已耗尽（budgetTokens=130000）：不再接新的一轮
+  lead_cap.lastResult 文本（陈旧与否）：【澄清回复】 已按补充要求补一句，并采信 `src/agent/events.ts` 的源码原文（48 行）而非推测： 补充结论：`src/agent/events.ts` 是「原始事件 → 归一化事件」的纯映射层（`normalizeEvent`，:16-48），把底层 `AgentSessionEvent` 压成带
+  [R3 结束] host.usage=143960 / 130000  超支 1.11×
+  R4 顶层 prompt 抛错：宿主预算已耗尽（budgetTokens=130000）：不再接新的一轮
+  [R4 结束] host.usage=143960 / 130000  超支 1.11×
+  R4 结束时交付物状态：report.md exists=false bytes=0
+  R5 耗尽后 send → {"delivered":"ran"}；error 事件=["宿主预算已耗尽（budgetTokens=130000）：不再接新的一轮"]；usage 143960→143960
+  R5 lastResult（读到的东西）：【澄清回复】 已按补充要求补一句，并采信 `src/agent/events.ts` 的源码原文（48 行）而非推测： 补充结论：`src/agent/events.ts` 是「原始事件 → 归一化事件」的纯映射层（`normalizeEvent`，:16-48），把底层 `Ag
+  [R5 结束] host.usage=143960 / 130000  超支 1.11×
+  [兜底1 同宿主直接 createAgent] createAgent 抛错：宿主预算已耗尽（budgetTokens=130000，已用 143960）
+  [兜底2 摘掉 host] 成功 text=已写入 report.md。 # 预算耗尽后的最小交付 花费 $0.000641
+  预算耗尽时：overshoot=1.11×  存活分身=["host(a1)","lead_cap(a2)","lead_limit(a3)","sub_cap(a4)","sub_limit(a5)","src_reader(a6)","code_probe(a7)","audit_reader(a8)","doc_reader(a9)","reviewer(a10)"]
+  最终 out 目录里有什么：report.md exists=true bytes=1576 headings=["## 能力证据","## 风险证据","## 实测输出","## 审查意见处理"]
+
+═══ 紧预算总账 ═══
+  预算 130000 ｜ 实花 143960 tok（overshoot 1.11×）｜ $0.016843
+  墙钟 207611ms ｜ 阶段：R1 结束=117245 → R2 结束=143960 → R3 结束=143960 → R4 结束=143960 → R5 结束=143960

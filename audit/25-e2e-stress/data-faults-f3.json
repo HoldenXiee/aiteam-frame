@@ -1,0 +1,91 @@
+{
+  "scenarios": [
+    {
+      "label": "F3",
+      "kill": {
+        "done": false,
+        "mid": "a3",
+        "leaf": "a4",
+        "leafParent": "a3",
+        "midStatus": "running",
+        "killedAt": 1790785024278,
+        "listAfter": [
+          "host",
+          "lead",
+          "leaf"
+        ],
+        "midInList": false
+      },
+      "r1": {
+        "driverThrow": null,
+        "hostText": "已让成员「lead」处理，它的分身 id 是 a2。 小组已组建：sub（a5）→ leaf（a6），任务「查框架 maxDepth 默认值」处理中，待结论回传后我再补一句最终小结。"
+      },
+      "afterKill": {
+        "leadId": "a2",
+        "leafId": "a4",
+        "leafParent": "a3",
+        "leafInList": true,
+        "midInList": true
+      },
+      "r2": {
+        "hostText": "send_message 返回原文： ``` 只能给自己的后代分身投递：a4 不是你的后代（它可能是祖先、兄弟或不相干的分身）。 ``` 说明：a4 不是我创建的分身，我只创建过 a2，所以无法对它投递。",
+        "sendResults": [
+          "只能给自己的后代分身投递：a4 不是你的后代（它可能是祖先、兄弟或不相干的分身）。"
+        ]
+      },
+      "r3Text": "## 任务结果报告（如实） **结论：任务未完成，且中间链路存在断点。** ### 已发生的事 **第 1 轮** — 用 `spawn_agent` 派给 lead，得到分身 id `a2`。a2 的返回原文只有： > 小组已组建：sub（a5）→ leaf（a6），任务「查框架 maxDepth 默认值」处理中，待结论回传后我再补一句最终小结。 **第 2 轮** — 向 `a4` 投递消息，返回原文： > 只能给自己的后代分身投递：a4 不是你的后代（它可能是祖先、兄弟或不相干的分身）。 ### 断点在哪、谁收不到消息 1. **a2 的「最终小结」从未到达我。** a2 明确承诺「待结论回传后我再补一句最终小结」，但这条补充消息没有出现。也就是说：`a2 → 我` 这条回传没有落地。按我目前的工具集（只有 `spawn_agent` / `send_message`，没有取结果的工具），我**无法主动拉取** a2、a5、a6 的任何输出，只能等，而它没有来。 2. **`a4` 收不到消息，且我无法判断它在不在链上。** 我创建过的分身只有 `a2`。a2 的返回里只出现过 `a5`、`a6`，从未提到 `a4`。所以： - a4 不是我的后代，我永远投不进消息（已实测失败）； - a4 是不是 a2 那一支里被回收/换掉的分身，**我没有证据**，返回文本里没有交代。a4 的编号早于 a5，存在「先起 a4、a4 掉了之后改起 a5」的可能，但这只是推测，我不替它下结论。 3. **可用信息到此为止：** 我手上只有「小组已组建（a5 → a6）」这一句创建汇报，没有任何一条来自 a5 或 a6 的结论，也没有最终小结。 ### 状态判定 - 任务「按你的角色说明组建小组并交回小结」：**组建这一步有口头汇报，交回小结这一步失败**。 - 链路状态：`我 → a",
+      "hostUsage": 22204,
+      "cost": 0.002896,
+      "listAtEnd": [
+        "host(a1)<--",
+        "lead(a2)<-a1",
+        "leaf(a4)<-a3",
+        "sub(a5)<-a2",
+        "leaf(a6)<-a5"
+      ],
+      "rounds": [
+        {
+          "member": "leaf",
+          "ms": 3195,
+          "error": null
+        },
+        {
+          "member": "sub",
+          "ms": 6140,
+          "error": "This operation was aborted"
+        },
+        {
+          "member": "leaf",
+          "ms": 5593,
+          "error": null
+        },
+        {
+          "member": "sub",
+          "ms": 48993,
+          "error": null
+        },
+        {
+          "member": "lead",
+          "ms": 69701,
+          "error": null
+        },
+        {
+          "member": "host",
+          "ms": 75374,
+          "error": null
+        },
+        {
+          "member": "host",
+          "ms": 4638,
+          "error": null
+        },
+        {
+          "member": "host",
+          "ms": 11240,
+          "error": null
+        }
+      ]
+    }
+  ],
+  "totalCost": 0.002896
+}

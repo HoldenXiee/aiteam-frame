@@ -1,0 +1,604 @@
+{
+  "runId": "a-20260930155859",
+  "mode": "a",
+  "delivery": "A-自然写法",
+  "outDir": "D:\\space\\aiteam\\test\\audit\\25-e2e-stress\\out\\a-20260930155859",
+  "phases": [
+    {
+      "name": "R1 顶层并行派两个组长（两组长各自再往下派两层）",
+      "ms": 127302,
+      "hostUsage": 94574,
+      "cost": 0.012796
+    },
+    {
+      "name": "R2 顶层派 reviewer 挑错",
+      "ms": 42954,
+      "hostUsage": 120153,
+      "cost": 0.017377
+    },
+    {
+      "name": "R3 顶层把审查意见回灌给两个组长，收修订小结",
+      "ms": 17941,
+      "hostUsage": 137823,
+      "cost": 0.020441
+    },
+    {
+      "name": "R4 顶层派写手把全部内容落盘成 report.md",
+      "ms": 52723,
+      "hostUsage": 184803,
+      "cost": 0.027148
+    }
+  ],
+  "actions": [
+    {
+      "round": "R1",
+      "hostTextHead": "两个分身已返回（lead_cap → a2，lead_limit → a3）。以下为两份小结原文： --- **lead_cap（a2）** 【澄清回复】已补读 `src/agent/events.ts`（48 行），补入结论一句： `src/agent/events.ts` 负责把 pi 会话原始事件归一化为带 `type` 标签的 `NormalizedEvent`（`normalizeEvent`，:19）：`message_update` 的 text/thinking delta → `text`/`thinking`，`tool_execution_start/end` → `tool_start`/`tool_end`，`turn_end` → `turn`（带 usage），并靠 `willRetry` 把「会重试的 agent_end」过滤掉、只在真跑完时产出 `done"
+    }
+  ],
+  "clarifySends": {
+    "ms": 0,
+    "throws": null,
+    "raw": [
+      {
+        "delivered": "queued"
+      },
+      {
+        "delivered": "queued"
+      }
+    ],
+    "textHeads": [
+      "",
+      ""
+    ]
+  },
+  "revisions": {
+    "cap": {
+      "throws": "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+      "via": "send(仅此) + prompt 抛错后的兜底 waitForIdle",
+      "texts": [
+        "已按 offset 复核：`normalizeEvent` 在 :19，`case \"message_end\"`（error 分支）在 :37，`done` 在 :43 —— 审查意见成立，先前引用的 :20/:34-37/:41 有误。修订如下： 【CAP-组小结】能力组证据链：`spawn_agent` 经 `createAgent`+`child.prompt` 真实拉起子 agent（`tools/spawn-agent.ts:52-53`），成员名被 TypeBox 枚举锁死（:33），只可挑人派活；派活前三道 `checkCanCreate` 护栏，工具仅在 `spec.tools"
+      ],
+      "raw": {
+        "delivered": "ran"
+      }
+    },
+    "limit": {
+      "throws": "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+      "via": "send(仅此) + prompt 抛错后的兜底 waitForIdle",
+      "texts": [
+        "【澄清回复】采纳审查员三条，行号已重核（`src/agent/events.ts`）： - `normalizeEvent` → **:19**（原误标 :20） - `error` 分支（`case \"message_end\"` → `{ type: \"error\" }`）→ **:37-40**（原误标 :34-37） - `done`（`case \"agent_end\"` 在 :41，实际 `return` 在 :43）→ **:41-43**（原误标 :41） - 顺带修正：`runUsage` → **:12-17**，其调用点在 :43 据此重述那一句：`events.ts` 是原"
+      ],
+      "raw": {
+        "delivered": "ran"
+      }
+    }
+  },
+  "r1SpawnToolResults": [
+    {
+      "head": "已让成员「lead_cap」处理，它的分身 id 是 a2。 【澄清回复】已补读 `src/agent/events.t",
+      "hasCapTag": false,
+      "hasLimitTag": false,
+      "hasClarifyTag": true,
+      "body": "已让成员「lead_cap」处理，它的分身 id 是 a2。\n\n【澄清回复】已补读 `src/agent/events.ts`（48 行），补入结论一句：\n\n`src/agent/events.ts` 负责把 pi 会话原始事件归一化为带 `type` 标签的 `NormalizedEvent`（`normalizeEvent`，:19）：`message_update` 的 text/thinking delta → `text`/`thinking`，`tool_execution_start/end` → `tool_start`/`tool_end`，`turn_end` → `turn`（带 usage），并靠 `willRetry` 把「会重试的 agent_end」过滤掉、只在真跑完时产出 `done` 并汇总整轮用量（`runUsage`，:12）——是纯映射、不碰会话状态，因此可直接单测。\n\n【CAP-组小结·修订】能力组证据链不变：`spawn_agent` 经 `createAgent`+`child.prompt` 真实拉起子 agent（`tools/spawn-agent.ts:52-53`），成员名被 TypeBox 枚举锁死（:33），只可挑人派活；派活前三道 `checkCanCreate` 护栏，工具仅在 `spec.tools` 点名时注入（`agent/create-agent.ts:65/117`）。新增一条：`src/agent/events.ts` 是原始事件→归一化事件的纯映射层，含重试过滤与整轮 usage 汇总，可单测。实测 "
+    },
+    {
+      "head": "已让成员「lead_limit」处理，它的分身 id 是 a3。 【澄清回复】 补充一句关于 `src/agent/ev",
+      "hasCapTag": false,
+      "hasLimitTag": false,
+      "hasClarifyTag": true,
+      "body": "已让成员「lead_limit」处理，它的分身 id 是 a3。\n\n【澄清回复】\n\n补充一句关于 `src/agent/events.ts` 的作用，并顺手说明它为何\"洗不清\"上面两条极限问题：\n\n它是**原始事件 → 归一化事件的纯映射**（`events.ts:1`、`normalizeEvent` :20），只看事件形状、不碰会话状态。正因为它不持有\"哪条消息属于哪次调用\"的归属信息，两件事在事件层就注定看不见：\n\n- **串台无从发现**：它只在 `agent_end` 时用 `runUsage(raw.messages)` 把**整包** messages 求和（:13-19、:41）。上游 `collectRun()` 排干共享池取最后一者时，包内容与归属已经错了，这里仍会算出一份\"自洽\"的 usage —— 这正是三方对账差额为 0 的实现落点。\n- **拒答不发信号**：只有 `message_end` 且 `errorMessage` 存在时才产出 `error`（:34-37）；内容拒答没有 `errorMessage`，于是只走 `done`（:41），`status` 正常。\"约 25% 拒答不进任何信号\"就卡在这一行的分支上。\n\n原小结三条结论（同分身重叠投递结果互换、资源层无隔离=缺口 5、成员产出不可信=缺口 9）不变。"
+    }
+  ],
+  "r2": {
+    "hostTextHead": "reviewer（a11）已返回，意见原文如下： 1. 小结二「normalizeEvent :20」行号错，应为 :19 2. 小结二「error（:34-37）」错，实际 :37-40 3. 小结二「done（:41）」错，实际 :43",
+    "reviewerBody": "已让成员「reviewer」处理，它的分身 id 是 a11。 1. 小结二「normalizeEvent :20」行号错，应为 :19 2. 小结二「error（:34-37）」错，实际 :37-40 3. 小结二「done（:41）」错，实际 :43",
+    "spawnCount": 1
+  },
+  "topology": [
+    {
+      "id": "a1",
+      "member": "host",
+      "status": "idle",
+      "tokens": 14619
+    },
+    {
+      "id": "a2",
+      "member": "lead_cap",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 13739
+    },
+    {
+      "id": "a3",
+      "member": "lead_limit",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 14377
+    },
+    {
+      "id": "a4",
+      "member": "sub_cap",
+      "parent": "a2",
+      "status": "idle",
+      "tokens": 5044
+    },
+    {
+      "id": "a5",
+      "member": "sub_limit",
+      "parent": "a3",
+      "status": "idle",
+      "tokens": 5256
+    },
+    {
+      "id": "a6",
+      "member": "src_reader",
+      "parent": "a4",
+      "status": "idle",
+      "tokens": 10873
+    },
+    {
+      "id": "a7",
+      "member": "code_probe",
+      "parent": "a4",
+      "status": "idle",
+      "tokens": 4250
+    },
+    {
+      "id": "a8",
+      "member": "audit_reader",
+      "parent": "a5",
+      "status": "idle",
+      "tokens": 14358
+    },
+    {
+      "id": "a9",
+      "member": "doc_reader",
+      "parent": "a5",
+      "status": "idle",
+      "tokens": 14862
+    },
+    {
+      "id": "a10",
+      "member": "src_reader",
+      "parent": "a3",
+      "status": "idle",
+      "tokens": 6097
+    },
+    {
+      "id": "a11",
+      "member": "reviewer",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 16678
+    }
+  ],
+  "r4": {
+    "hostTextHead": "writer（a12）确认原文： 已落盘：`D:/space/aiteam/test/report.md`（66 行，约 4.5k 字符，含空白；四个二级标题齐备） 一级标题行：# 交付审查报告（能力组 / 极限组）",
+    "writerBody": "已让成员「writer」处理，它的分身 id 是 a12。 已落盘：`D:/space/aiteam/test/report.md`（66 行，约 4.5k 字符，含空白；四个二级标题齐备） 一级标题行：# 交付审查报告（能力组 / 极限组）"
+  },
+  "writerToolCalls": [
+    {
+      "name": "write",
+      "inputPath": "D:/space/aiteam/test/report.md"
+    },
+    {
+      "name": "read",
+      "inputPath": "D:/space/aiteam/test/report.md"
+    }
+  ],
+  "report": {
+    "exists": false,
+    "path": "D:\\space\\aiteam\\test\\audit\\25-e2e-stress\\out\\a-20260930155859\\report.md",
+    "bytes": 0,
+    "headings": [],
+    "hasCapTag": false,
+    "hasLimitTag": false,
+    "hasClarifyTag": false,
+    "hasMetrics": false
+  },
+  "rounds": [
+    {
+      "id": "a1",
+      "member": "host",
+      "status": "idle",
+      "tokens": 28438,
+      "cost": 0.002939
+    },
+    {
+      "id": "a2",
+      "member": "lead_cap",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 25652,
+      "cost": 0.0029
+    },
+    {
+      "id": "a3",
+      "member": "lead_limit",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 20134,
+      "cost": 0.0023
+    },
+    {
+      "id": "a4",
+      "member": "sub_cap",
+      "parent": "a2",
+      "status": "idle",
+      "tokens": 5044,
+      "cost": 0.000266
+    },
+    {
+      "id": "a5",
+      "member": "sub_limit",
+      "parent": "a3",
+      "status": "idle",
+      "tokens": 5256,
+      "cost": 0.001059
+    },
+    {
+      "id": "a6",
+      "member": "src_reader",
+      "parent": "a4",
+      "status": "idle",
+      "tokens": 10873,
+      "cost": 0.002497
+    },
+    {
+      "id": "a7",
+      "member": "code_probe",
+      "parent": "a4",
+      "status": "idle",
+      "tokens": 4250,
+      "cost": 0.00189
+    },
+    {
+      "id": "a8",
+      "member": "audit_reader",
+      "parent": "a5",
+      "status": "idle",
+      "tokens": 14358,
+      "cost": 0.001378
+    },
+    {
+      "id": "a9",
+      "member": "doc_reader",
+      "parent": "a5",
+      "status": "idle",
+      "tokens": 14862,
+      "cost": 0.002389
+    },
+    {
+      "id": "a10",
+      "member": "src_reader",
+      "parent": "a3",
+      "status": "idle",
+      "tokens": 6097,
+      "cost": 0.000383
+    },
+    {
+      "id": "a11",
+      "member": "reviewer",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 16678,
+      "cost": 0.003824
+    },
+    {
+      "id": "a12",
+      "member": "writer",
+      "parent": "a1",
+      "status": "idle",
+      "tokens": 33161,
+      "cost": 0.005321
+    }
+  ],
+  "hostUsage": {
+    "input": 54119,
+    "output": 27347,
+    "cacheRead": 93326,
+    "cacheWrite": 10011,
+    "totalTokens": 184803,
+    "cost": {
+      "input": 0.00909316,
+      "output": 0.015465129999999999,
+      "cacheRead": 0.0005877439999999999,
+      "cacheWrite": 0.0020022,
+      "total": 0.027148234000000004
+    }
+  },
+  "hostCost": {
+    "input": 0.00909316,
+    "output": 0.015465129999999999,
+    "cacheRead": 0.0005877439999999999,
+    "cacheWrite": 0.0020022,
+    "total": 0.027148234000000004
+  },
+  "trace": {
+    "runId": "D:\\space\\aiteam\\test\\audit\\25-e2e-stress\\out\\a-20260930155859",
+    "startedAt": 1790783939976,
+    "events": [
+      {
+        "t": 135,
+        "kind": "created",
+        "agent": "a1",
+        "member": "host",
+        "detail": "parent=-"
+      },
+      {
+        "t": 5233,
+        "kind": "created",
+        "agent": "a2",
+        "member": "lead_cap",
+        "detail": "parent=a1"
+      },
+      {
+        "t": 5234,
+        "kind": "created",
+        "agent": "a3",
+        "member": "lead_limit",
+        "detail": "parent=a1"
+      },
+      {
+        "t": 8906,
+        "kind": "created",
+        "agent": "a4",
+        "member": "sub_cap",
+        "detail": "parent=a2"
+      },
+      {
+        "t": 9200,
+        "kind": "created",
+        "agent": "a5",
+        "member": "sub_limit",
+        "detail": "parent=a3"
+      },
+      {
+        "t": 11244,
+        "kind": "created",
+        "agent": "a6",
+        "member": "src_reader",
+        "detail": "parent=a4"
+      },
+      {
+        "t": 11244,
+        "kind": "created",
+        "agent": "a7",
+        "member": "code_probe",
+        "detail": "parent=a4"
+      },
+      {
+        "t": 37541,
+        "kind": "created",
+        "agent": "a8",
+        "member": "audit_reader",
+        "detail": "parent=a5"
+      },
+      {
+        "t": 37541,
+        "kind": "created",
+        "agent": "a9",
+        "member": "doc_reader",
+        "detail": "parent=a5"
+      },
+      {
+        "t": 94383,
+        "kind": "created",
+        "agent": "a10",
+        "member": "src_reader",
+        "detail": "parent=a3"
+      },
+      {
+        "t": 134392,
+        "kind": "created",
+        "agent": "a11",
+        "member": "reviewer",
+        "detail": "parent=a1"
+      },
+      {
+        "t": 201407,
+        "kind": "created",
+        "agent": "a12",
+        "member": "writer",
+        "detail": "parent=a1"
+      }
+    ],
+    "rounds": [
+      {
+        "t": 18063,
+        "agent": "a7",
+        "member": "code_probe",
+        "ms": 6819,
+        "roundStart": 11244,
+        "tokens": 4250,
+        "cost": 0.00189,
+        "error": null,
+        "textHead": "原始输出：`src/agent 文件行数：create-agent.ts=339 events.ts=48 host.ts=147 loader.ts=116 types.ts=183 usage.ts=31（合计 864 行）；依赖：@e",
+        "assignedMs": 18063
+      },
+      {
+        "t": 51782,
+        "agent": "a8",
+        "member": "audit_reader",
+        "ms": 14241,
+        "roundStart": 37541,
+        "tokens": 14358,
+        "cost": 0.001378,
+        "error": null,
+        "textHead": "K 节结论（3 句）： 1. 症状：同一分身被重叠投递时结果互换——`spawn_agent` 返回给父的文本变成了\"追加的第二条\"的答案，而父以为是子任务的结论，\"全程无任何信号\"。 2. 打中的原语：`RunResult` 与 `spa",
+        "assignedMs": 51782
+      },
+      {
+        "t": 62285,
+        "agent": "a6",
+        "member": "src_reader",
+        "ms": 51041,
+        "roundStart": 11244,
+        "tokens": 10873,
+        "cost": 0.002497,
+        "error": null,
+        "textHead": "**结论（2条证据）** 1. **真正运行了子 agent**：`tools/spawn-agent.ts:52` 实际调用 `createAgent({...spec, id: undefined}, …)` 起新分身并 `child.",
+        "assignedMs": 62285
+      },
+      {
+        "t": 69312,
+        "agent": "a4",
+        "member": "sub_cap",
+        "ms": 60406,
+        "roundStart": 8906,
+        "tokens": 5044,
+        "cost": 0.000266,
+        "error": null,
+        "textHead": "**两份组员结论（原样合并）** **src_reader（代码读者）：** 1. **真正运行了子 agent**：`tools/spawn-agent.ts:52` 实际调用 `createAgent({...spec, id: und",
+        "assignedMs": 69312
+      },
+      {
+        "t": 73068,
+        "agent": "a9",
+        "member": "doc_reader",
+        "ms": 35527,
+        "roundStart": 37541,
+        "tokens": 14862,
+        "cost": 0.002389,
+        "error": null,
+        "textHead": "**调研结论（从第九部分挑两条，针对「8-10 人真实团队」影响最大）** **缺口 5：资源层没有隔离。** 8-10 个成员并发时，任何一人烧光 `budgetTokens` 全宿主冻结、一个不受信分支能用光 `maxAgents` 永",
+        "assignedMs": 73068
+      },
+      {
+        "t": 79693,
+        "agent": "a5",
+        "member": "sub_limit",
+        "ms": 70493,
+        "roundStart": 9200,
+        "tokens": 5256,
+        "cost": 0.001059,
+        "error": null,
+        "textHead": "两份结论已合并如下： --- ## 审计读者（audit_reader）：K 节风险证据 1. 症状：同一分身被重叠投递时结果互换——`spawn_agent` 返回给父的文本变成了\"追加的第二条\"的答案，而父以为是子任务的结论，\"全程无任",
+        "assignedMs": 79693
+      },
+      {
+        "t": 80839,
+        "agent": "a2",
+        "member": "lead_cap",
+        "ms": 75606,
+        "roundStart": 5233,
+        "tokens": 13739,
+        "cost": 0.000942,
+        "error": null,
+        "textHead": "【澄清回复】已补读 `src/agent/events.ts`（48 行），补入结论一句： `src/agent/events.ts` 负责把 pi 会话原始事件归一化为带 `type` 标签的 `NormalizedEvent`（`nor",
+        "assignedMs": 80839
+      },
+      {
+        "t": 108163,
+        "agent": "a10",
+        "member": "src_reader",
+        "ms": 13780,
+        "roundStart": 94383,
+        "tokens": 6097,
+        "cost": 0.000383,
+        "error": null,
+        "textHead": "作用：原始事件→归一化事件纯映射（events.ts:1）。定义 NormalizedEvent(:9)，normalizeEvent 产出 text/thinking(:21-23)、tool_start/end(:26-29)、turn",
+        "assignedMs": 108163
+      },
+      {
+        "t": 121338,
+        "agent": "a3",
+        "member": "lead_limit",
+        "ms": 116104,
+        "roundStart": 5234,
+        "tokens": 14377,
+        "cost": 0.001194,
+        "error": null,
+        "textHead": "【澄清回复】 补充一句关于 `src/agent/events.ts` 的作用，并顺手说明它为何\"洗不清\"上面两条极限问题： 它是**原始事件 → 归一化事件的纯映射**（`events.ts:1`、`normalizeEvent` :20",
+        "assignedMs": 121338
+      },
+      {
+        "t": 127438,
+        "agent": "a1",
+        "member": "host",
+        "ms": 127303,
+        "roundStart": 135,
+        "tokens": 5718,
+        "cost": 0.000796,
+        "error": null,
+        "textHead": "两个分身已返回（lead_cap → a2，lead_limit → a3）。以下为两份小结原文： --- **lead_cap（a2）** 【澄清回复】已补读 `src/agent/events.ts`（48 行），补入结论一句： `sr",
+        "assignedMs": 127438
+      },
+      {
+        "t": 166493,
+        "agent": "a11",
+        "member": "reviewer",
+        "ms": 32101,
+        "roundStart": 134392,
+        "tokens": 16678,
+        "cost": 0.003824,
+        "error": null,
+        "textHead": "1. 小结二「normalizeEvent :20」行号错，应为 :19 2. 小结二「error（:34-37）」错，实际 :37-40 3. 小结二「done（:41）」错，实际 :43",
+        "assignedMs": 166493
+      },
+      {
+        "t": 170392,
+        "agent": "a1",
+        "member": "host",
+        "ms": 42954,
+        "roundStart": 127438,
+        "tokens": 8901,
+        "cost": 0.000757,
+        "error": null,
+        "textHead": "reviewer（a11）已返回，意见原文如下： 1. 小结二「normalizeEvent :20」行号错，应为 :19 2. 小结二「error（:34-37）」错，实际 :37-40 3. 小结二「done（:41）」错，实际 :43",
+        "assignedMs": 170392
+      },
+      {
+        "t": 184405,
+        "agent": "a2",
+        "member": "lead_cap",
+        "ms": 103566,
+        "roundStart": 80839,
+        "tokens": 11913,
+        "cost": 0.001958,
+        "error": null,
+        "textHead": "已按 offset 复核：`normalizeEvent` 在 :19，`case \"message_end\"`（error 分支）在 :37，`done` 在 :43 —— 审查意见成立，先前引用的 :20/:34-37/:41 有误。修",
+        "assignedMs": 184405
+      },
+      {
+        "t": 188334,
+        "agent": "a3",
+        "member": "lead_limit",
+        "ms": 66996,
+        "roundStart": 121338,
+        "tokens": 5757,
+        "cost": 0.001106,
+        "error": null,
+        "textHead": "【澄清回复】采纳审查员三条，行号已重核（`src/agent/events.ts`）： - `normalizeEvent` → **:19**（原误标 :20） - `error` 分支（`case \"message_end\"` → `{",
+        "assignedMs": 188334
+      },
+      {
+        "t": 238698,
+        "agent": "a12",
+        "member": "writer",
+        "ms": 37291,
+        "roundStart": 201407,
+        "tokens": 33161,
+        "cost": 0.005321,
+        "error": null,
+        "textHead": "已落盘：`D:/space/aiteam/test/report.md`（66 行，约 4.5k 字符，含空白；四个二级标题齐备） 一级标题行：# 交付审查报告（能力组 / 极限组）",
+        "assignedMs": 238698
+      },
+      {
+        "t": 241058,
+        "agent": "a1",
+        "member": "host",
+        "ms": 70666,
+        "roundStart": 170392,
+        "tokens": 13819,
+        "cost": 0.001386,
+        "error": null,
+        "textHead": "writer（a12）确认原文： 已落盘：`D:/space/aiteam/test/report.md`（66 行，约 4.5k 字符，含空白；四个二级标题齐备） 一级标题行：# 交付审查报告（能力组 / 极限组）",
+        "assignedMs": 241058
+      }
+    ]
+  },
+  "wallMs": 241058,
+  "peakConcurrent": 8,
+  "safeStats": []
+}

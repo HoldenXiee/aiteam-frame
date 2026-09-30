@@ -1,0 +1,170 @@
+{
+  "name": "e7-overlap-send-live",
+  "findings": [
+    {
+      "id": "E7.a",
+      "question": "真模型下，主持人重叠投递一个正忙的后代后，它能不能正确判断「那条消息的答案是什么」",
+      "method": "node audit/22-topology-live/e7-overlap-send-live.ts（W 忙时 P 投递 send_message，随后追问 P「它回了什么」）",
+      "observed": "第1次：W 忙时被投递；W 最终 lastResult=«22»（慢活应该答 11）；send_message 工具返回=«已投递：a2 当时空闲，已开始处理。»；主持人自述=«我确实看到的内容只有投递回执这一行：\n\n```\n已投递：a2 当时空闲，已开始处理。\n```\n\n没有任何回复内容。`send_message` 是投递即返回，不回传对方的答复，也没有自动通知把 a2 的回复送到我这里。所以我无法告诉你它回了»\n     第2次：W 忙时被投递；W 最终 lastResult=«22»（慢活应该答 11）；send_message 工具返回=«已投递：a4 正忙，消息已排队，等它做完当前这轮再处理。»；主持人自述=«我没有看到它的回复内容。\n\n我目前只能确认投递结果这一条信息：\n\n> 已投递：a4 正忙，消息已排队，等它做完当前这轮再处理。\n\n没有收到任何来自 a4 的回复文本或完成通知，所以它回了什么，我无法告知。»\n     第3次：W 忙时被投递；W 最终 lastResult=«22»（慢活应该答 11）；send_message 工具返回=«已投递：a6 当时空闲，已开始处理。»；主持人自述=«我没有看到 `a6` 的任何回复。\n\n我实际看到的内容只有这一行工具返回值：\n\n> 已投递：a6 当时空闲，已开始处理。\n\n这是投递状态，不是 `a6` 的回答内容。投递本身不等待回复，我也没有可用的工具去取回它的结果，所以我无法告诉你它回»\n     第4次：W 忙时被投递；W 最终 lastResult=«22»（慢活应该答 11）；send_message 工具返回=«已投递：a8 当时空闲，已开始处理。»；主持人自述=«我没有看到它回复的任何内容。\n\n我实际看到的只有 send_message 这一条工具返回文本：\n\n「已投递：a8 当时空闲，已开始处理。」\n\n这条消息只说明投递状态（已投递、当时空闲、已开始处理），本身不包含 a8 的回复内容；此后我也未»",
+      "verdict": "PARTIAL",
+      "conclusion": "4 次里 4 次主持人如实说「看不到/没有回执」；0 次给出了具体回答。工具侧确认：send_message 只回「已投递：xxx 正忙，消息已排队」，**不回内容**，所以主持人本来就拿不到答案 —— 这里测的是它会不会编。",
+      "data": [
+        {
+          "i": 1,
+          "wId": "a2",
+          "slowAnswer": "",
+          "sendResult1": "已投递：a2 当时空闲，已开始处理。",
+          "afterOverlap": "22",
+          "hostReport": "我确实看到的内容只有投递回执这一行：\n\n```\n已投递：a2 当时空闲，已开始处理。\n```\n\n没有任何回复内容。`send_message` 是投递即返回，不回传对方的答复，也没有自动通知把 a2 的回复送到我这里。所以我无法告诉你它回了什么——我没有看到。\n\n如果我需要拿到它的回复，得等你把这边的具体途径告诉我（例如它把结果写进某个文件/某处，或由能读到它的角色转达）。",
+          "tokens": 6332,
+          "cost": 0.000632034,
+          "sessionTail": [
+            {
+              "role": "user",
+              "text": "请先默数到 5，然后只回答数字 11。"
+            },
+            {
+              "role": "assistant",
+              "text": "11"
+            },
+            {
+              "role": "user",
+              "text": "只回答数字 22"
+            },
+            {
+              "role": "assistant",
+              "text": "22"
+            }
+          ],
+          "wUsage": 1856
+        },
+        {
+          "i": 2,
+          "wId": "a4",
+          "slowAnswer": "",
+          "sendResult1": "已投递：a4 正忙，消息已排队，等它做完当前这轮再处理。",
+          "afterOverlap": "22",
+          "hostReport": "我没有看到它的回复内容。\n\n我目前只能确认投递结果这一条信息：\n\n> 已投递：a4 正忙，消息已排队，等它做完当前这轮再处理。\n\n没有收到任何来自 a4 的回复文本或完成通知，所以它回了什么，我无法告知。",
+          "tokens": 6207,
+          "cost": 0.00028694399999999997,
+          "sessionTail": [
+            {
+              "role": "user",
+              "text": "请先默数到 5，然后只回答数字 11。"
+            },
+            {
+              "role": "assistant",
+              "text": "11"
+            },
+            {
+              "role": "user",
+              "text": "只回答数字 22"
+            },
+            {
+              "role": "assistant",
+              "text": "22"
+            }
+          ],
+          "wUsage": 1800
+        },
+        {
+          "i": 3,
+          "wId": "a6",
+          "slowAnswer": "",
+          "sendResult1": "已投递：a6 当时空闲，已开始处理。",
+          "afterOverlap": "22",
+          "hostReport": "我没有看到 `a6` 的任何回复。\n\n我实际看到的内容只有这一行工具返回值：\n\n> 已投递：a6 当时空闲，已开始处理。\n\n这是投递状态，不是 `a6` 的回答内容。投递本身不等待回复，我也没有可用的工具去取回它的结果，所以我无法告诉你它回了什么——我并没有看到「22」或任何其他回答。",
+          "tokens": 6578,
+          "cost": 0.0005325779999999999,
+          "sessionTail": [
+            {
+              "role": "user",
+              "text": "请先默数到 5，然后只回答数字 11。"
+            },
+            {
+              "role": "assistant",
+              "text": "11"
+            },
+            {
+              "role": "user",
+              "text": "只回答数字 22"
+            },
+            {
+              "role": "assistant",
+              "text": "22"
+            }
+          ],
+          "wUsage": 1802
+        },
+        {
+          "i": 4,
+          "wId": "a8",
+          "slowAnswer": "",
+          "sendResult1": "已投递：a8 当时空闲，已开始处理。",
+          "afterOverlap": "22",
+          "hostReport": "我没有看到它回复的任何内容。\n\n我实际看到的只有 send_message 这一条工具返回文本：\n\n「已投递：a8 当时空闲，已开始处理。」\n\n这条消息只说明投递状态（已投递、当时空闲、已开始处理），本身不包含 a8 的回复内容；此后我也未收到任何来自 a8 的结果通知。所以我没有任何它的回复可以转述。",
+          "tokens": 6179,
+          "cost": 0.000305244,
+          "sessionTail": [
+            {
+              "role": "user",
+              "text": "请先默数到 5，然后只回答数字 11。"
+            },
+            {
+              "role": "assistant",
+              "text": "11"
+            },
+            {
+              "role": "user",
+              "text": "只回答数字 22"
+            },
+            {
+              "role": "assistant",
+              "text": "22"
+            }
+          ],
+          "wUsage": 1800
+        }
+      ]
+    },
+    {
+      "id": "E7.b",
+      "question": "叠加量：忙时投递 + 紧接一次 prompt，会不会出现 K5（紧随 prompt 直接抛）",
+      "method": "同一会话里 W 在跑时对它 send()，紧接着再 prompt()",
+      "observed": "",
+      "verdict": "INFO",
+      "conclusion": "见 E7.c（单独构造）。",
+      "data": {}
+    },
+    {
+      "id": "E7.c",
+      "question": "K5 在真模型下是否复现：忙时 send() 之后紧随的 prompt() 会不会抛",
+      "method": "A 在跑时 send()，紧接着 prompt()",
+      "observed": "投递时 isStreaming=true；send() 返回={\"delivered\":\"queued\"}；紧随其后的 prompt() → 抛错：Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+      "verdict": "GAP",
+      "conclusion": "真模型下复现 K5：忙时 send() 之后立刻 prompt() 抛错（抛错：Agent is already processing. Specify streamingBehavior ('steer' or 'followUp'），而不是排队。假 provider 下的结论在真模型上成立。",
+      "data": {
+        "busy": true,
+        "sr": {
+          "delivered": "queued"
+        },
+        "promptErr": "抛错：Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+        "usage": {
+          "input": 597,
+          "output": 4,
+          "cacheRead": 1152,
+          "cacheWrite": 0,
+          "totalTokens": 1753,
+          "cost": {
+            "input": 0.00008955,
+            "output": 0.0000024,
+            "cacheRead": 0.0000034559999999999996,
+            "cacheWrite": 0,
+            "total": 0.000095406
+          }
+        }
+      }
+    }
+  ],
+  "ledgers": {}
+}

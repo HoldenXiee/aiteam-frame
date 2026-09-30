@@ -1,0 +1,161 @@
+{
+  "name": "e5-shapes-live",
+  "findings": [
+    {
+      "id": "E5-shape4",
+      "question": "形态 4（监督者+工人池，同一分身被反复投递）在真模型下会不会串台/丢上下文",
+      "method": "node audit/22-topology-live/e5-shapes-live.ts --only=4（同一 worker 分身被投递 3 次）",
+      "observed": "①建工人: 5777ms 3043tok $0.000296 calls=[\"spawn_agent\"]\n     第2轮：主持人 turn 3532ms；worker.lastResult 投递前=«2»；等待=idle; worker.session 最后文本=\"4\"; worker.lastResult=\"4\"; worker 用量Δ=3351tok; 一致性=一致\n     第3轮：主持人 turn 2805ms；worker.lastResult 投递前=«4»；等待=idle; worker.session 最后文本=\"6\"; worker.lastResult=\"6\"; worker 用量Δ=3371tok; 一致性=一致\n     第4轮：主持人 turn 2834ms；worker.lastResult 投递前=«6»；等待=idle; worker.session 最后文本=\"8\"; worker.lastResult=\"8\"; worker 用量Δ=3391tok; 一致性=一致\n     ③追责: 14788ms 2329tok $0.000138 calls=[]\n     追责产出=«一共 4 件事，都派给了同一个 worker 分身（a2）：\n\n1. 1+1 → **2**（已回）\n2. 2+2 → 尚无回音\n3. 3+3 → 尚无回音\n4. 4+4 → 尚无回音\n\n后三件的完成通知还没到，我不会替它编答案；等通知到了再补上。»\n     分身数=2（应为 2）；聚合 30265 token / $0.00094",
+      "verdict": "OK",
+      "conclusion": "工人被复用 3 次，分身数保持 2（未随轮次增长）。全程无抛错。关键：send_message 只回「已投递」，主持人**拿不到回执** —— 它必须自己去读 worker 的状态，而“后一条回答能否被正确归因”见观察行里的一致性字段。",
+      "data": {
+        "t1": {
+          "ms": 5777,
+          "text": "worker（分身 id: a2）回复：\n\n2",
+          "calls": [
+            {
+              "name": "spawn_agent",
+              "args": {
+                "member": "worker",
+                "task": "说出 1+1 等于几。只回一个数字。"
+              }
+            }
+          ],
+          "results": [
+            {
+              "name": "spawn_agent",
+              "text": "已让成员「worker」处理，它的分身 id 是 a2。\n\n2",
+              "isError": false
+            }
+          ],
+          "tokens": 3043,
+          "cost": 0.00029627399999999996
+        },
+        "rounds": [
+          {
+            "round": 2,
+            "promptMs": 3532,
+            "before": "2",
+            "after": "4",
+            "note": "等待=idle; worker.session 最后文本=\"4\"; worker.lastResult=\"4\"; worker 用量Δ=3351tok; 一致性=一致"
+          },
+          {
+            "round": 3,
+            "promptMs": 2805,
+            "before": "4",
+            "after": "6",
+            "note": "等待=idle; worker.session 最后文本=\"6\"; worker.lastResult=\"6\"; worker 用量Δ=3371tok; 一致性=一致"
+          },
+          {
+            "round": 4,
+            "promptMs": 2834,
+            "before": "6",
+            "after": "8",
+            "note": "等待=idle; worker.session 最后文本=\"8\"; worker.lastResult=\"8\"; worker 用量Δ=3391tok; 一致性=一致"
+          }
+        ],
+        "t5": {
+          "ms": 14788,
+          "text": "一共 4 件事，都派给了同一个 worker 分身（a2）：\n\n1. 1+1 → **2**（已回）\n2. 2+2 → 尚无回音\n3. 3+3 → 尚无回音\n4. 4+4 → 尚无回音\n\n后三件的完成通知还没到，我不会替它编答案；等通知到了再补上。",
+          "calls": [],
+          "results": [],
+          "tokens": 2329,
+          "cost": 0.00013784399999999998
+        },
+        "tokens": 30265,
+        "cost": 0.0009405719999999998,
+        "workerId": "a2",
+        "workerUsage": {
+          "input": 764,
+          "output": 8,
+          "cacheRead": 12672,
+          "cacheWrite": 0,
+          "totalTokens": 13444,
+          "cost": {
+            "input": 0.00011459999999999998,
+            "output": 0.0000048,
+            "cacheRead": 0.000038015999999999997,
+            "cacheWrite": 0,
+            "total": 0.00015741599999999998
+          }
+        },
+        "workerLast": {
+          "text": "8",
+          "usage": {
+            "input": 189,
+            "output": 2,
+            "cacheRead": 3200,
+            "cacheWrite": 0,
+            "totalTokens": 3391,
+            "cost": {
+              "input": 0.000028349999999999998,
+              "output": 0.0000012,
+              "cacheRead": 0.0000096,
+              "cacheWrite": 0,
+              "total": 0.000039149999999999996
+            }
+          }
+        }
+      }
+    }
+  ],
+  "ledgers": {
+    "shape4": {
+      "t1": {
+        "ms": 5777,
+        "text": "worker（分身 id: a2）回复：\n\n2",
+        "calls": [
+          {
+            "name": "spawn_agent",
+            "args": {
+              "member": "worker",
+              "task": "说出 1+1 等于几。只回一个数字。"
+            }
+          }
+        ],
+        "results": [
+          {
+            "name": "spawn_agent",
+            "text": "已让成员「worker」处理，它的分身 id 是 a2。\n\n2",
+            "isError": false
+          }
+        ],
+        "tokens": 3043,
+        "cost": 0.00029627399999999996
+      },
+      "rounds": [
+        {
+          "round": 2,
+          "promptMs": 3532,
+          "before": "2",
+          "after": "4",
+          "note": "等待=idle; worker.session 最后文本=\"4\"; worker.lastResult=\"4\"; worker 用量Δ=3351tok; 一致性=一致"
+        },
+        {
+          "round": 3,
+          "promptMs": 2805,
+          "before": "4",
+          "after": "6",
+          "note": "等待=idle; worker.session 最后文本=\"6\"; worker.lastResult=\"6\"; worker 用量Δ=3371tok; 一致性=一致"
+        },
+        {
+          "round": 4,
+          "promptMs": 2834,
+          "before": "6",
+          "after": "8",
+          "note": "等待=idle; worker.session 最后文本=\"8\"; worker.lastResult=\"8\"; worker 用量Δ=3391tok; 一致性=一致"
+        }
+      ],
+      "t5": {
+        "ms": 14788,
+        "text": "一共 4 件事，都派给了同一个 worker 分身（a2）：\n\n1. 1+1 → **2**（已回）\n2. 2+2 → 尚无回音\n3. 3+3 → 尚无回音\n4. 4+4 → 尚无回音\n\n后三件的完成通知还没到，我不会替它编答案；等通知到了再补上。",
+        "calls": [],
+        "results": [],
+        "tokens": 2329,
+        "cost": 0.00013784399999999998
+      },
+      "tokens": 30265,
+      "cost": 0.0009405719999999998
+    }
+  }
+}
