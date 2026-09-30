@@ -186,6 +186,8 @@ export interface ControlledAgent {
   steer(text: string): Promise<void>;
   /** 等该 agent 不再运行。阶段 2 的等待与结果聚合全建在它上面 */
   waitForIdle(): Promise<void>;
+  /** 最近一次跑完的结果；从未跑过则为 undefined */
+  readonly lastResult: RunResult | undefined;
   abort(): Promise<void>;
   on<E extends AgentEventName>(event: E, fn: (payload: AgentEventMap[E]) => void): () => void;
   dispose(): void;
@@ -224,8 +226,18 @@ export interface AgentHost {
 
   list(): ControlledAgent[];              // 仅未回收的分身
   get(id: string): ControlledAgent | undefined;
+  /** 观测机制：库只发射事件，不内置任何监控策略 */
+  on<E extends keyof HostEventMap>(event: E, fn: (payload: HostEventMap[E]) => void): () => void;
   /** 级联回收所有分身 */
   dispose(): void;
+}
+
+/** 宿主级事件。设计者靠它实现轮次督导、成本监控、进度上报等一切策略 */
+export interface HostEventMap {
+  agent_created:   { agent: ControlledAgent; member: string | undefined; parent: ControlledAgent | undefined };
+  agent_disposed:  { agent: ControlledAgent };
+  /** 一个分身被交办并跑完一轮（prompt 或已投递的 send） */
+  round_completed: { agent: ControlledAgent; result: RunResult };
 }
 
 export function createAgentHost(opts?: HostOptions): AgentHost;
@@ -306,6 +318,9 @@ send_message({ agentId: "a3", message: "把刚才的结论写成 md" })
 | 19 | `send()` 忙时用 `followUp`（mode `next`）/ `steer`（mode `interrupt`）排队，空闲时直接 `prompt` | 投递者不应被迫关心目标当前是否在忙。精确的 SDK 语义（如空闲时调 `steer` 会怎样）实现时需实跑核实 |
 | 20 | `send_message` 只能投递给**自己的后代分身** | 防跨分支干扰；同时因为后代关系是树，禁止反向投递就免费消灭了发送环 |
 | 21 | `waitForIdle()` 包裹 `session.agent.waitForIdle()`，且已 `dispose` 时直接 resolve | 阶段 2 不该为了等待穿到逃生口；已回收的 agent 永远“已静下来” |
+| 22 | **宿主只提供机制，不固化策略**：发射 `agent_created` / `agent_disposed` / `round_completed`，但**不内置**轮次上限或督导逻辑 | B 路（agent 自己组织循环）下设计者看不到循环体，**不给观測就是瞎的**。但轮次督导只是众多监控需求中的一种，写进 L1 既伤灵活性又多写代码。开箱即用的版本做在它之上 |
+| 23 | `send()` 不带回复通道，用 `agent.lastResult` 配合 | 带回复的 `send` 就是同步 `ask`，会把死锁引进来。督导等场景只需「投递 → `waitForIdle()` → 读 `lastResult`」 |
+| 24 | 不做轮次硬上限 | 「轮次上限 + 督导 agent」是一种可用方案，不是唯一方案。硬上限会阻止合法的长任务；统一由 `budgetTokens` 兑底，需要更早千预时用决策 #22 的事件 |
 
 ## 6. 目录结构
 
@@ -357,6 +372,8 @@ D:/space/aiteam/test/
 12. **回收**：`host.dispose()` 后 `list()` 为空，且分身的 status 为 `disposed`
 13. 工厂式工具能拿到正确的 `ctx.agent` 与 `ctx.host`
 14. `onToolCall` 返回 block 时对应工具确实没执行
+15. **宿主事件**：`agent_created` / `agent_disposed` / `round_completed` 在正确时机各触发一次；已 `dispose` 的分身不再触发
+16. **循环督导可建**：基于 `round_completed` 实现的计数器能在第 N 轮准确触发，且 `agent.lastResult` 能拿到督导分身的回复
 
 `demo/demo.ts`：真模型 + 一张两三个成员的花名册，顶层 agent 挑选成员派活、再给同一个分身追加一条消息，人工跑一次确认端到端。
 
@@ -383,6 +400,7 @@ D:/space/aiteam/test/
 | 分身保留会累积内存 | `maxAgents` 封顶 + `host.dispose()` 回收 |
 | 成本 | 阶段 1 只用假 provider 测试；`budgetTokens` 护栏已就位，阶段 2 落地为硬闸门 |
 | **死锁**（等待型能力必然引来） | 阶段 1 的 `send` 是**非阻塞**的，本身不产生等待，所以阶段 1 无死锁。预埋规则，避免阶段 2 踩坑：① 后代关系是树 + `send_message` 只能向后代投递 → 切断了发送环；② 阶段 2 的 `ask_agent`（同步等答复）**必须带超时**，且**禁止等待祖先**；③ 任何无超时的等待都是死锁的充分条件，一律不允许 |
+| **循环失控**（团队探讨/反思-修订这类多轮形态） | 不做轮次硬上限（会误杀合法长任务），统一由 `budgetTokens` 兑底。需要更早千预时，用宿主事件自己实现督导（见第 10 节），把失控变成一次智能干预而不是硬失败 |
 
 ### 已定
 
@@ -410,6 +428,33 @@ D:/space/aiteam/test/
 | 5 | **团队内部探讨直到收敛** | 主持人 spawn 成员拿回各自观点 → `send_message` 把他人观点转发给每个成员 → 循环，直到主持人自己判断收敛 | B |
 | 6 | **两团队争辩 + 裁决** | 顶层挑两个「主持人」成员各自组队（各自子树）→ 顶层在两者之间转发 → 最后挑 `judge` 成员裁决 | B |
 | 7 | 共享黑板式协作 | 全队 `MemberSpec.cwd` 指向同一目录，成员读写同一个 md 文件 | A/B |
+| 8 | 竞标/择优 | 同一任务扇出给多个成员，顶层（或一个 `judge` 成员）选优 | A/B |
+| 9 | 反思-修订循环 | 写手与审阅者两个分身，靠 `send_message` 反复复用，直到审阅者说通过 | A/B |
+| 10 | 层级汇报（逐层汇聚） | 每个主持人先汇总队员结论再上报；同步 `spawn_agent` 的返回值天然支持 | B |
+| 11 | 长跑监督 | agent 长期存活、被消息唤醒。需一个新的 `waiting` 状态，**属阶段 2** | — |
+
+### 循环督导：你提的那个机制怎么落
+
+库不实现它，但只靠决策 #22 的宿主事件 + `agent.lastResult`，大约十几行就能写出来：
+
+```ts
+const LIMIT = 6, counters = new Map<string, number>();
+
+host.on("round_completed", ({ agent }) => {
+  const n = (counters.get(agent.id) ?? 0) + 1;
+  counters.set(agent.id, n);
+  if (n % LIMIT) return;                       // 每周 LIMIT 轮督导一次
+  void (async () => {
+    // 「循环任务的目标 + agent 间的对话」：子树内所有分身的 messages
+    const transcript = subtreeOf(host, agent).flatMap((a) => a.session.messages);
+    await supervisor.send(JSON.stringify({ goal, transcript, round: n }));
+    await supervisor.waitForIdle();
+    if (supervisor.lastResult) await agent.send(supervisor.lastResult.text);
+  })();
+});
+```
+
+`subtreeOf` 用 `host.list()` + `agent.parentId` 自己走一遍就行，**库不为它加代码**。
 
 ### 已验证的两个结论
 
