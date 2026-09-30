@@ -16,6 +16,8 @@ import { makeFauxRuntime } from "./faux-models.ts";
 import { buildLoader } from "../src/agent/loader.ts";
 import { createSpawnAgentTool } from "../src/tools/spawn-agent.ts";
 import { createSendMessageTool } from "../src/tools/send-message.ts";
+import { createAgent } from "../src/agent/create-agent.ts";
+import { FAUX_MODEL_REF } from "./faux-models.ts";
 import type { AgentToolContext, MemberSpec } from "../src/agent/types.ts";
 
 export const faux = await startFaux();
@@ -46,25 +48,19 @@ export const echoTool = defineTool({
 });
 
 /**
- * 起一个 agent 跑一轮，返回假服务记录的 system 字符串。
- * 走库的真实入口 buildLoader —— 否则断言的就不是交付物。
+ * 起一个 agent（走库的真实入口 createAgent）跑一轮，返回假服务记录的 system 字符串。
+ * 需要单独调 buildLoader 的测试直接用 buildLoader。
  */
-export async function captureSystemPrompt(spec: MemberSpec = {}): Promise<{ system: string }> {
-  const cwd = spec.cwd ?? fauxCwd;
-  const agentDir = spec.agentDir ?? fauxAgentDir;
-  const settingsManager = SettingsManager.inMemory({});
-  const loader = await buildLoader(spec, { cwd, agentDir, settingsManager });
-  const { session } = await createAgentSession({
-    cwd,
-    agentDir,
-    model: fauxModel,
-    modelRuntime: fauxRuntime,
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(cwd),
-    settingsManager,
-  });
+export async function captureSystemPrompt(
+  spec: MemberSpec & { model?: string } = {},
+): Promise<{ system: string }> {
   const before = faux.calls.length;
-  await session.prompt("hi");
+  const agent = await createAgent({ model: FAUX_MODEL_REF, ...spec });
+  try {
+    await agent.prompt("hi");
+  } finally {
+    agent.dispose();
+  }
   return { system: faux.calls[before]?.system ?? "" };
 }
 

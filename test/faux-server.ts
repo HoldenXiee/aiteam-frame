@@ -59,7 +59,14 @@ export async function startFaux(): Promise<Faux> {
         messageCount: messages.length,
       });
 
-      respond(res, payload, lastUser);
+      try {
+        respond(res, payload, lastUser);
+      } catch (err) {
+        // 不许静默挂死：假服务内部出错也要给客户端一个明确回答
+        if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: `faux-server 内部错误：${String(err)}` } }));
+        throw err;
+      }
     });
   });
 
@@ -80,8 +87,15 @@ function pick(text: string, re: RegExp): string | undefined {
   return m?.[1];
 }
 
+function textOfContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((p: any) => p?.text ?? "").join("");
+  return "";
+}
+
 function respond(res: ServerResponse, payload: any, lastUser: string): void {
-  const lastMessage = payload.messages?.[payload.messages.length - 1];
+  const messages: any[] = payload.messages ?? [];
+  const lastMessage = messages[messages.length - 1];
   const lastIsToolResult = lastMessage?.role === "tool";
 
   if (/\[\[fail\]\]/.test(lastUser) && !lastIsToolResult) {
@@ -91,12 +105,28 @@ function respond(res: ServerResponse, payload: any, lastUser: string): void {
   }
 
   const sleepMs = Number(pick(lastUser, /\[\[sleep:(\d+)\]\]/) ?? 0);
-  const toolName = lastIsToolResult ? undefined : pick(lastUser, /\[\[tool:([a-zA-Z0-9_-]+)\]\]/);
-  // [[args:{...}]] 给这次工具调用指定参数（默认 {}）
+  // [[args:{...}]] 给 [[tool:NAME]] 这次调用指定参数（默认 {}）
   const argsMatches = [...lastUser.matchAll(/\[\[args:(\{[\s\S]*?\})\]\]/g)];
   const toolArgs = argsMatches.length ? argsMatches[argsMatches.length - 1][1] : "{}";
+  // [[call:NAME {...}]] 可以出现多次：一次回复里发多个工具调用（兄弟调用并发执行）
+  const callMarkers = [...lastUser.matchAll(/\[\[call:([a-zA-Z0-9_-]+)(?:\s+(\{[\s\S]*?\}))?\]\]/g)];
+  const single = pick(lastUser, /\[\[tool:([a-zA-Z0-9_-]+)\]\]/);
+  const calls = lastIsToolResult
+    ? []
+    : callMarkers.length
+      ? callMarkers.map((m) => ({ name: m[1], args: m[2] ?? "{}" }))
+      : single
+        ? [{ name: single, args: toolArgs }]
+        : [];
   const huge = Number(pick(lastUser, /\[\[huge:(\d+)\]\]/) ?? 0);
-  const text = huge > 0 ? "x".repeat(huge) : `echo:${lastUser.slice(0, 80)}`;
+  // 工具结果回来后，就当作「模型读到了工具输出」—— 回显**本条回复里所有**工具结果的内容，
+  // 这样主持人汇总、转发类形态的文本流向才能被观察到
+  const trailingResults: string[] = [];
+  for (let i = messages.length - 1; i >= 0 && messages[i]?.role === "tool"; i--) {
+    trailingResults.unshift(textOfContent(messages[i].content));
+  }
+  const echoSource = lastIsToolResult ? trailingResults.join(" | ") : lastUser;
+  const text = huge > 0 ? "x".repeat(huge) : `echo:${echoSource.slice(0, 400)}`;
 
   const send = () => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
@@ -114,11 +144,14 @@ function respond(res: ServerResponse, payload: any, lastUser: string): void {
 
     chunk({ role: "assistant", content: "" });
 
-    if (toolName) {
+    if (calls.length) {
       chunk({
-        tool_calls: [
-          { index: 0, id: "call_faux_1", type: "function", function: { name: toolName, arguments: toolArgs } },
-        ],
+        tool_calls: calls.map((call, index) => ({
+          index,
+          id: `call_faux_${index + 1}`,
+          type: "function",
+          function: { name: call.name, arguments: call.args },
+        })),
       });
       chunk({}, "tool_calls");
     } else {
