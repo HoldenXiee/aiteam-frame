@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
     "demo": "node demo/demo.ts",
     "demo:self-env": "node demo/self-env.ts",
     "demo:tour": "node demo/tour.ts"

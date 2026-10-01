@@ -128,6 +128,84 @@ npm run demo:self-env # 只用自建环境（auth.json + 自己的技能）跑�
 导览的运行产物留在 `demo/run-output/`（`tour.log` / `report.json` / agent 真写出来的文件）。
 **想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解并引用上面那份日志。
 
+## 想开发
+
+### 要求与装
+
+Node ≥ 24（直接跑 `.ts`，靠 Node 原生类型剥离）；没有构建步骤、没有打包器、没有 lint 器。
+
+```bash
+git clone <repo> && cd test
+npm install
+```
+
+### 三条命令
+
+```bash
+npm test            # 76 项测试，本机假 provider，零 API 成本 —— 改完先跑它
+npm run typecheck   # tsc --noEmit
+npm run demo:tour   # 真模型端到端全导览（要凭证、要花钱，约 $0.003）
+```
+
+`npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），把 `AITEAM_AGENT_DIR` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
+
+### 改哪儿
+
+| 你要改的东西 | 落点 |
+|---|---|
+| 创建 / 生命周期 / 事件 / 用量接线 | `src/agent/create-agent.ts` |
+| 花名册、三道护栏、宿主事件、级联回收 | `src/agent/host.ts` |
+| skills / extensions / role 的注入与解析 | `src/agent/loader.ts` |
+| 环境自检 `inspectEnv` | `src/agent/env.ts` |
+| pi 的 20+ 事件 → 7 个归一化事件（纯映射） | `src/agent/events.ts` |
+| 对外类型（无运行时逻辑） | `src/agent/types.ts` |
+| 库自带的两个能力工具 | `src/tools/` |
+| 对外导出（唯一入口，不做逻辑） | `src/index.ts` |
+| 设计 / 实测事实 / 用法 | `docs/DESIGN.md` / `docs/FACTS.md` / `docs/GUIDE.md` |
+
+相对 import **必须带 `.ts` 后缀**，只能用**可擦除**的 TS 语法（无 `enum` / `namespace` / 装饰器 / 参数属性）。
+
+### 改代码的五条规矩
+
+这几条是这个库可信度的来源，不是风格偏好：
+
+1. **L1 不做 SDK 已经做了的事。** 加功能前先确认 pi SDK 里没有等价物 —— `node_modules/@earendil-works/pi-coding-agent/docs/` 是第一手资料。
+2. **只说实测过的。** 任何「已实现 / 已修复」都要配一个能跑出结果的检查（`npm test` 里的一条断言，或 `audit/` 下的一个探针）。
+3. **类型不重定义。** `Skill` / `ToolDefinition` / `AgentSession` / `Message` / `Usage` / `ThinkingLevel` 一律从 pi 的包 import。
+4. **唯一创建入口。** 不加第二条造 agent 的路径（`host.createAgent()` 之类）；不给 agent 提权面（`spawn_agent` 永远不许加 `tools`）。
+5. **接口变了就同步三份文档**：`DESIGN.md`（接口与现状）→ `FACTS.md`（带编号的决策与理由）→ `GUIDE.md`（怎么用）。
+
+### 加一个测试
+
+```ts
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureSystemPrompt } from "./helpers.ts";
+
+test("role 追加在 <tools> 之后，不替换默认提示词", async () => {
+  const { system } = await captureSystemPrompt({ role: "我是审查员" });
+  assert.match(system, /<tools>/);
+  assert.ok(system.indexOf("我是审查员") > system.indexOf("<tools>"));
+});
+```
+
+`test/helpers.ts` 里有现成的 ground truth：`seenTools()`（模型**实际**收到的工具名）、`captureSystemPrompt()`（**实际**发出的 system）、`runTool()`（直接执行库自带工具，不进 LLM）、`faux.calls`（假服务收到的一切）。
+
+### 不花钱验证一个能力
+
+不确定 SDK 的某个行为时**不要猜**，写一个一次性探针：
+
+```bash
+node audit/你的脚本.ts        # audit/ 下全是这种脚本，_faux.ts 提供假环境基建
+```
+
+真模型实验先跑 1 次记下实际 token 与花费，再决定样本量；费用从 `agent.usage.cost.total` 累加。真模型跑出来的结论写进 `audit/**/FINDINGS.md`，被验证的决策写进 `docs/FACTS.md`。
+
+### 提交
+
+Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fix:` / `docs:` / `audit:` / `chore:`。
+`demo/run-output/` 是导览跑出来的产物（`tour.log` / agent 真写的文件），已经在 `.gitignore` 里，不要提交。
+
 ## 现状
 
 库做过一轮能力与极限的实测审计（约 50 个探测脚本、600+ 条实测项、约 400 次真实模型调用）：
