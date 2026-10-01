@@ -20,6 +20,14 @@ export interface MemberSpec {
   cwd?: string;
   /** 默认：宿主级共享。另开会换掉这一份 models.json / auth.json（技能与设置也跟着隔离） */
   agentDir?: string;
+  /**
+   * 是否允许联网刷新模型目录（pi.dev 的 overlay，带 ETag，4 小时新鲜度窗口），默认 true。
+   * false 时仍会从 `<agentDir>/models-store.json` **恢复**已缓存的 overlay（离线也生效），只是不主动拉。
+   * 环境变量 `PI_OFFLINE=1` 可全局关掉一切模型相关网络请求。
+   */
+  modelNetwork?: boolean;
+  /** 覆盖模型目录源，默认 https://pi.dev（企业镜像 / 测试用） */
+  catalogBaseUrl?: string;
   /** 角色说明 → appendSystemPrompt（决策 #25） */
   role?: string;
   /** 名字或 SKILL.md 路径。Skill 对象必须指向真实存在的文件（决策 #27）；名字解析失败必须抛错 */

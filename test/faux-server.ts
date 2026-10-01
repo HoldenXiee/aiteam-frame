@@ -14,8 +14,14 @@ export interface Faux {
   /** 形如 http://127.0.0.1:PORT/v1 */
   baseUrl: string;
   calls: FauxCall[];
+  /** 被请求过的模型目录 provider id（GET /api/models/providers/<id>） */
+  catalogHits: string[];
   close(): Promise<void>;
 }
+
+/** 假目录里为 "opencode-go" 提供的那个模型 id —— 内置目录里没有它，用来验证 overlay 生效 */
+export const FAUX_CATALOG_MODEL_ID = "faux-catalog-model";
+export const FAUX_CATALOG_PROVIDER = "opencode-go";
 
 /**
  * 脚本约定（写在最后一条 user 消息里，且最后一条不是 tool 结果时生效）：
@@ -27,7 +33,42 @@ export interface Faux {
  */
 export async function startFaux(): Promise<Faux> {
   const calls: FauxCall[] = [];
+  const catalogHits: string[] = [];
   const server = createServer((req, res) => {
+    // pi.dev 模型目录 URL：绝对路径，所以 baseUrl 里的 /v1 会被丢掉
+    const catalogMatch = /^\/api\/models\/providers\/(.+?)(?:\?|$)/.exec(req.url ?? "");
+    if (catalogMatch) {
+      const providerId = decodeURIComponent(catalogMatch[1]);
+      catalogHits.push(providerId);
+      if (providerId !== FAUX_CATALOG_PROVIDER) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "no overlay" }));
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": "application/json",
+        // 必须比内置目录的生成时间新，否则 overlay 会被 localGeneratedAt 过滤掉
+        "last-modified": "Fri, 01 Jan 2100 00:00:00 GMT",
+      });
+      res.end(
+        JSON.stringify([
+          {
+            id: FAUX_CATALOG_MODEL_ID,
+            name: "Faux Catalog Model",
+            api: "openai-completions",
+            baseUrl: "https://example.invalid/v1",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200000,
+            maxTokens: 8192,
+            type: "chat",
+          },
+        ]),
+      );
+      return;
+    }
+
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
@@ -78,6 +119,7 @@ export async function startFaux(): Promise<Faux> {
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     calls,
+    catalogHits,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

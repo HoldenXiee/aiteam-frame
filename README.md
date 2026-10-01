@@ -65,6 +65,32 @@ host.on("round_completed", ({ agent, result }) => console.log(agent.id, result.u
 host.dispose(); // 级联回收所有分身
 ```
 
+### 环境：三样东西
+
+`agentDir` 决定这个 agent 能用什么。默认是 `AITEAM_AGENT_DIR` 环境变量或本机 pi 目录（`~/​.pi/agent`）；换成自己的目录就完全脱离本机 pi 设置。一个目录里只放三样：
+
+```
+my-pi/
+  models.json + auth.json   模型 api（也可只用环境变量凭证）
+  extensions/               插件
+  skills/                   技能
+```
+
+```ts
+const spec = { agentDir: "D:/my-pi", cwd: "./work" };
+
+// 验证语句：先看清楚这套环境里实际生效了什么，再建 agent
+const env = await inspectEnv(spec);
+env.models;      // [{ provider: "opencode-go", total: 29, available: [...] }]  只有配好凭证的
+env.extensions;  // [{ path, scope, tools: [...] }]  tools = 它注册的工具名
+env.skills;      // [{ name, filePath, scope }]
+env.warnings;    // 目录不存在 / 没有 models.json / 扩展加载失败 / SYSTEM.md 会替换提示词…
+
+const agent = await createAgent(spec);
+```
+
+模型目录默认允许联网刷新（`modelNetwork`，pi.dev 的 overlay，缓存在 `<agentDir>/models-store.json`，4 小时新鲜度窗口）。`PI_OFFLINE=1` 关掉一切模型网络请求。
+
 设计者也可以不走工具，直接把一个 agent 的输出喂给另一个：
 
 ```ts
@@ -79,10 +105,11 @@ await b.prompt(`基于这份清单写稿：\n${r.text}`);
 | | |
 |---|---|
 | `createAgent(spec, deps?)` | 唯一的 agent 创建入口 → `ControlledAgent` |
+| `inspectEnv(spec?, deps?)` | 环境自检（模型 / 插件 / 技能 / 警告），只读，不建 agent |
 | `createAgentHost({ members, maxAgents, maxDepth, budgetTokens, defaults, modelRuntime })` | 花名册 + 护栏 + 宿主事件 + 级联回收 → `AgentHost` |
 | `defineAgentTool(def)` | 工厂式工具，`execute(params, ctx)` 里的 `ctx.agent` / `ctx.host` 知道「是谁在调用我」 |
 
-`spec` 字段：`description` / `cwd` / `agentDir` / `role` / `skills` / `extensions` / `tools` / `excludeTools` / `customTools` / `model` / `thinking` / `onToolCall`。非空 `tools` 是白名单，`[]` 表示一个工具都不给；优先级为 `host.defaults` ← `members[x]` ← 顶层 spec，浅合并覆盖。
+`spec` 字段：`description` / `cwd` / `agentDir` / `modelNetwork` / `catalogBaseUrl` / `role` / `skills` / `extensions` / `tools` / `excludeTools` / `customTools` / `model` / `thinking` / `onToolCall`。非空 `tools` 是白名单，`[]` 表示一个工具都不给；优先级为 `host.defaults` ← `members[x]` ← 顶层 spec，浅合并覆盖。
 
 `ControlledAgent`：`prompt` / `send` / `steer` / `waitForIdle` / `abort` / `dispose` / `on`，以及 `status` / `isStreaming` / `usage` / `lastResult` / `session`（原始 SDK 对象的逃生口）/ `parentId` / `member`。
 
@@ -91,11 +118,15 @@ await b.prompt(`基于这份清单写稿：\n${r.text}`);
 ## 跑
 
 ```bash
-npm test     # node --test，本机假 provider，不发真请求
-npm run demo # 真模型多轮协作，要凭证、要花钱
+npm test              # node --test，本机假 provider，不发真请求
+npm run demo:tour     # 全操控面导览，看它怎么写最省事（要凭证、要花钱，约 $0.003）
+npm run demo          # 真模型多轮协作：形态 5「团队探讨到收敛」
+npm run demo:self-env # 只用自建环境（auth.json + 自己的技能）跑一轮
 ```
 
 `npm test` 会起一个本机假 provider 并把 `AITEAM_AGENT_DIR` 指向它，所以不需要任何 API key。
+导览的运行产物留在 `demo/run-output/`（`tour.log` / `report.json` / agent 真写出来的文件）。
+**想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解并引用上面那份日志。
 
 ## 现状
 
@@ -117,18 +148,20 @@ src/agent/     单 agent 操控 + 花名册 + 事件 + 用量
   create-agent.ts   spec → ControlledAgent
   host.ts           花名册、三道护栏、宿主事件、级联回收
   loader.ts         skills / extensions / role 的配置收敛
+  env.ts            inspectEnv：环境自检（模型/插件/技能），只读
   events.ts         pi 的 20+ 事件 → 7 个归一化事件
   types.ts          全部对外类型（无运行时逻辑）
 src/tools/     自定义工具：define-agent-tool / spawn-agent / send-message
 test/          node:test，全部走本机假 provider，零 API 成本
 audit/         能力与极限审计的探测脚本与发现（证据链）
-demo/          真模型多轮协作 demo
-docs/          设计文档
+demo/          真模型 demo：tour（全操控面导览）/ demo（多轮协作）/ self-env（自建环境）
+docs/          设计文档 + 用法讲解
 ```
 
 ## 文档
 
 - [`AGENTS.md`](AGENTS.md) —— 项目是什么（快速全貌）
+- [`docs/GUIDE.md`](docs/GUIDE.md) —— **用法讲解**：上手、逐个操控面、已知边界、常用配方
 - [`docs/DESIGN.md`](docs/DESIGN.md) —— 宏观设计（唯一设计源）：操控面理想与现状、对外接口、能力边界
 - [`docs/FACTS.md`](docs/FACTS.md) —— 已实测核对的实现决策
 - [`docs/research/`](docs/research/) —— 能力与极限审计报告 · 研究问题清单

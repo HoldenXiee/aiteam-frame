@@ -65,7 +65,21 @@
 | 22 | **宿主只提供机制，不固化策略**：发射 `agent_created` / `agent_disposed` / `round_completed`，但**不内置**轮次上限或督导逻辑 | agent 自己组织循环时设计者看不到循环体，**不给观测就是瞎的**；但轮次督导只是众多监控需求之一，写进 L1 既伤灵活性又多写代码 |
 | 24 † | 不做轮次硬上限 | 「轮次上限 + 督导 agent」是一种可用方案，不是唯一方案；硬上限会阻止合法的长任务。统一由 `budgetTokens` 兜底，需要更早干预时用 #22 的事件 |
 
-## 7. 由上述决策推出的、值得记住的边界
+## 7. 模型目录与环境自检
+
+| # | 决策 | 理由 |
+|---|---|---|
+| 30 | `modelNetwork` 默认 **true**（与 CLI pi 行为一致），`catalogBaseUrl` 可覆盖目录源；两者都进 `ModelRuntime` 缓存 key | pi.dev 的 overlay（`withRemoteCatalog`）已经内置，库只差把 `allowModelNetwork` 传下去。缓存 key 必须带开关：否则第一个 runtime 的设置会决定后面所有分身（与 #8 同类）。开关放 `MemberSpec`，宿主级配置走 `host.defaults`（#13） |
+| 31 | `inspectEnv()` 只读、不建 session、**不是第二条创建路径** | 环境里自动发现的东西会静默生效（#4 的 E7/E8、`SYSTEM.md` 整体替换提示词、`~/.agents/skills`）。把「实际生效了什么」讲出来，比再加一层配置抽象便宜得多 |
+| 32 | 测试一律 `PI_OFFLINE=1` | 冷 `models-store.json` + `modelNetwork: true` 实测 +2.2s（42 个 provider，只拉有凭证的那几个）；离线环境更久。`PI_OFFLINE` 是 SDK 提供的总闸 |
+
+三条实测定下来的事实（不是推测）：
+
+- **目录刷新只覆盖「有凭证的 provider」**：临时 agentDir 里不放 `auth.json` 时，一个目录请求都不发，只写一份空 store。所以「实时更新」的前提是凭证已配（CLI `/login` 或环境变量）。
+- **overlay 的恢复先于允许联网的判断**：`modelNetwork: false` 也会从 `<agentDir>/models-store.json` 恢复缓存。跟 CLI pi 共用 `agentDir` ⇒ 白拿 CLI 拉过的更新。
+- **`opencode-go` 本就是内置 provider**（pi 0.99.1：29 个模型，`minimax-m3` / `qwen3.8-flash` 已内置路由到 `anthropic-messages`）。`pi-opencode-provider` 那类插件的增量只剩「不等 pi.dev 目录」，**不移植**。
+
+## 8. 由上述决策推出的、值得记住的边界
 
 - `tools` 是唯一受声明管辖的白名单。`extensions`（加载）与 `skills`（注入）**不受**声明控制——想让某个环境里存在的扩展不生效，做不到，且零信号。
 - 白名单非空 ⇒ customTools **强制生效**。

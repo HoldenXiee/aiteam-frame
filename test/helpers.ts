@@ -14,6 +14,8 @@ import { FAUX_MODEL_REF } from "./faux-models.ts";
 import type { AgentToolContext, MemberSpec } from "../src/agent/types.ts";
 
 export const faux = await startFaux();
+// 测试一律不允许模型目录联网：否则每个测试文件都会去打 pi.dev（冷 store 实测 +2.2s，离线时更久）。
+process.env.PI_OFFLINE = "1";
 const made = await makeFauxRuntime(faux.baseUrl);
 export const fauxAgentDir = made.agentDir;
 export const fauxCwd = made.cwd;

@@ -40,23 +40,34 @@ function nextId(): string {
   return `a${counter}`;
 }
 
-function defaultAgentDir(): string {
+export function defaultAgentDir(): string {
   return process.env.AITEAM_AGENT_DIR || getAgentDir();
 }
 
-/** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir 缓存** —— 一个凭证集一个 runtime。
- *  曾经是全局单例，结果是第二个不同 agentDir 的分身仍去读第一个的 models.json/auth.json。 */
+/** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir + 网络开关缓存** —— 一个凭证集一个 runtime。
+ *  曾经是全局单例，结果是第二个不同 agentDir 的分身仍去读第一个的 models.json/auth.json。
+ *  开关也必须进 key：否则第一个 runtime 的设置会决定后面所有分身（与 #8 同类的 bug）。 */
 const sharedRuntimes = new Map<string, Promise<ModelRuntime>>();
-function getSharedRuntime(agentDir: string): Promise<ModelRuntime> {
-  let runtime = sharedRuntimes.get(agentDir);
+export function getSharedRuntime(agentDir: string, opts: RuntimeOpts = {}): Promise<ModelRuntime> {
+  const net = opts.modelNetwork !== false;
+  const key = [agentDir, net ? "net" : "offline", opts.catalogBaseUrl ?? ""].join("\u0000");
+  let runtime = sharedRuntimes.get(key);
   if (!runtime) {
     runtime = ModelRuntime.create({
       modelsPath: join(agentDir, "models.json"),
       authPath: join(agentDir, "auth.json"),
+      ...(net ? { allowModelNetwork: true } : {}),
+      ...(opts.catalogBaseUrl ? { catalogBaseUrl: opts.catalogBaseUrl } : {}),
     });
-    sharedRuntimes.set(agentDir, runtime);
+    sharedRuntimes.set(key, runtime);
   }
   return runtime;
+}
+
+/** 模型目录的网络与来源开关（来自 MemberSpec） */
+export interface RuntimeOpts {
+  modelNetwork?: boolean;
+  catalogBaseUrl?: string;
 }
 
 /** 库自带的能力工具：spec.tools 里点了名就自动挂上（规格 §9「已定」）。
@@ -93,7 +104,10 @@ export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}
   const id = spec.id ?? nextId();
   const cwd = spec.cwd ?? process.cwd();
   const agentDir = spec.agentDir ?? defaultAgentDir();
-  const modelRuntime = deps.modelRuntime ?? internals?.modelRuntime ?? (await getSharedRuntime(agentDir));
+  const modelRuntime =
+    deps.modelRuntime ??
+    internals?.modelRuntime ??
+    (await getSharedRuntime(agentDir, { modelNetwork: spec.modelNetwork, catalogBaseUrl: spec.catalogBaseUrl }));
   const settingsManager = SettingsManager.inMemory({});
 
   // holder：工厂式工具在 createAgentSession 之前就要交出 name/parameters，

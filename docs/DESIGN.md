@@ -45,7 +45,7 @@ aiteam 是一个 **Agent 操控库**。它非常基础、非常底层：**给设
 | **输出流向** | 结果与**这一次调用**绑定；产出可路由 | `RunResult { text, usage, error? }` + `agent.lastResult`。`collectRun()` 排干共享消息池取**最后一条** assistant 消息 → 重叠投递时结果**串台**（per-call 用量随之错，三方累计值仍对，所以对账查不出）。无结构化输出契约 |
 | **生命周期** | 起、停、回收、复活；子树级回收；配额随回收返还 | `createAgent` / `prompt` / `abort` / `dispose` / `waitForIdle`；`dispose` 在跑着时先 `abort` 等 settle 再真回收；`host.dispose()` 级联。`maxAgents` 是**终身累计**，回收不还；中间层 `dispose` 留孤儿，祖先对真后代的投递会被拒且理由是错的 |
 | **工具集** | 精确裁剪与注入；工具结果可拦截 | `tools` 白名单（`[]` = 一个都不给）、`excludeTools`、`customTools`（静态对象或工厂）、`onToolCall` 审批门。非空白名单会**强制并入** customTools 与设计者声明的扩展工具名（关不掉，只能 `excludeTools`）。`tools` 写错一字符会静默塌成 `[]` |
-| **模型** | 按 agent 指定、运行中可换、可调采样参数 | `model`（`"provider/id:thinking"`）、`thinking`；`resolveCliModel` 的 warning 被转成抛错。**无** temperature / top_p / seed（SDK 层可达，库未接）。非枚举的 `thinking` 值静默回落 |
+| **模型** | 按 agent 指定、运行中可换、可调采样参数 | `model`（`"provider/id:thinking"`）、`thinking`；`resolveCliModel` 的 warning 被转成抛错。模型目录可联网刷新（`modelNetwork`，默认开），overlay 缓存在 `<agentDir>/models-store.json`。**无** temperature / top_p / seed（SDK 层可达，库未接）。非枚举的 `thinking` 值静默回落 |
 | **技能与插件** | 按 agent 精确注入；加载失败可观测 | `skills`（名字 / 目录 / `SKILL.md` 路径 / `Skill` 对象）与 `extensions`（路径 / 内联工厂）；技能名字解析失败**抛错**。扩展加载失败**静默**（原因在 `loader.getExtensions().errors`，库不读）；环境里自动发现的扩展**不受** `tools` 白名单管辖，其钩子照样生效 |
 | **角色与提示词** | 追加、替换、覆写 | `role` → `appendSystemPrompt`（保留 pi 默认提示词，追加在 `<tools>` 之后）。无整体替换入口 |
 | **权限与审批** | 拦截、放行、可观测 | `onToolCall` 实现为动态扩展工厂，返回 `{ block: true, reason }`。键名大小写写错 → 门**完全不生效且零信号**；门内 `throw` = 无条件拦截且异常文本进上下文；拦截与「工具自身报错」在库层面同形（都只是 `tool_end.isError`） |
@@ -57,6 +57,7 @@ aiteam 是一个 **Agent 操控库**。它非常基础、非常底层：**给设
 ```ts
 createAgent(spec: AgentSpec, deps?: CreateAgentDeps): Promise<ControlledAgent>
 createAgentHost(opts?: HostOptions): AgentHost
+inspectEnv(spec?: MemberSpec, deps?: InspectDeps): Promise<EnvReport>
 defineAgentTool(def): AgentToolFactory
 ```
 
@@ -70,6 +71,11 @@ export interface MemberSpec {
   cwd?: string;
   /** 默认宿主级共享。另开会换掉这一份 models.json / auth.json */
   agentDir?: string;
+  /** 是否允许联网刷新模型目录（pi.dev overlay，带 ETag，4 小时新鲜度窗口），默认 true。
+   *  false 时仍会从 `<agentDir>/models-store.json` 恢复已缓存的 overlay（离线也生效） */
+  modelNetwork?: boolean;
+  /** 覆盖目录来源，默认 https://pi.dev（企业镜像 / 测试用） */
+  catalogBaseUrl?: string;
   /** 角色说明 → appendSystemPrompt */
   role?: string;
   /** 名字或 SKILL.md 路径；Skill 对象必须指向真实存在的文件 */
@@ -223,6 +229,28 @@ send_message({ agentId: "a3", message: "把结论写成 md" })
 
 `send_message`：只准投给**自己的后代分身**（自己创建的及它们的后代）。三个收益：防跨分支干扰；后代关系是树，禁止反向投递就**免费消灭发送环**；与实际信息一致（agent 本来也只知道自己创建的 id）。
 
+### 4.6 环境验证`inspectEnv`
+
+```ts
+export interface EnvReport {
+  agentDir: string;
+  cwd: string;
+  models: { provider: string; total: number; available: string[] }[];  // 只列有可用模型的 provider
+  extensions: { path: string; scope: string; tools: string[] }[];      // tools = 它注册的工具名
+  skills: { name: string; filePath: string; scope: string }[];
+  systemPromptFile?: string;                    // 环境里的 SYSTEM.md（存在即整体替换系统提示词）
+  appendSystemPromptFiles: string[];
+  contextFiles: string[];                       // AGENTS.md / CLAUDE.md 链
+  warnings: string[];                           // 库以前静默吞掉的东西
+}
+
+inspectEnv(spec?: MemberSpec, deps?: { modelRuntime?: ModelRuntime }): Promise<EnvReport>
+```
+
+传的 `spec` 与 `createAgent` 同形（`agentDir` / `cwd` / `skills` / `extensions` / `modelNetwork`），所以看到的就是建成后会生效的那套环境。只读 `DefaultResourceLoader` 与 `ModelRuntime` 上已有的东西 —— 不建 session、不写盘、**不是第二条创建路径**。
+
+它的存在意义：库把 `agentDir` 与 `cwd` 的自动发现交给了 SDK，凡是这两个目录里**碰巧存在**的东西会静默生效（尤其：自动发现的扩展工具不受 `tools` 白名单管辖、`SYSTEM.md` 会整体替掉系统提示词）。`inspectEnv` 把这些以及「为什么一个模型都没有」变成可读文本。
+
 ## 5. 实现约定
 
 - **分层**：`L0` pi SDK（不动）→ `L1` 本库（配置收敛、事件归一、用量统计、护栏）。**L1 不做任何 SDK 已经做了的事。**
@@ -246,6 +274,7 @@ src/agent/
   create-agent.ts   spec → ControlledAgent（生命周期、事件订阅、用量、工具接线、审批门）
   host.ts           createAgentHost + 花名册 + 三道护栏 + 宿主事件 + 级联回收
   loader.ts         skills / extensions / role 的配置收敛
+  env.ts            环境自检（inspectEnv）：模型 / 插件 / 技能 / 警告，只读
   events.ts         pi 的 20+ 事件 → 7 个归一化事件（纯映射）
   usage.ts          用量累加
   types.ts          全部对外类型（无运行时代码）
