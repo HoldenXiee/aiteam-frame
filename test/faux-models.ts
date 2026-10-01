@@ -1,4 +1,4 @@
-// 把假 provider 写进 models.json，并造出 ModelRuntime。搬自 probe/_sdk.ts。
+// 把假 provider 写进 models.json，并造出 ModelRuntime。源自早期的 SDK 探针。
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

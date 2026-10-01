@@ -1,4 +1,4 @@
-// 本机假 LLM 服务（零成本、按脚本响应）。搬自 probe/_support.ts 的假服务部分。
+// 本机假 LLM 服务（零成本、按脚本响应）。源自早期 SDK 探针里的假服务。
 // 同时记录「模型实际收到了什么」——这是测试的 ground truth。
 import { createServer, type ServerResponse } from "node:http";
 

@@ -1,6 +1,8 @@
 # aiteam 阶段 1：能力与极限 —— 最终审计报告
 
-> 审计对象：`D:/space/aiteam/test`（阶段 1 产物，git `97a7518` + 未提交的规格修正）
+> 成文时的历史命名：本文写的「阶段 1」在当时指「单 agent 操控库 + 花名册 + 工具地基 + 两个能力工具」，就是今天的 aiteam 库。项目现在不再分阶段（见 [`../DESIGN.md`](../DESIGN.md)）。本文作为现状与极限的实测存档保留，其中的「裁决」与「最必须补的三件」是按当时的目标写的，不代表现在的目标。
+
+审计对象：`D:/space/aiteam/test`（阶段 1 产物，git `97a7518` + 未提交的规格修正）
 > 日期：2026-09-30 ～ 10-01
 > 来源：**三轮独立审计**（既有报告 203 条 + 第一轮交叉验证 6 份 + 第二波 6 份），共 **13 份 FINDINGS**
 > 规模：**约 50 个探测脚本、600+ 条实测项、约 400 次真实模型调用**
@@ -346,7 +348,7 @@
 
 ## 附录 A：证据索引
 
-**既有审计**：`docs/research/2026-09-30-phase1-capability-audit-report.md`（511 行，203 条）+ `audit/findings/_all.json` + `audit/01-config.ts` … `audit/r7-live-*.ts`
+**既有审计**（该首版报告文件已随文档重构删除）：`docs/research/2026-09-30-phase1-capability-audit-report.md`（511 行，203 条）+ `audit/findings/_all.json` + `audit/01-config.ts` … `audit/r7-live-*.ts`
 
 **第一轮交叉验证（主 agent）**：`audit/verification-of-report.md`（F/G/H/I/J/K/L/M/N/O/P 十节，每条带脚本与原始输出）
 - `audit/verify-report-claims.ts` / `verify-c2.ts` / `verify-extension-planting.ts` / `verify-config-gaps.ts` / `verify-loader-errors.ts` / `verify-dispose-history.ts` / `verify-budget-bypass.ts` / `verify-observability-hypotheses.ts` / `verify-h1.ts` / `verify-result-misattribution.ts` / `verify-idle-steer.ts` / `verify-typo-failures.ts` / `verify-topology-structural.ts` / `verify-hard-constraint.ts` / `verify-thinking-map.ts`

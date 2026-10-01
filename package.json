@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "probe": "node probe/run.ts",
     "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\"",
     "demo": "node demo/demo.ts"
   },
