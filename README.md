@@ -154,3 +154,7 @@ npm run probe
 - 实现计划：[`docs/plans/2026-09-30-agent-control-lib.md`](docs/plans/2026-09-30-agent-control-lib.md)
 - 能力与极限审计（最终）：[`docs/research/2026-10-01-phase1-capability-audit-final.md`](docs/research/2026-10-01-phase1-capability-audit-final.md)
 - 审计计划：[`docs/research/2026-09-30-framework-capability-audit-plan.md`](docs/research/2026-09-30-framework-capability-audit-plan.md)
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
