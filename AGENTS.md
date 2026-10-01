@@ -64,5 +64,5 @@ audit/           能力与极限审计的探测脚本与发现（证据链）
 demo/            真模型多轮协作 demo
 docs/DESIGN.md   宏观设计（唯一设计源）
 docs/FACTS.md    已实测核对的实现决策
-docs/research/   能力与极限审计的最终报告
+docs/research/   能力与极限审计的最终报告 · 研究问题清单
 ```

@@ -131,7 +131,7 @@ docs/          设计文档
 - [`AGENTS.md`](AGENTS.md) —— 项目是什么（快速全貌）
 - [`docs/DESIGN.md`](docs/DESIGN.md) —— 宏观设计（唯一设计源）：操控面理想与现状、对外接口、能力边界
 - [`docs/FACTS.md`](docs/FACTS.md) —— 已实测核对的实现决策
-- [`docs/research/`](docs/research/) —— 能力与极限审计报告
+- [`docs/research/`](docs/research/) —— 能力与极限审计报告 · 研究问题清单
 
 ## 许可
 

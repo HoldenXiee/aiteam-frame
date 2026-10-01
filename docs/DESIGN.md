@@ -259,7 +259,7 @@ demo/              真模型多轮协作 demo
 docs/
   DESIGN.md        本文（唯一的宏观设计源）
   FACTS.md         已实测核对的实现决策
-  research/        能力与极限审计的最终报告
+  research/        能力与极限审计的最终报告 · 研究问题清单
 ```
 
 ## 附录 A：集群形态清单
