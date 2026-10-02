@@ -1,7 +1,7 @@
 # aiteam v2 —— 运行期操控面设计规格
 
 - 状态：**待实现**（本文是 v2 的唯一宏观设计源）
-- 日期：2026-10-02（rev.5：任务 1 审查回写——派发器合并规则以 pi 源码为准（last-wins），并补桥接内部不得静默丢弃的约束）
+- 日期：2026-10-02（rev.6：任务 5 审查回写——`permissions.only/allow/deny` 由「同步只改活跃集」改为 **async + reload**；显式 `tools.add` 必须解除同名 deny。依据是 R35/R37/R38，实测事实见 `docs/FACTS.md` #13）
 - 关系：本规格是 v2 的宏观设计源。v1 的 [`docs/DESIGN.md`](../../DESIGN.md) 归档为历史与对照（`docs/archive/DESIGN-v1.md`），新 `docs/DESIGN.md` 由本规格派生
 - 路径：架构级（brainstorming → 本规格 → writing-plans）
 
@@ -131,7 +131,7 @@ tools.add / tools.remove / extensions.add / skills.add
 | 面 | 底层钩子 / API |
 |---|---|
 | `permissions.gate` | `tool_call`（返回 `{block, reason, terminate}`；**改参数靠原地改 `event.input`**） |
-| `permissions.allow` / `deny` | `session.setActiveToolsByName()`（**同步，不触发 reload**） |
+| `permissions.only` / `allow` / `deny` | **白名单 / 排除集**（`allowedToolNames` / `_excludedToolNames`，唯一扛得过 reload 的硬过滤）+ `session.reload()`——**async、需 idle**。只调 `setActiveToolsByName` 不够：实测 `reload()` 会**重算**活跃集，只改活跃集的收紧会被下一次声明面操作**静默抹掉**（R35/R38） |
 | `tools.onResult` | `tool_result`（返回 `{content, details, structuredContent, isError, usage}`） |
 | `context.override` | `context` / `context_with_system`（返回 `{messages}`） |
 | `extensions.add` | `loader.extensionFactories` + reload |
@@ -172,7 +172,7 @@ tools.add / tools.remove / extensions.add / skills.add
 | **io** | `pending` · `isRunning` | `prompt(text, opts?)` → `RunResult` · `queue(text)` · `steer(text)` · `abort()` · `waitIdle()` | `session` 输入侧；`followUpMode` / `steeringMode` |
 | **context** | **`history`**（会话里存的消息） · `usage`（上下文占用） · `autoCompact` | `override(fn \| msgs)`（改**这一轮发给模型的内容**，不动历史） · `compact(instr?)` | `session` + `sessionManager`；`navigateTree` / `getUserMessagesForForking` 走 raw |
 | **tools** | `list()`（含已注册未启用） | `add(tool)` · `remove(name)` · `onResult(fn)` | 工具注册表 / `getToolDefinition` |
-| **permissions** | —（`gate` 只写不读） | `gate(fn)` · `allow(names)`（并集启用） · `deny(names)`（移除） · `only(names)`（精确设置） | `tool_call` 钩子；`setActiveToolsByName` |
+| **permissions** | —（`gate` 只写不读） | `gate(fn)`（同步，单槽位） · `allow(names)`（并集启用，**async**） · `deny(names)`（移除，**async**） · `only(names)`（精确设置，**async**） | `tool_call` 钩子；白名单 / 排除集 + `reload()` |
 | **extensions** | `list()` · **`errors()`** | `add(factory \| path)` · `remove(path)` | 扩展运行器；`pi.on` 注册 |
 | **skills** | `list()` | `add(path \| Skill)` · `remove(path)` | `loader`；`getSkills()` |
 | **extensions** | `list()` · **`errors`** | `add(factory \| path)` · `remove(path)` | 扩展运行器；`pi.on` 注册 |
@@ -412,3 +412,20 @@ io.prompt("…")
 1. 按本文写实现计划（writing-plans 技能）。
 
 §7 的探路已于 2026-10-02 完成，结论已写回本文（§3.3 / §3.4 / §4.1 / §7）。
+
+---
+
+## 11. rev.6 的两条裁决（任务 5 期间由审查证据触发）
+
+**R38：`permissions.only` / `allow` / `deny` 必须 async + reload。**
+
+起因是任务 5 实现者披露的天花板：`allow` 的立即生效只对**注册表里已有**的名字成立——被创建期白名单筛掉的名字要等下一次 reload。而契约规定这三个操作是同步、不触发 reload ⇒ **设计者没有任何办法让它生效**，且 `tools.list()` 里根本看不到这个名字 ⇒ 这是一个**不可见的部分 no-op**。
+
+审理后采纳「改契约」而非「写文档」。理由：
+1. 它**碰的是声明面**（工具存在与允许的宇宙），与 `tools.add` / `remove` / `extensions.add` / `skills.add` **同类**——后者全是 async + 需 idle。同步才是异类。
+2. 它**简化**实现：原设计要「白名单负责持久 + `setActiveToolsByName` 负责立即生效」两层都动；`reload()` 一步就同时决定白名单过滤与活跃集，只剩一层机制。
+3. 消除的是**静默失效**——本项目的立项理由。
+
+**R37：显式 `tools.add(x)` 必须解除同名的 deny。**
+
+起因是另一个跨面交互：`deny` 过的名字再 `tools.add` 会**静默不生效**（新工具停在 `active:false`）。取向与「`add` 会扩白名单」一致：**显式 add 一定让它生效**（R34 已为 `defaultActive:false` 立过同一原则）。若要让 deny 压过 add，那 add 就必须**抛错**——但那是多一条错误路径、且与既有取向矛盾；故取「add 解除 deny」。
