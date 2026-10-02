@@ -1,7 +1,7 @@
 # aiteam v2 —— 运行期操控面设计规格
 
 - 状态：**待实现**（本文是 v2 的唯一宏观设计源）
-- 日期：2026-10-02（rev.3：含 API review 修订 + 探路实测结论）
+- 日期：2026-10-02（rev.4：实现计划自检回写的三处消歧）
 - 关系：本规格是 v2 的宏观设计源。v1 的 [`docs/DESIGN.md`](../../DESIGN.md) 归档为历史与对照（`docs/archive/DESIGN-v1.md`），新 `docs/DESIGN.md` 由本规格派生
 - 路径：架构级（brainstorming → 本规格 → writing-plans）
 
@@ -169,14 +169,24 @@ tools.add / tools.remove / extensions.add / skills.add
 | 面 | 读 | 原语 | raw / 底层 |
 |---|---|---|---|
 | **io** | `pending` · `isRunning` | `prompt(text, opts?)` → `RunResult` · `queue(text)` · `steer(text)` · `abort()` · `waitIdle()` | `session` 输入侧；`followUpMode` / `steeringMode` |
-| **context** | **`history`**（会话里存的消息） · `usage`（上下文占用） | `override(fn \| msgs)`（改**这一轮发给模型的内容**，不动历史） · `compact(instr?)` · `autoCompact(bool)` | `session` + `sessionManager`；`navigateTree` / `getUserMessagesForForking` 走 raw |
+| **context** | **`history`**（会话里存的消息） · `usage`（上下文占用） · `autoCompact` | `override(fn \| msgs)`（改**这一轮发给模型的内容**，不动历史） · `compact(instr?)` | `session` + `sessionManager`；`navigateTree` / `getUserMessagesForForking` 走 raw |
 | **tools** | `list()`（含已注册未启用） | `add(tool)` · `remove(name)` · `onResult(fn)` | 工具注册表 / `getToolDefinition` |
-| **permissions** | `gate()` | `gate(fn)` · `allow(names)` · `deny(names)` | `tool_call` 钩子；`setActiveToolsByName` |
+| **permissions** | —（`gate` 只写不读） | `gate(fn)` · `allow(names)`（并集启用） · `deny(names)`（移除） · `only(names)`（精确设置） | `tool_call` 钩子；`setActiveToolsByName` |
+| **extensions** | `list()` · **`errors()`** | `add(factory \| path)` · `remove(path)` | 扩展运行器；`pi.on` 注册 |
+| **skills** | `list()` | `add(path \| Skill)` · `remove(path)` | `loader`；`getSkills()` |
 | **extensions** | `list()` · **`errors`** | `add(factory \| path)` · `remove(path)` | 扩展运行器；`pi.on` 注册 |
 | **skills** | `list()` | `add(name \| path)` · `remove(name)` | `loader`；`getSkills()` |
 | **model** | `current` · `thinking` · `available` | `set(model)` · `setThinking(level)` | `modelRuntime`；`setModel` / `setThinkingLevel` / `scopedModels` |
 
-**命名说明**：`context.history` 是**历史**（会话里存的），`context.override` 改的是**这一轮发给模型的**。两者刻意不同名——旧叫法 `context.messages` 会让人以为 override 改的是历史。
+**读写形式约定**（避免每个面各一套）：简单状态用 getter / accessor（`context.autoCompact` 可读写，`context.history`、`model.current`、`io.pending` 只读）；要计算或返回新数组的用方法（`tools.list()`、`extensions.errors()`、`skills.list()`）；有副作用的用方法。
+
+**三处与早版措辞的消歧**（实现计划自检时发现同名不同义，会同治于本文与计划）：
+
+1. **创建期用 `only` 而不是 `allow`**。创建时最常说的是「只给它这几个」（精确白名单，对应 pi 的 `tools` 选项）；运行期 `allow` 是**并集启用**。同名不同义是陷阱，所以创建期叫 `only`：`permissions: { only?: string[]; deny?: string[] }`。
+2. **运行期补 `only(names)`** 做精确设置。`allow`（并集）/ `deny`（移除）/ `only`（精确）三档语义互不重叠。
+3. **`skills.add` 只接受路径或 `Skill` 对象，不接受裸技能名**。技能是被环境发现的，不是按名注册的；运行期「按名 add」没有意义，只能变成静默 no-op——传名字时招错并指向 `skills.list()`。
+
+**定义**：
 
 **边界说明**
 
@@ -250,10 +260,11 @@ export interface ContextSurface {
   readonly history: readonly AgentMessage[];
   /** 上下文占用（来自 session.getContextUsage()） */
   readonly usage: ContextUsage | undefined;
-  /** 改「这一轮发给模型的内容」；历史不变 */
-  override(next: ((messages: AgentMessage[]) => AgentMessage[]) | AgentMessage[]): void;
+  /** 自动压缩开关，可读写（映射到 session.autoCompactionEnabled） */
+  autoCompact: boolean;
+  /** 改「这一轮发给模型的内容」；历史不变。传 undefined 清除 */
+  override(next: ((messages: AgentMessage[]) => AgentMessage[]) | AgentMessage[] | undefined): void;
   compact(instructions?: string): Promise<void>;
-  autoCompact(enabled: boolean): void;
   readonly raw: { session: AgentSession; sessionManager: SessionManager };
 }
 
@@ -268,10 +279,12 @@ export interface ToolsSurface {
 }
 
 export interface PermissionsSurface {
-  gate(fn: ToolGate | undefined): void;   // 同步：只改内存表，下次钩子生效
+  /** 只写不读：单槽位，后一次覆盖前一次。同步生效 */
+  gate(fn: ToolGate | undefined): void;
   /** 同步：底层是 setActiveToolsByName，不触发 reload */
-  allow(names: string[]): void;
-  deny(names: string[]): void;
+  allow(names: string[]): void;   // 并集：启用这些
+  deny(names: string[]): void;    // 差集：关掉这些
+  only(names: string[]): void;    // 精确：集合就是这些
 }
 export type ToolGate = (
   call: { name: string; input: unknown; callId: string },
