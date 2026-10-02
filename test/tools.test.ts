@@ -6,7 +6,7 @@
 // 桥接自己的身份没变（还是同一个内联扩展），`pi.on` 那些事件钩子也靠这次重跑接回去。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { makeAgent, sentTools, echoTool } from "./helpers.ts";
 
@@ -132,6 +132,19 @@ test("运行中 add → 抛错（idle 守卫）", async () => {
   try {
     const p = a.io.prompt("[[sleep:400]] slow");
     await assert.rejects(() => a.tools.add(echoTool()), /空闲/);
+    await p;
+  } finally { a.dispose(); }
+});
+
+test("忙时 add 工厂式工具：工厂一次都不该被调用（R36）", async () => {
+  // 忙守卫必须排在工厂调用**之前**：一次注定被拒绝的 add 不该让设计者工厂的副作用先跑一遍。
+  // 上面那条忙守卫用例 add 的是对象式工具，工厂副作用不可观察 —— 只有工厂式才判得出顺序。
+  const a = await makeAgent();
+  let calls = 0;
+  try {
+    const p = a.io.prompt("[[sleep:400]] slow");
+    await assert.rejects(() => a.tools.add(() => { calls += 1; return echoTool() as ToolDefinition; }), /空闲/);
+    assert.equal(calls, 0);
     await p;
   } finally { a.dispose(); }
 });

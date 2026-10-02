@@ -67,7 +67,7 @@ export interface Bridge {
   readonly tools: Map<string, AgentTool>;          // 名称 → 工具（工厂或定义）
   readonly listeners: Map<string, Set<Handler>>;   // 事件名 → 监听器（含门、onResult、override）
   readonly factory: InlineExtension;                // 每次 reload 重跑：三张表接回 pi
-  /** permissions 面的门。本任务不接线（留给 permissions 面），接线时在 dispatch 里排在监听表之前 */
+  /** permissions 面的门。dispatch 里排在监听表之前，与监听表共用同一守卫（R26） */
   gate: ToolGate | undefined;
   /** context 面的 override（context 面接线）。dispatch 里排在监听表之前，与监听表共用同一守卫（R26） */
   contextOverride: ((messages: AgentMessage[]) => AgentMessage[]) | undefined;
@@ -86,6 +86,7 @@ export function createBridge(deps: {
   const listeners = new Map<string, Set<Handler>>();
   let runId: string | undefined;
   let contextOverride: Bridge["contextOverride"];
+  let gate: ToolGate | undefined;
 
   /**
    * 派发器。四条规则，与 pi 的 `emitToolCall` 同构（依据：pi 源码
@@ -113,6 +114,26 @@ export function createBridge(deps: {
       result = { messages: contextOverride((event as { messages: AgentMessage[] }).messages) };
       hasResult = true;
     }
+    // permissions 的审批门（R26）：与 override 一样是专属槽位，排在监听表**之前**，结果计入同一个守卫。
+    // 事件上的 `input` 就是 pi 交给工具的**同一个对象**（`validateToolArguments` 出来的 validatedArgs，
+    // agent-loop.js:492-531 把它同时交给 beforeToolCall 与 execute），所以门原地改 `call.input` 能真的传下去。
+    if (name === "tool_call" && gate) {
+      const call = event as { toolName: string; toolCallId: string; input: unknown };
+      let returned: unknown;
+      try {
+        returned = await gate({ name: call.toolName, input: call.input, callId: call.toolCallId }, ctx);
+      } catch (err) {
+        // 门抛异常不许裸奔：异常会一路穿出派发器，落进 pi 自己的兜底（`prepareToolCall` 的 catch，
+        // agent-loop.js:533-539）—— 拦截 reason 就成了 pi 的措辞（`err.message`，非 Error 还会被包成
+        // `Extension failed, blocking execution`，agent-session.js:319-324）。统一在这里转成 block。
+        returned = { block: true, reason: String(err) };
+      }
+      if (returned) {
+        if ((returned as { block?: boolean }).block) return returned;   // block 短路，监听表不跑（pi 同构）
+        result = returned;
+        hasResult = true;
+      }
+    }
     for (const fn of [...(listeners.get(name) ?? []), ...(listeners.get(ANY_EVENT) ?? [])]) {
       const returned = await fn(event, ctx);
       if (!returned) continue;                            // 真值判据，与 pi 逐字一致
@@ -133,7 +154,12 @@ export function createBridge(deps: {
   return {
     tools,
     listeners,
-    gate: undefined,
+    get gate() {
+      return gate;
+    },
+    set gate(fn) {
+      gate = fn;
+    },
     get contextOverride() {
       return contextOverride;
     },

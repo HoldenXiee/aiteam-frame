@@ -15,7 +15,7 @@ import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import { createIo } from "../surfaces/io.ts";
 import { createContext } from "../surfaces/context.ts";
-import { createTools } from "../surfaces/tools.ts";
+import { createTools, createPermissions } from "../surfaces/tools.ts";
 import type {
   Agent,
   AgentContext,
@@ -111,7 +111,7 @@ const SURFACE_KEYS = {
 } as const satisfies Record<string, readonly string[]>;
 
 /** 已经在 spec 里声明、但本任务还没接线的字段：宁可立刻喊，也不静默忽略（v1 的教训） */
-const NOT_WIRED = ["permissions.deny", "permissions.gate", "tools.custom"];
+const NOT_WIRED = ["tools.custom"];
 
 function assertSpec(spec: AgentInit): void {
   const given = spec as Record<string, unknown>;
@@ -165,6 +165,8 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     // R29：桥接的 reload 守卫与 io / context / tools 共用同一个判据（由 createAgent 注入）
     isBusy: () => isBusy(),
   });
+  // 创建期的 gate 就是运行期那个槽位（单槽位，后一次覆盖前一次）
+  if (spec.permissions?.gate) bridge.gate = spec.permissions.gate;
 
   const loader = await buildLoader(spec, {
     cwd,
@@ -189,6 +191,9 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     sessionManager,
     settingsManager,
     ...(spec.permissions?.only ? { tools: spec.permissions.only } : {}),
+    // 创建期 `deny` 落 `excludeTools`（`sdk.js:146` → pi 的 `_excludedToolNames`）：比白名单更硬 ——
+    // 被排除的名字连工具注册表都进不去，也不会被 `initialActiveToolNames` 选中。
+    ...(spec.permissions?.deny ? { excludeTools: spec.permissions.deny } : {}),
     ...(model ? { model } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
   });
@@ -295,12 +300,11 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     assertAlive,
   });
 
-  const permissions: PermissionsSurface = {
-    gate: () => notImplemented("permissions.gate"),
-    allow: () => notImplemented("permissions.allow"),
-    deny: () => notImplemented("permissions.deny"),
-    only: () => notImplemented("permissions.only"),
-  };
+  const permissions: PermissionsSurface = createPermissions({
+    session,
+    bridge,
+    assertAlive,
+  });
 
   const extensions: ExtensionsSurface = {
     list: () => notImplemented("extensions.list"),
