@@ -206,6 +206,10 @@ export function createBridge(deps: { session: () => AgentSession; agent: () => A
 
 保留 v1 的 `getSharedRuntime`（按 agentDir+开关缓存，决策 #8/#30）、`resolveModel`（warning 转抛错，决策 #28）、`nextId`。新增：**spec 未知字段校验**（顶层键 + 每个面对象内的键，逐面白名单，未知即抛）。
 
+本任务只建 **`io` 的最小驱动版**（`prompt` = `assertAlive()` + `await session.prompt(text)`，加上 `waitIdle` / `isRunning` / `status`），其他六个面先留空对象占位。真正的结算（`runId` / 区间 / `usage` 归属）与 `queue` / `steer` / `abort` / `pending` 是任务 2 的事。
+
+顺手改两处 import（因为本任务重写了 `types.ts`，删掉了 `MemberSpec`）：`src/agent/loader.ts` 的 `MemberSpec` → `ResourceSpec`（在 types.ts 里定义为 `{ skills?, extensions?, role? }`），`src/agent/env.ts` 的 `MemberSpec` → `Partial<AgentInit>`。**不改这两个文件的其余内容**（env 的完整适配归任务 8）。
+
 - [ ] **步骤 7：运行测试确认通过**
 
 运行：`npm test` → 预期：新增 6 个用例 PASS，`loader.test.ts` / `env.test.ts` 仍 PASS。
@@ -222,7 +226,7 @@ git add -A && git commit -m "feat(v2): 七面骨架 + 常驻桥接扩展 + 原�
 
 **文件：**
 - 创建：`src/surfaces/io.ts`、`test/io.test.ts`
-- 修改：`src/agent/create-agent.ts`（装配 `agent.io`）
+- 修改：`src/agent/create-agent.ts`（把任务 1 的最小驱动版换成真结算）
 
 - [ ] **步骤 1：编写失败的测试 `test/io.test.ts`**
 
