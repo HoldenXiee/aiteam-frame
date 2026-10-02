@@ -4,12 +4,12 @@
 // `createAgent({ model: FAUX_MODEL_REF })` 不传任何依赖也能零成本跑起来。
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF, makeFauxRuntime } from "./faux-models.ts";
+import { FAUX_MODEL_ALT_ID, FAUX_MODEL_ALT_REF, FAUX_MODEL_REF, makeFauxRuntime } from "./faux-models.ts";
 import { startFaux } from "./faux-server.ts";
 import { createAgent } from "../src/agent/create-agent.ts";
 import type { Agent, AgentInit, AgentTool } from "../src/agent/types.ts";
 
-export { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF };
+export { FAUX_MODEL_ALT_ID, FAUX_MODEL_ALT_REF, FAUX_MODEL_REF };
 
 export const faux = await startFaux();
 // 测试一律不允许模型目录联网：否则每个测试文件都会去打 pi.dev（冷 store 实测 +2.2s，离线时更久）。

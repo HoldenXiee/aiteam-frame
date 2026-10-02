@@ -117,7 +117,8 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
       // R41：这次 add 的扩展注册的工具名要在**注册表过滤之前**进白名单，否则被 pi 硬过滤掉、无人可知。
       // 但工厂注册了哪些名字只有 reload 之后才知道（工厂在 reload 里被调用；为了取名字先自己调一遍
       // 会让设计者工厂的副作用跑两次，R30b 的教训）⇒ 有白名单时补一趟 reload。
-      const allowed = toolFilters(session)._allowedToolNames;
+      const filters = toolFilters(session);
+      const allowed = filters._allowedToolNames;
       const state = loaderInjections(loader);
       const before = new Set(loader.getExtensions().extensions.map((e) => e.path));
       // 留住 commit 的回滚：第二趟 reload（并入白名单那次）失败时，第一趟的注入也要撤掉，
@@ -126,14 +127,21 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
       const rollback = await (typeof extension === "string"
         ? commit(deps, () => push(state.extensionPaths, extension))
         : commit(deps, () => push(factoryList(loader), extension)));
-      if (!allowed) return;   // 没有白名单：注册表不做过滤（与 tools.add 的 registerAllowed 同为 no-op）
-      const added = declaredToolNames(loader, extension, state.cwd, before).filter((n) => !allowed.has(n));
-      if (!added.length) return;
-      for (const name of added) allowed.add(name);
+      const names = declaredToolNames(loader, extension, state.cwd, before);
+      // 没有白名单：注册表不做过滤（与 tools.add 的 registerAllowed 同为 no-op），但这**不**豁免 R44 ——
+      // 排除集是另一张表（创建期 `permissions.deny` 且无白名单时就是它在挡）。
+      const added = allowed ? names.filter((n) => !allowed.has(n)) : [];
+      // R44：更晚的显式声明胜 —— 这次 add 点名的工具名要**同时摘掉排除集**（与 tools.add 的 R37 对称）。
+      // 不摘的话「创建期 deny + 更晚的 extensions.add」仍被硬过滤（deny 胜），而「运行期 deny（有白名单时
+      // 只摘白名单名、不写排除集）+ 更晚的 add」却是 add 胜 —— 同一个逻辑情形因 deny 来源不同而结果相反。
+      const unexcluded = names.filter((n) => filters._excludedToolNames?.delete(n));
+      if (!added.length && !unexcluded.length) return;
+      for (const name of added) allowed!.add(name);
       try {
         await deps.bridge.reload();
       } catch (err) {
-        for (const name of added) allowed.delete(name);
+        for (const name of added) allowed!.delete(name);
+        for (const name of unexcluded) filters._excludedToolNames?.add(name);
         rollback();
         // 取舍（诚实披露）：注入表先恢复一致，但 loader 上一次 reload 的缓存（`getExtensions()`）要到
         // 下一次 reload 才跟上 ⇒ `extensions.list()` 会**短暂**显示这个已被撤销的扩展。持久层一致比

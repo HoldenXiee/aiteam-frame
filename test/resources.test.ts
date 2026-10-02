@@ -274,11 +274,43 @@ test("R41 边界：环境自动发现的扩展所注册的工具**不**并入白
   } finally { only.dispose(); }
 });
 
-test("R41 前提：tools.custom 仍被 NOT_WIRED 挡着（来源一当下无可执行路径）", async () => {
-  // R41 来源一 = `spec.tools.custom` 的定义名。它当下没接线：create-agent.ts 的 NOT_WIRED 让传了就抛。
-  // 所以那半条无可执行路径（写进去就是新的死代码）。这条用例钉住这个前提 —— 将来谁解开 NOT_WIRED，
-  // 它会**先红**，提醒他同时把自定义工具名并进白名单，否则 R41 的缺口会重新打开。
-  await assert.rejects(() => makeAgent({ tools: { custom: [echoTool()] } }), /尚未实现/);
+// ─────────────── R42：创建期 `spec.tools.custom` 接线 ───────────────
+// R41 的「来源一」（`spec.tools.custom` 的定义名并入白名单）在 R42 之前被 `NOT_WIRED` 挡着、不可达；
+// 接线后它有了调用者，所以这条「前提」用例改写成它真正要钉的语义（R41 的缺口不许重新打开）。
+
+test("R42：spec.tools.custom 的定义名并入白名单（R41 来源一现在可达）", async () => {
+  const a = await makeAgent({ permissions: { only: ["read"] }, tools: { custom: [echoTool()] } });
+  try {
+    await a.io.prompt("hi");
+    // 不并入就只剩 ["read"]：同一个 spec 里两行声明、自定义工具静默无效 —— 这条钉的就是它
+    assert.deepEqual([...sentTools()].sort(), ["probe_echo", "read"]);
+  } finally { a.dispose(); }
+});
+
+test("R42：工厂式 tools.custom 只调一次，且创建期就拿得到真 ctx.agent", async () => {
+  let calls = 0;
+  let sawAgentId: string | undefined;
+  const a = await makeAgent({
+    // 带上白名单：白名单里也要有工厂工具的**定义名**，而那个名字只能靠调工厂拿到 —— 这一项让
+    // 「为了取名字另调一次工厂」的写法（R30b 的双跑）在这条用例里无处可藏。
+    permissions: { only: ["read"] },
+    tools: {
+      custom: [
+        (ctx) => {
+          calls += 1;
+          sawAgentId = ctx.agent.id;   // session 之前就被调，所以句柄必须先建、且是最终那一个
+          return echoTool("probe_factory") as ToolDefinition;
+        },
+      ],
+    },
+  });
+  try {
+    assert.equal(calls, 1, "工厂只该被调一次");
+    assert.equal(sawAgentId, a.id, "ctx.agent 必须是最终那个 agent 句柄（不是空壳副本）");
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["probe_factory", "read"]);
+    assert.equal(calls, 1, "跑完一轮工厂也不该被再调一次（R30b：存成品，不存工厂）");
+  } finally { a.dispose(); }
 });
 
 // ─────────────── R43：越具体的声明越强 —— deny 压过 R41 的并入 ───────────────
@@ -299,15 +331,42 @@ test("R43 创建期：deny 压过 R41 并入（被点名的工具仍被排除，
   } finally { a.dispose(); }
 });
 
-test("R43 运行期：extensions.add 也压不过已存在的 deny", async () => {
-  const a = await makeAgent({ permissions: { only: ["read"], deny: ["probe_echo"] } });
+// ─────────────── R44：更晚的显式声明胜 —— 运行期 extensions.add 同时摘排除集 ───────────────
+// R43 只管「同一份 spec 内」并列时的具体性（上面那条创建期用例，deny 胜，别动）。
+// 但「创建期 deny + 更晚的 extensions.add」曾被判 deny 仍胜，而「运行期 deny（有白名单 ⇒ 只摘白名单、
+// 不写排除集）+ 更晚的 add」却是 add 胜 —— 同一个逻辑情形因 deny 来源不同而结果相反。
+// R44 按时间规则统一成 add 胜（与 tools.add 的 R37 对称），下面三个分量断言它们取值一致。
+
+test("R44：更晚的 extensions.add 覆盖创建期的 deny（与运行期 deny 的结果一致）", async () => {
+  const declared = await makeAgent({ permissions: { only: ["read"], deny: ["probe_echo"] } });
   try {
-    await a.io.prompt("hi");
-    assert.deepEqual(sentTools(), ["read"]);   // 前提：白名单本来只有 read
-    await a.extensions.add(twoToolFactory());
-    await a.io.prompt("hi");
-    assert.deepEqual([...sentTools()].sort(), ["probe_two", "read"]);
-  } finally { a.dispose(); }
+    await declared.io.prompt("hi");
+    assert.deepEqual(sentTools(), ["read"], "前提：创建期 deny 本来把 probe_echo 挡在门外");
+    await declared.extensions.add(twoToolFactory());
+    await declared.io.prompt("hi");
+    // R44 之前这里是 ["probe_two", "read"]（probe_echo 被排除集硬过滤）—— 这条分量改前必红
+    assert.deepEqual([...sentTools()].sort(), ["probe_echo", "probe_two", "read"]);
+  } finally { declared.dispose(); }
+
+  // 对照分量：deny 来自运行期（有白名单 ⇒ 只摘白名单名、不写排除集）时，更晚的 add 一向是 add 胜。
+  const runtime = await makeAgent({ permissions: { only: ["read"] } });
+  try {
+    await runtime.permissions.deny(["probe_echo"]);
+    await runtime.extensions.add(twoToolFactory());
+    await runtime.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["probe_echo", "probe_two", "read"]);
+  } finally { runtime.dispose(); }
+
+  // 第三分量：**无白名单**时排除集同样要被摘掉（`_allowedToolNames` 为 undefined 的那条分支，
+  // 实现里若在没白名单时提前 return，就只有这一分量会红）。
+  const noWhitelist = await makeAgent({ permissions: { deny: ["probe_echo"] } });
+  try {
+    await noWhitelist.io.prompt("hi");
+    assert.ok(!sentTools().includes("probe_echo"), "前提：创建期 deny 把它挡在门外");
+    await noWhitelist.extensions.add(twoToolFactory());
+    await noWhitelist.io.prompt("hi");
+    assert.ok(sentTools().includes("probe_echo"));
+  } finally { noWhitelist.dispose(); }
 });
 
 // ─────────────── remove 的路径基准 = agent 的 cwd（与 declaredExtensionToolNames 同一口径） ───────────────

@@ -52,6 +52,11 @@ test("spec 未知字段 → 抛错并指出字段名", async () => {
   await assert.rejects(() => makeAgent({ permisions: {} } as never), /permisions/);
 });
 
+test("spec 面里未知字段 → 抛错并指出面与字段名（NOT_WIRED 清零后 SURFACE_KEYS 仍生效）", async () => {
+  await assert.rejects(() => makeAgent({ tools: { custm: [] } } as never), /tools 里的未知字段「custm」/);
+  await assert.rejects(() => makeAgent({ permissions: { onli: [] } } as never), /permissions 里的未知字段「onli」/);
+});
+
 test("同一事件上两个监听器都返回变换结果 → 报错拦下，不静默丢弃前一个", async () => {
   // 用 tool_call 而不是 context：pi 的 emitContext / emitToolResult 把 handler 抛的错吞进自己的
   // error listener（runner.js:1020 等），而 emitToolCall 不吞（runner.js:951-969）；且 agent 层会把

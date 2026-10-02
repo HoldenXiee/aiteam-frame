@@ -122,9 +122,6 @@ const SURFACE_KEYS = {
   context: ["autoCompact"],
 } as const satisfies Record<string, readonly string[]>;
 
-/** 已经在 spec 里声明、但本任务还没接线的字段：宁可立刻喊，也不静默忽略（v1 的教训） */
-const NOT_WIRED = ["tools.custom"];
-
 function assertSpec(spec: AgentInit): void {
   const given = spec as Record<string, unknown>;
   for (const key of Object.keys(given)) {
@@ -139,13 +136,6 @@ function assertSpec(spec: AgentInit): void {
       if (!(allowed as readonly string[]).includes(key)) {
         throw new Error(`createAgent：${surface} 里的未知字段「${key}」。可用字段：${allowed.join("、")}`);
       }
-    }
-  }
-  for (const path of NOT_WIRED) {
-    const [surface, key] = path.split(".");
-    const group = given[surface] as Record<string, unknown> | undefined;
-    if (group && typeof group === "object" && group[key] !== undefined) {
-      throw new Error(`createAgent：${path} 尚未实现（还没接线到 pi），先别传`);
     }
   }
 }
@@ -165,6 +155,19 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
 
   // 工厂要在 createAgentSession 之前就交出去，而 session / agent 那时还没建好 —— 用 holder 惰性取。
   const holder: { session?: AgentSession; agent?: Agent } = {};
+
+  // ─────────────── 状态 ───────────────
+  let status: Agent["status"] = "idle";
+  let usage = emptyUsage();
+  // 句柄先建、面后挂（R42）：创建期 `tools.custom` 的工厂在 session 之前就要 `ctx.agent`，而工厂常把
+  // agent 存进闭包留到 execute 再取 ⇒ 必须是**同一个**对象。所以先给一个只带 id / usage / status 的空壳，
+  // 七个面等 session 拼好后用 Object.assign 挂上去（工厂拿到的引用因此始终是最终那个句柄）。
+  const agent = {
+    id,
+    get usage() { return usage; },
+    get status() { return status; },
+  } as Agent;
+  holder.agent = agent;
   // 先声明、后赋值：桥接的守卫与三个面都按**调用时**取值，所以 isBusy 直到 io 建好之前不可用。
   // （桥接工厂 / reload 只可能在本函数返回之后触发，那时 isBusy 已经指向 io。）
   let isBusy: () => boolean;
@@ -189,12 +192,19 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
 
   // R41：白名单会自动并入**你在同一个 spec 里显式声明的**工具（显式声明一定生效）。
-  // 来源只有扩展：`spec.tools.custom` 当下在 `NOT_WIRED` 里（传了就抛，见 assertSpec），那半条无可执行
-  // 路径 —— 接线它时**必须**同时把它的定义名并到这里，否则白名单又会把自定义工具静默挡在外面
-  // （用例「tools.custom 仍被 NOT_WIRED 挡着」钉的就是这个前提）。
+  // 两个来源都是显式声明：`spec.tools.custom` 的定义名（R42 接线后这里才有调用者）与
+  // `spec.extensions` 里显式声明的扩展/内联工厂所注册的工具名。
   // 环境自动发现的扩展**不**并入：白名单不该被环境里碰巧存在的扩展悄悄撑开（`declaredExtensionToolNames`）。
   const only = spec.permissions?.only;
-  const whitelist = only ? [...new Set([...only, ...declaredExtensionToolNames(spec, loader, cwd)])] : undefined;
+  // R42：创建期自定义工具落 pi 的真选项 `customTools`（`sdk.d.ts:47` → `sdk.js:298`）。工厂式在这里就调成
+  // 成品（R30b）：`customTools` 只收 `ToolDefinition`，pi 不会替你调工厂；而且只调这一次，工厂里的副作用
+  // 不许跑两遍。ctx 只给 agent —— 挂面之前空壳已经建好，工厂无论当场用还是存进闭包都对。
+  const customTools = (spec.tools?.custom ?? []).map((tool) =>
+    typeof tool === "function" ? tool({ agent }) : tool,
+  );
+  const whitelist = only
+    ? [...new Set([...only, ...declaredExtensionToolNames(spec, loader, cwd), ...customTools.map((t) => t.name)])]
+    : undefined;
 
   // `permissions.only` 的创建期接线只有**一处**：`createAgentSession({ tools: whitelist })`（R41 并入后的那份）。
   //   - `sdk.js:145` 把它当 `allowedToolNames` —— 硬过滤，白名单之外的工具连注册表都进不去（含内置的）；
@@ -211,6 +221,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     sessionManager,
     settingsManager,
     ...(whitelist ? { tools: whitelist } : {}),
+    ...(customTools.length ? { customTools } : {}),
     // 创建期 `deny` 落 `excludeTools`（`sdk.js:146` → pi 的 `_excludedToolNames`）：比白名单更硬 ——
     // 被排除的名字连工具注册表都进不去，也不会被 `initialActiveToolNames` 选中。
     ...(spec.permissions?.deny ? { excludeTools: spec.permissions.deny } : {}),
@@ -263,10 +274,6 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
       armExtensionError();
     }
   };
-
-  // ─────────────── 状态 ───────────────
-  let status: Agent["status"] = "idle";
-  let usage = emptyUsage();
 
   function assertAlive(): void {
     if (status === "disposed") throw new Error(`agent ${id} 已 dispose（disposed），不能再操作`);
@@ -387,14 +394,8 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     }
   }
 
-  const agent: Agent = {
-    id,
-    get usage() {
-      return usage;
-    },
-    get status() {
-      return status;
-    },
+  // 七个面在句柄建好之后挂上去（R42 的「句柄先建、面后挂」）：
+  Object.assign(agent, {
     io,
     context,
     tools,
@@ -405,7 +406,6 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     on,
     onAny,
     dispose,
-  };
-  holder.agent = agent;
+  });
   return agent;
 }
