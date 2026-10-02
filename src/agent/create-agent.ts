@@ -188,10 +188,42 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   // `bindExtensions`。净效果：桥接抛出的异常，在 `context` / `tool_result` 这类「handler 抛错被
   // `emitError` 吞掉」的事件上会彻底消失（runner.js:1018-1026 等）—— 用户看不到任何症状，正是 v2
   // 要根除的失效模式。注册这个监听器是让它们变成可见输出的唯一途径。
-  const offExtensionError = session.extensionRunner.onError((e) => {
-    // event 与 extensionPath 都要带上：没有这两样，用户不知道该去关哪个钩子
-    console.error(`[aiteam] 扩展/钩子错误 event=${e.event} path=${e.extensionPath}：${e.error}`);
-  });
+  //
+  // R18：监听器挂在 runner **实例**上，而 `session.reload()` 会 `new ExtensionRunner(...)`
+  // （agent-session.js:2852 + 2593-2598 的 `_applyExtensionBindings`），旧实例连同它的
+  // errorListeners 一起被丢弃 —— 只挂一次的话，**reload 之后钩子异常重新静默**（实测：reload 前
+  // 打印一条，reload 后零输出）。所以必须 re-arm：下面是幂等的重挂函数 + 一次 reload 包装。
+  let armedRunner: AgentSession["extensionRunner"] | undefined;
+  let offExtensionError: (() => void) | undefined;
+
+  /** 把监听器挂到**当前**的 runner 上；同一个 runner 上重复调用是 no-op（否则同一条错误打印多份） */
+  function armExtensionError(): void {
+    const runner = session.extensionRunner;
+    if (runner === armedRunner) return;
+    // 这里只丢掉旧句柄、不对旧 runner 调 off()：能走到这一步说明 runner 已经被换下（旧实例非法、
+    // 其监听表随之不可达），对着已死的实例退订没有意义。dispose 时退订的是 armedRunner（当前那个）。
+    armedRunner = runner;
+    offExtensionError = runner.onError((e) => {
+      // event 与 extensionPath 都要带上：没有这两样，用户不知道该去关哪个钩子
+      console.error(`[aiteam] 扩展/钩子错误 event=${e.event} path=${e.extensionPath}：${e.error}`);
+    });
+  }
+
+  armExtensionError();
+
+  // `reload()` 是 extensionRunner 被换掉的唯一入口（`_buildRuntime` 只在构造与 reload 里调，
+  // agent-session.js:188 / 2876），桥接的 `bridge.reload()` 也走这里 —— 所以包在 session 这一层，
+  // 所有路径（含 T1 阶段唯一公开可用的 `io.raw.reload()`）都覆盖到。放 finally 而不是成功之后：
+  // reload 可能在换完 runner 之后才抛（换 runner 之后还有 session_start / 资源扩展），那种情况也得重挂，
+  // 而 armExtensionError 对未换 runner 的场景本来就是 no-op。
+  const rawReload = session.reload.bind(session);
+  session.reload = async (options) => {
+    try {
+      await rawReload(options);
+    } finally {
+      armExtensionError();
+    }
+  };
 
   // ─────────────── 状态 ───────────────
   let status: Agent["status"] = "idle";
@@ -344,7 +376,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     if (status === "disposed") return;
     const wasStreaming = session.isStreaming;
     status = "disposed";
-    offExtensionError(); // 否则已 dispose 的会话还在往控制台写
+    offExtensionError?.(); // 否则已 dispose 的会话还在往控制台写；这里退订的始终是当前 runner
     bridge.listeners.clear();
     if (wasStreaming) {
       // 先 abort，等它 settle，再真回收 —— 否则会留下悬挂的请求与永不 settle 的 promise

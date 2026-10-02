@@ -102,6 +102,32 @@ test("context 上的钩子抛错 → 经 console.error 浮出来（pi 在这个�
   assert.ok(logged.some((line) => line.includes("context")), `输出里应含事件名 context，实际：${logged.join(" | ")}`);
 });
 
+test("reload 之后 context 上的钩子异常仍然浮出来，且不重复打印（R18）", async () => {
+  // 监听器挂在 extensionRunner **实例**上，而 session.reload() 会 new 一个新实例 —— 只挂一次的话
+  // reload 之后钩子异常重新静默。io.raw 就是 session；T1 阶段这是公开面上唯一能走 reload 的路径
+  // （任务 4/6 接线后走 bridge.reload()，它同样经过被包装的 session.reload()）。
+  const a = await makeAgent();
+  a.on("context", (e: any) => ({ messages: e.messages }));
+  a.on("context", (e: any) => ({ messages: e.messages }));
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    await a.io.prompt("hi");
+    assert.equal(logged.length, 1, `reload 前每轮只应浮出一条，实际：${logged.join(" | ")}`);
+    assert.match(logged[0], /context/);
+
+    await a.io.raw.reload();
+
+    await a.io.prompt("hi again");
+    assert.equal(logged.length, 2, `reload 后仍应浮出，且每轮一条（重挂不能重复注册），实际：${logged.join(" | ")}`);
+    assert.match(logged[1], /context/);
+  } finally {
+    console.error = original;
+    a.dispose();
+  }
+});
+
 test("dispose 之后操作 → 抛错", async () => {
   const a = await makeAgent();
   a.dispose();
