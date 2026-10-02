@@ -445,3 +445,11 @@ io.prompt("…")
 **考虑过并否决的替代方案**：抛错 / 只警告。否决理由：显式声明就该生效；让设计者为了「我明明写了扩展」再去 `only` 里手抄工具名，是把库的机械约束转嫁给使用者。
 
 **代价若错**：`only` 的「精确」被削弱成「精确 + 你在同一 spec 里显式声明的工具」。
+
+**R43：越具体的声明越强——`deny` 压过 R41 的并入。**（任务 6 审查发现的未裁交互）
+
+同一个 spec 里 `permissions.deny: ["x"]` 而 `spec.extensions` 又声明了一个注册 `x` 的扩展时，**排除集压过并入**（pi 侧 `excludeTools` 比白名单更硬），运行期 `extensions.add` 同理。
+
+取向：**越具体的声明越强**——`deny` 点名了某个工具，而「声明一个扩展」是笼统地把它注册的**所有**工具带进来；前者更具体，故前者胜。这与 R37 不矛盾：R37 说的是**运行期** `tools.add(x)` 这种**点名式**动作应当解除同名 deny（同样是「更具体者胜」——点名 add 比之前的点名 deny 更晚、更具体）。
+
+**R41 的代价（须文档披露）**：带白名单的 `extensions.add` 需要**两趟 `reload()`**（第一趟才知道工厂注册了哪些名字），而 pi 的 `reload()` 每次都是 `session_shutdown(reason:"reload")` + 全部扩展工厂重跑 + `settingsManager.reload()` + `resetApiProviders()` + `session_start(reason:"reload")`（`agent-session.js:2866-2890`）⇒ **工厂副作用、生命周期事件、设置重载都会观察到双份**。无白名单时只有一趟（库里有短路）。
