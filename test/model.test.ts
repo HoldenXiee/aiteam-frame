@@ -148,3 +148,30 @@ test("dispose 之后 model 面不许再用", async () => {
   assert.throws(() => a.model.setThinking("off"));
   await assert.rejects(() => a.model.set(FAUX_MODEL_ALT_REF), /disposed/);
 });
+
+// R45：`provider/id:thinking` 后缀不只是「设模型的写法」——创建期它就当思考档用
+// （create-agent.ts:98 `spec.thinking ?? resolved.thinkingLevel`），运行期 `set` 也必须兑现它。
+// 判据是**模型的 reasoning 能力**（spike S7）：echo-alt 是 reasoning:true，可见档是 ["off","high"]，
+// 而 echo 是 reasoning:false、只有 ["off"] —— 同一句 `:high` 在两者上一个成一个不成，
+// 所以下面两个用例合起来只可能归因于「后缀被读了吗」，不可能归因于「setThinking 本来就坏了」。
+test("R45：set 的后缀思考档真的生效（不是只换模型）", async () => {
+  const a = await makeAgent();
+  try {
+    await a.model.set(`${FAUX_MODEL_ALT_REF}:high`);
+    assert.equal(a.model.current?.id, FAUX_MODEL_ALT_ID, "模型换过去了");
+    assert.equal(a.model.thinking, "high", "后缀里的档位也必须跟上，不能只兑现一半");
+  } finally {
+    a.dispose();
+  }
+});
+
+test("R45 反证：后缀档在该模型不可用时，不许只换模型就了事", async () => {
+  const a = await makeAgent();
+  try {
+    // echo 是 reasoning:false，可见档只有 off ⇒ 后缀 high 非法
+    await assert.rejects(() => a.model.set(`${FAUX_MODEL_REF}:high`), /high/);
+    assert.equal(a.model.current?.id, FAUX_MODEL_ID, "模型本身是能换的（这里换的是自己）");
+  } finally {
+    a.dispose();
+  }
+});

@@ -1,7 +1,7 @@
 // model 面：读当前模型 / 思考档 / 可用模型，换模型、换思考档。
 //
 // 契约（src/agent/types.ts）：`current` / `available` 是 pi 的 **Model 对象**（不是 `provider/id` 字符串），
-// `thinking` 是会话的思考档。`set` 收字符串 ref（`provider/id[:thinking]`），`setThinking` 收档位。
+// `thinking` 是会话的思考档。`set` 收字符串 ref（`provider/id[:thinking]`，后缀会**兑现**为思考档，R45），`setThinking` 收档位。
 //
 // 两处「不静默」：
 //   1. `set`：错模型名一律抛错（决策 #28）。pi 的 `resolveCliModel` 对不存在的模型只给 warning，
@@ -18,13 +18,17 @@
 // 「换模型从下一次请求生效」本就是这件事的语义，拦下来只会去掉一个合法能力。
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import type { ModelSurface } from "../agent/types.ts";
+import type { ModelSurface, ThinkingLevel } from "../agent/types.ts";
 
 export interface ModelDeps {
   session: AgentSession;
   modelRuntime: ModelRuntime;
-  /** ref（`provider/id[:thinking]`）→ Model；错值 / 警告一律抛错。复用 createAgent 里那唯一一份判据 */
-  resolveModel: (ref: string) => Model<any>;
+  /**
+   * ref（`provider/id[:thinking]`）→ Model **以及后缀里的思考档**；错值 / 警告一律抛错。
+   * 复用 createAgent 里那唯一一份判据。返回 `thinkingLevel` 是为了让 `set` 兑现后缀（R45）——
+   * pi 的 `setModel` 没有思考档通道（`ModelMutationOptions` 只有 `persist`），丢了就成静默半应用。
+   */
+  resolveModel: (ref: string) => { model: Model<any>; thinkingLevel?: ThinkingLevel };
   assertAlive: () => void;
 }
 
@@ -47,9 +51,22 @@ export function createModel(deps: ModelDeps): ModelSurface {
     async set(ref) {
       deps.assertAlive();
       // 先解析再交给 pi：pi 的 `setModel` 只认 Model 对象，而且它不会帮你找模型。
-      const model = deps.resolveModel(ref);
+      const { model, thinkingLevel } = deps.resolveModel(ref);
       // pi 自己负责：写会话与设置、按新模型的能力重钳思考档、发 model_select。
       await session.setModel(model);
+      // R45：兑现 `provider/id:thinking` 后缀。创建期走 spec.thinking ?? 后缀（create-agent.ts:98），
+      // 运行期不能只换模型、把后缀丢掉——那正是本文件 :5-12 要禁的静默半应用。
+      // 刻意放在 setModel 之后：setModel 会重钳思考档，先应用会被它覆盖。
+      if (thinkingLevel) {
+        const available = session.getAvailableThinkingLevels();
+        if (!available.includes(thinkingLevel)) {
+          throw new Error(
+            `模型「${ref}」的后缀思考档「${thinkingLevel}」它不支持（可用：${available.join("、")}）。` +
+              "模型已换成该模型，但思考档未变——继续请用 setThinking 显式指定。",
+          );
+        }
+        session.setThinkingLevel(thinkingLevel);
+      }
     },
     setThinking(level) {
       deps.assertAlive();

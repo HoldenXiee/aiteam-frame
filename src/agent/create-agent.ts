@@ -329,8 +329,9 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   const modelSurface: ModelSurface = createModel({
     session,
     modelRuntime,
-    // 决策 #28 的唯一判据：ref 解析不出来（或只有警告）就抛错，绝不静默降级到别的模型
-    resolveModel: (ref) => resolveModelOrThrow(ref, modelRuntime).model,
+    // 决策 #28 的唯一判据：ref 解析不出来（或只有警告）就抛错，绝不静默降级到别的模型。
+    // 连同后缀里的思考档一起交出：运行期 `set` 要兑现它（R45）
+    resolveModel: (ref) => resolveModelOrThrow(ref, modelRuntime),
     assertAlive,
   });
 
