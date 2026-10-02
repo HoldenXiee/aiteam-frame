@@ -156,10 +156,10 @@ export interface ToolsSurface {
 export interface PermissionsSurface {
   /** 只写不读：单槽位，后一次覆盖前一次。同步生效 */
   gate(fn: ToolGate | undefined): void;
-  /** 同步：底层是 setActiveToolsByName，不触发 reload */
-  allow(names: string[]): void;   // 并集：启用这些
-  deny(names: string[]): void;    // 差集：关掉这些
-  only(names: string[]): void;    // 精确：集合就是这些
+  /** 碰声明面 → async（reload），要求 idle */
+  allow(names: string[]): Promise<void>;   // 并集：启用这些
+  deny(names: string[]): Promise<void>;    // 差集：关掉这些
+  only(names: string[]): Promise<void>;    // 精确：集合就是这些
 }
 
 export interface ExtensionsSurface {

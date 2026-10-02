@@ -57,6 +57,12 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
     toolFilters(session)._allowedToolNames?.delete(name);
   }
 
+  /** 显式 add 一定让它生效（R37）：同名 deny 必须一起解除，否则工具在 reload 时被硬过滤掉、
+   *  停在 `active:false`，模型静默收不到 —— 设计者调了 add 却没生效。返回是否真的摘掉过。 */
+  function unexclude(name: string): boolean {
+    return toolFilters(session)._excludedToolNames?.delete(name) ?? false;
+  }
+
   return {
     list() {
       deps.assertAlive();
@@ -78,6 +84,8 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
       const def = typeof tool === "function" ? tool({ agent: deps.agent() }) : tool;
       const previous = bridge.tools.get(def.name);
       bridge.tools.set(def.name, def);
+      // 排在 reload 之前：这次 reload 必须看得到「排除集里已经没有它」
+      const wasExcluded = unexclude(def.name);
       try {
         // 登记「可注册」：pi 的 `allowedToolNames` 是**硬过滤**（agent-session.js:2747 的
         // `_refreshToolRegistry` 里，白名单外的工具连注册表都进不去 —— 不管它是内置的、扩展的还是这里
@@ -91,6 +99,7 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
         // 白名单只在「这个名字原先没登记过」时才该摘回去：重加同名工具时，此前那次成功的 add 已
         // 合法把它写进白名单，无条件摘掉会留下「表里有、白名单没」→ 模型静默收不到。
         if (previous === undefined) unregisterAllowed(def.name);
+        if (wasExcluded) toolFilters(session)._excludedToolNames?.add(def.name);
         throw err;
       }
       // add 是设计者「我要它」的显式动作，必须真的 active。reload 的隐式激活那条路带
@@ -145,19 +154,32 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
 
 export interface PermissionsDeps {
   session: AgentSession;
-  /** 审批门槽位（与 override / onResult 并列的专属槽位） */
-  bridge: Pick<Bridge, "gate">;
+  /** 审批门槽位（与 override / onResult 并列的专属槽位）+ 声明面重载 */
+  bridge: Pick<Bridge, "gate" | "reload">;
+  /** 忙判据（R29）：与 bridge.reload / tools 面共用同一份定义 */
+  isBusy: () => boolean;
   assertAlive: () => void;
 }
 
 /**
- * 运行期工具集三档语义。两层都动，缺一不可（R35）：
- *   - **白名单 / 排除集**：扛得过 `reload()` 的那一层，决定「下一轮重建活跃集时还算不算数」；
- *   - **活跃集**（`setActiveToolsByName`）：立即生效的那一层，白名单只在 reload 时才被咨询。
+ * 运行期工具集三档语义（R38）。主机制是**一层**：改 pi 的两张硬过滤集合（白名单 / 排除集）
+ * + 一次 `reload()`（reload 同时决定注册表过滤与活跃集）。只有 `allow` 额外补一步活跃集
+ * `setActiveToolsByName`（原因见那里的注释：无白名单时 reload 不把非扩展工具推回活跃集）。
+ * 与 `tools.add` / `remove` 同形：async、碰声明面、要求 idle。
  */
 export function createPermissions(deps: PermissionsDeps): PermissionsSurface {
   const { session } = deps;
   const filters = () => toolFilters(session);
+
+  // 与 tools 面的 add/remove 同一条守卫、同一个判据（R29）。必须排在改集合**之前**：
+  // 否则改完集合才在 reload 里撞忙，会留下「集合改了、注册表没重建」的半应用状态。
+  function assertIdle(): void {
+    if (deps.isBusy()) {
+      throw new Error(
+        "agent 正在运行：工具声明面的改动要走 reload，只有在空闲时才能改 —— 先 io.waitIdle()",
+      );
+    }
+  }
 
   return {
     gate(fn) {
@@ -165,30 +187,37 @@ export function createPermissions(deps: PermissionsDeps): PermissionsSurface {
       deps.bridge.gate = fn;    // 单槽位：后一次覆盖前一次
     },
 
-    only(names) {
+    async only(names) {
       deps.assertAlive();
-      // 「精确就是这些」只有白名单表达得出来：无白名单时 reload 会把扩展工具按 `defaultActive` 推回活跃集，
-      // 光调 `setActiveToolsByName` 的收紧过不了下一次声明面操作。
+      assertIdle();
+      // 「精确就是这些」只有白名单表达得出来：无白名单时 reload 会把扩展工具按 `defaultActive` 推回活跃集。
       const f = filters();
       f._allowedToolNames = new Set(names);
-      // 被排除集点过名的名字永远进不了注册表 —— 与 only 的语义冲突（同步操作，后一次覆盖前一次）
+      // 被排除集点过名的名字永远进不了注册表 —— 与 only 的语义冲突（后一次覆盖前一次）
       if (f._excludedToolNames) for (const name of names) f._excludedToolNames.delete(name);
-      session.setActiveToolsByName(names);
+      await deps.bridge.reload();
     },
 
-    allow(names) {
+    async allow(names) {
       deps.assertAlive();
+      assertIdle();
       const f = filters();
-      // 有白名单才需要并进去：没有白名单时 reload 不会筛掉任何名字（`initialActiveToolNames` 还会把当前
-      // 活跃集带过来），硬造一份「当前允许的名字」当白名单反而会把 pi 扩展后来注册的工具一起静默关掉。
-      // 注意「立即生效」只对**注册表里已经有**的名字成立：被创建期白名单筛掉的名字要等下一次 reload 进注册表。
+      // 有白名单才需要并进去：没有白名单时 reload 不会筛掉任何名字，硬造一份「当前允许的名字」当白名单
+      // 反而会把 pi 扩展后来注册的工具一起静默关掉。
       if (f._allowedToolNames) for (const name of names) f._allowedToolNames.add(name);
       if (f._excludedToolNames) for (const name of names) f._excludedToolNames.delete(name);   // allow 覆盖之前的 deny
+      await deps.bridge.reload();
+      // reload **不够**这一档（这是 `setActiveToolsByName` 唯一幸存的地方）：无白名单时
+      // `_refreshToolRegistry` 只把**扩展工具**按 `defaultActive` 推回活跃集（agent-session.js:2808-2816），
+      // 内置工具里没被点名过的不会自己回来 —— 创建期被 `deny` 筛掉的 `bash` 就是这种：从排除集摘掉 + reload
+      // 后它进了注册表，但仍然不在活跃集里（用例「allow 能推翻创建期的 deny」判别到这一点）。
+      // 所以必须显式并入；且这一步是**稳定**的：下一次 reload 拿它当 `activeToolNames` 原样带去。
       session.setActiveToolsByName([...session.getActiveToolNames(), ...names]);
     },
 
-    deny(names) {
+    async deny(names) {
       deps.assertAlive();
+      assertIdle();
       const f = filters();
       if (f._allowedToolNames) {
         // 白名单层删掉就够；**不**顺手记进排除集 —— 排除集是硬过滤，会让后续的 allow 永远进不来
@@ -199,8 +228,7 @@ export function createPermissions(deps: PermissionsDeps): PermissionsSurface {
         f._excludedToolNames ??= new Set();
         for (const name of names) f._excludedToolNames.add(name);
       }
-      const dropped = new Set(names);
-      session.setActiveToolsByName(session.getActiveToolNames().filter((name) => !dropped.has(name)));
+      await deps.bridge.reload();
     },
   };
 }

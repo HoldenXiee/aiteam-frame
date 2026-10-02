@@ -303,6 +303,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   const permissions: PermissionsSurface = createPermissions({
     session,
     bridge,
+    isBusy,
     assertAlive,
   });
 
