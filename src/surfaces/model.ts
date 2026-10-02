@@ -6,7 +6,7 @@
 // 后缀档的**校验前置、应用后置**（R45/R46）：
 //   - 校验用 `getSupportedThinkingLevels(model)`（对**新**模型判），不是 `session.getAvailableThinkingLevels()`
 //     —— 后者读的是 `this.model`，切模型前它还是**旧**模型，拿它判会判错。
-//   - 校验必须在 `await session.setModel` **之前**：`setModel` 先把 `state.model` 写下去、之后不抛，
+//   - 校验必须在 `await session.setModel` **之前**：`setModel` 先写 `state.model`（agent-session.js:1885），过了这个点它自己的错误检查都已通过（`checkAuth` 在写入之前），
 //     所以事后才发现档位非法就只能「模型已换 + 抛错」—— 那违反库内「被拒绝的操作不许留下半应用状态」
 //     （见 resources.ts 的 commit 回滚）。现在拒绝是原子的：模型、档位都没动。
 //   - 应用仍在 `setModel` **之后**：`setModel` 会拿 `_getThinkingLevelForModelSwitch` **无条件**重写思考档
