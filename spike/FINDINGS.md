@@ -14,6 +14,8 @@ node spike/s3b-hooks-after-reload.ts
 node spike/s4-handler-merge.ts
 node spike/s4b-transform-merge.ts
 node spike/s5-ctx-shape.ts
+node spike/s6-all-events.ts
+node spike/s6b-compaction.ts
 ```
 
 或一把跑完（脚本只打印结论，失败不设退出码）：
@@ -34,6 +36,8 @@ ls spike/s*.ts | xargs -n1 node
 | S3b | reload 后桥接的钩子还活着吗 | **活着，可反复**：门继续生效、新工具继续可见、连做两次 reload 仍成立；reload 会发 `session_shutdown(reason:"reload")` |
 | S4 | 多 handler 谁跑、谁赢 | **按注册顺序链式跑；返回 `block` 短路**（后续 handler 与其他扩展都不再收到）；`undefined` 不覆盖前一个结果 |
 | S5 | `{...ctx}` 展开安全吗 | **安全**：ctx 是对象字面量、方法在自有属性且不依赖 `this`。Proxy 不必要 |
+| S6 | 给全部 41 个事件挂 no-op handler 会改变行为吗 | **不改变**：7 个维度与「无扩展」基线完全一致；21 个事件实际触发过 |
+| S6b | 压缩路径（`session_before_compact`）会不会被 no-op handler 改变 | **不改变**：`compact()` 走的正是扩展分支，两边结局一致 |
 
 ---
 
@@ -153,3 +157,33 @@ handler2 看到 1 条，不返回（不干预）
 ```
 
 **结论**：**规格 §7 原设的 Proxy 方案不必要**。pi 的 `ExtensionContext` 是对象字面量，方法（`abort` / `compact` / `isIdle` / `getContextUsage` / `getSystemPrompt` / `hasPendingMessages` / `shutdown` / `isProjectTrusted`）全是自有属性且不依赖 `this`，`{ ...ctx, agent, runId }` 直接可用。这条修正让实现少一层包装。
+---
+
+## S6 全事件注册是否改变行为
+
+`spike/s6-all-events.ts` / `s6b-compaction.ts`。
+
+pi 内部用 `hasHandlers(eventType)` **决定走不走扩展分支**（`agent-session.js:307` 的 `tool_call`、`:470` 的 `turn_end`、`:1409` 的 `input`、`:1385` 的 `agent_before_settle`、`sdk.js:215` 的 `before_provider_request` 等 17 处）。所以「给 41 个事件全挂 handler」不是免费的——它会把这些快路径全部换成扩展路径。
+
+**判据**：同一段脚本（两轮对话 + 一次工具调用）在两个环境各跑一遍，比较模型**实际收到**的东西。
+
+```
+✓ 请求次数一致 —— 4 vs 4
+✓ 每次请求的 messageCount 一致 —— 2,4,6,8 vs 2,4,6,8
+✓ 每次请求的 tools 声明一致
+✓ system 提示词长度一致 —— 2671 × 4 vs 2671 × 4
+✓ 会话消息序列一致 —— system,user,assistant,user,assistant,toolResult,assistant,user,assistant
+✓ assistant 产出文本一致
+✓ 两边都没有报错
+```
+
+`compact()` 专项（`s6b`，直接打被 `hasHandlers` 守卫的压缩路径）：
+
+```
+  压缩相关事件触发：session_before_compact,session_compact
+✓ 两边 compact 结局一致 —— 成功 vs 成功
+✓ 每次请求的消息数一致 —— 2,4,2 vs 2,4,2
+✓ 会话最终消息数一致 —— 5 vs 5
+```
+
+**结论**：桥接扩展**可以一次性给全部 41 个事件挂派发器**，不必做「按需懒注册」（那会引入「`on()` 要触发 reload」的丑陋设计）。实测覆盖了 21 个会实际触发的事件 + 压缩路径；未触发的属于本场景走不到的分支（`session_before_fork` / `session_before_tree` / `project_trust` / `resources_discover` / `mcp_servers_change` / `ui_prompt_*` / `user_bash` / `cache_warming_decision` / `thinking_level_select` / `tool_execution_update` / `session_info_changed` / `session_tree` / `session_before_switch` / `session_compact_failed`），它们都是「返回 `undefined` = 不干预」的形态，风险为低但**未实测**。

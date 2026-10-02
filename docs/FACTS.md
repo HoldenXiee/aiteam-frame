@@ -117,3 +117,4 @@
 | 6 | pi 的 `ExtensionContext` 是对象字面量，`abort` / `compact` / `isIdle` / `getContextUsage` / `getSystemPrompt` / `hasPendingMessages` / `shutdown` / `isProjectTrusted` 全是**自有属性且不依赖 `this`** ⇒ `{...ctx, agent, runId}` 可直接用，不需要 Proxy | `spike/s5-ctx-shape.ts` |
 
 以上 6 条对 v1 的结论**没有更正**——它们是 pi 层的新事实，v1 未触碰这些面。
+| 7 | pi 用 `hasHandlers(eventType)` 决定走不走扩展分支（17 处：`tool_call` / `turn_end` / `input` / `agent_before_settle` / `before_provider_request` 等）。**但给全部 41 个 `on()` 事件挂 no-op handler 后，请求次数、messageCount、tools 声明、system 长度、会话消息序列、产出文本、报错全部与「无扩展」基线一致**；`compact()` 走的正是被守卫的压缩分支，两边结局同样一致 | `spike/s6-all-events.ts` / `s6b-compaction.ts` |
