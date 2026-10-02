@@ -24,10 +24,16 @@ test("current / thinking / available 是活数据（对象，不是字符串 ref
   try {
     assert.equal(a.model.current?.id, FAUX_MODEL_ID);
     assert.equal(a.model.current?.provider, FAUX_PROVIDER);
-    assert.deepEqual(
-      a.model.available.map((m) => m.id).sort(),
-      [FAUX_MODEL_ALT_ID, FAUX_MODEL_ID].sort(),
-      "available 应当就是 ModelRuntime 的可用快照（两台假模型都配了 apiKey）",
+    // 不写死「恰好两台」：`available` 是**带凭证过滤**的快照，而这台机器上碰巧存在别的 provider 凭证时
+    // 会多出别的模型。但「两台假模型都在」+「元素是 Model 对象」这两条与环境无关，也足够钉住契约。
+    const ids = a.model.available.map((m) => m.id);
+    assert.ok(
+      ids.includes(FAUX_MODEL_ID) && ids.includes(FAUX_MODEL_ALT_ID),
+      `available 应当含两台假模型，实际：${JSON.stringify(ids)}`,
+    );
+    assert.ok(
+      a.model.available.every((m) => typeof m?.provider === "string" && typeof m?.id === "string"),
+      "available 的元素是 Model 对象，不是 `provider/id` 字符串",
     );
     assert.equal(a.model.thinking, "off", "echo 不支持思考（reasoning:false）→ 唯一可用档是 off");
     assert.equal(a.model.raw.session, a.io.raw, "raw.session 就是会话本体");
