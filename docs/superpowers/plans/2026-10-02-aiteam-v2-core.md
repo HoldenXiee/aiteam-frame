@@ -184,7 +184,7 @@ export type ToolGate = (call: { name: string; input: unknown; callId: string }, 
 
 三个要点，其余照签名写：
 
-1. **41 个事件名硬编码成数组**（`EVENT_NAMES`），桥接工厂里逐个 `pi.on(name, dispatcher)`；派发器把事件交给监听表，合并规则**照搬 pi**：最后一个非 `undefined` 的返回值生效（`undefined` 不覆盖前一个有效结果），返回 `{block:true}` 立即短路。数组旁写明它对应 `ExtensionEvent["type"]`。
+1. **41 个事件名硬编码成数组**（`EVENT_NAMES`），桥接工厂里逐个 `pi.on(name, dispatcher)`；派发器把事件交给监听表，合并规则**照搬 pi**：最后一个非空结果生效（pi 用**真值判据** `if (handlerResult)`，所以 `undefined` / `null` / `0` / `''` 都不覆盖前一个有效结果），返回 `{block:true}` 立即短路。数组旁写明它对应 `ExtensionEvent["type"]`。
 
 **注意（rev.2 修正）**：本计划早版曾写成「取第一个非 `undefined` 的返回值」，那是错的——pi 的 `emitToolCall` / `emitContext` 实测都是 **last-wins**（`runner.js:951-969`：`if (handlerResult) { result = handlerResult; if (result.block) return result }`）。以实际实现与 pi 源码为准。
 
