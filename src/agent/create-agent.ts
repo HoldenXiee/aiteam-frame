@@ -16,6 +16,7 @@ import { addUsage, emptyUsage } from "./usage.ts";
 import { createIo } from "../surfaces/io.ts";
 import { createContext } from "../surfaces/context.ts";
 import { createTools, createPermissions } from "../surfaces/tools.ts";
+import { createExtensions, createSkills } from "../surfaces/resources.ts";
 import type {
   Agent,
   AgentContext,
@@ -307,24 +308,9 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     assertAlive,
   });
 
-  const extensions: ExtensionsSurface = {
-    list: () => notImplemented("extensions.list"),
-    errors: () => notImplemented("extensions.errors"),
-    add: async () => notImplemented("extensions.add"),
-    remove: async () => notImplemented("extensions.remove"),
-    get raw() {
-      return notImplemented("extensions.raw");
-    },
-  };
+  const extensions: ExtensionsSurface = createExtensions({ loader, session, bridge, isBusy, assertAlive });
 
-  const skills: SkillsSurface = {
-    list: () => notImplemented("skills.list"),
-    add: async () => notImplemented("skills.add"),
-    remove: async () => notImplemented("skills.remove"),
-    get raw() {
-      return notImplemented("skills.raw");
-    },
-  };
+  const skills: SkillsSurface = createSkills({ loader, bridge, isBusy, assertAlive });
 
   const modelSurface: ModelSurface = {
     get current() {

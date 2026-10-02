@@ -9,6 +9,7 @@ import type {
   ExtensionError,
   ExtensionEvent,
   InlineExtension,
+  LoadExtensionsResult,
   ModelRuntime,
   SessionManager,
   Skill,
@@ -17,7 +18,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, Model, Usage } from "@earendil-works/pi-ai";
 
-export type { ContextUsage, Extension, ExtensionError, ExtensionEvent, ImageContent, ModelRuntime, Skill, Usage };
+export type { ContextUsage, Extension, ExtensionError, ExtensionEvent, ImageContent, LoadExtensionsResult, ModelRuntime, Skill, Usage };
 
 /** 直接取会话自己的思考档类型（含 "off"），不自己重定义 */
 export type ThinkingLevel = AgentSession["thinkingLevel"];
@@ -164,8 +165,12 @@ export interface PermissionsSurface {
 
 export interface ExtensionsSurface {
   list(): Extension[];
-  /** 扩展加载失败零信号是 v1 的静默失败点之一，必须可读 */
-  errors(): ExtensionError[];
+  /**
+   * 扩展**加载**失败零信号是 v1 的静默失败点之一，必须可读。
+   * 类型是 pi 的 `LoadExtensionsResult["errors"]`（`{path, error}`），**不是** `ExtensionError` ——
+   * 后者是运行期钩子异常（`{extensionPath, event, error, stack?}`），由库的 onError 监听器上报（R17）。
+   */
+  errors(): LoadExtensionsResult["errors"];
   /** 碰声明面 → async（reload），要求 idle */
   add(extension: InlineExtension | string): Promise<void>;
   remove(path: string): Promise<void>;
