@@ -54,6 +54,10 @@ export interface AgentInit extends ResourceSpec {
   /**
    * 创建期只有 `only` / `deny`：创建时最常说的是「只给它这几个」，所以这里是**精确白名单**。
    * 运行期（`agent.permissions`）才有并集语义的 `allow`。同名不同义是陷阱，故这里叫 `only`。
+   *
+   * 「精确」的边界（R41）：**你在同一个 spec 里显式声明的工具会自动并入**——`tools.custom` 的
+   * 定义名，以及 `extensions` 里显式声明的扩展/内联工厂所注册的工具名。**环境自动发现的扩展不并入**。
+   * 理由：显式声明一定生效，否则写了两行声明却静默无效。
    */
   permissions?: { only?: string[]; deny?: string[]; gate?: ToolGate };
   tools?: { custom?: AgentTool[] };
