@@ -3,6 +3,7 @@ export type * from "./agent/types.ts";
 export { createAgent } from "./agent/create-agent.ts";
 export { createAgentHost } from "./agent/host.ts";
 export { inspectEnv } from "./agent/env.ts";
+export type { EnvReport } from "./agent/env.ts";
 export { defineAgentTool } from "./tools/define-agent-tool.ts";
 export type { AgentToolDef } from "./tools/define-agent-tool.ts";
 export { createSpawnAgentTool } from "./tools/spawn-agent.ts";

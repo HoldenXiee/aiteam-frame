@@ -115,18 +115,49 @@ await b.prompt(`基于这份清单写稿：\n${r.text}`);
 
 库自带两个能力工具：`spawn_agent`（挑成员 + 派活 + 拿结果）、`send_message`（给已有分身追加消息，只能投给自己的后代）。
 
-## 跑
+## 检测环境装好没有
 
 ```bash
-npm test              # node --test，本机假 provider，不发真请求
-npm run demo:tour     # 全操控面导览，看它怎么写最省事（要凭证、要花钱，约 $0.003）
-npm run demo          # 真模型多轮协作：形态 5「团队探讨到收敛」
-npm run demo:self-env # 只用自建环境（auth.json + 自己的技能）跑一轮
+npm install        # 装依赖（Node ≥ 24）
+npm run demo:env   # 只准备 + 体检这套自建环境：不花模型钱，几秒出结果
+npm run demo       # 全流程：环境 → 真模型 → agent 集群 → 对账（约 $0.003）
 ```
 
-`npm test` 会起一个本机假 provider 并把 `AITEAM_AGENT_DIR` 指向它，所以不需要任何 API key。
-导览的运行产物留在 `demo/run-output/`（`tour.log` / `report.json` / agent 真写出来的文件）。
-**想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解并引用上面那份日志。
+`demo/` 是一份**安装自检**：凭证 / 技能 / 插件全在 `demo/env/` 里，不读本机 pi 的设置 ——
+所以**别人没装 pi 也能跑**，跑通就说明这个库在他那儿是好的。
+
+### 运行结果的标准
+
+**`npm run demo:env`** —— 最后一行必须是：
+
+```
+环境 OK：技能 / 插件 / 模型都从 demo/env/ 生效，本机 pi 没混进来。
+```
+
+四项检查：技能来自 `demo/env` ｜ 本机 pi 的技能/插件一个都没混进来 ｜ 插件从 `demo/env/extensions/` 自动加载 ｜ `DEMO_MODEL` 指的模型现在可用。退出码 0。
+
+**`npm run demo`** —— 四步里每一项检查都是 `✔`（实测 23 项；`·` 是依赖模型配合的软提示，不算失败），最后两行必须是：
+
+```
+结论：库装好了，这套自建环境也是通的。
+全程 xx.x 秒，xxxxx tokens ≈ $0.00xxxx（另有 N 项软提示）
+```
+
+并且退出码是 0。四步分别验：
+
+| 步骤 | 过了意味着 |
+|---|---|
+| 1 自建环境 | 凭证 / 技能 / 插件 / 上下文文件都从 `demo/env/` 生效，本机 pi 没混进来 |
+| 2 真模型连通 | 真发了一次请求：读到文件，且技能暗号、工作目录守则暗号都回到话里 |
+| 3 agent 集群 | 主持人从花名册挑出 scout / checker / scribe，黑板写出三条要点，worker 用上了 `demo/env` 插件注册的 `env_probe`，报告真落盘 |
+| 4 对账 | 事件成对、`agent.usage` 与 `host.usage` 归属正确、护栏还在、级联回收干净 |
+
+挂了不会静默：行首是 `✘`，后面跟原因，退出码 1，并提示跑 `npm run demo:env` 单独体检环境。
+凭证找不到也不静默：`demo/env/auth.json` 优先 → 其次自动从 `~/.pi/agent/auth.json` 拷一份 → 都没有就报错并给出两条路（照 `auth.json.example` 手写，或设 `OPENCODE_API_KEY`）。细节见 [`demo/README.md`](demo/README.md)。
+
+改这个库的人另一个免费保险是 `npm test`：76 项测试走本机假 provider，零 API 成本，不碰真模型。
+
+**想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解每个操控面。
 
 ## 想开发
 
@@ -144,7 +175,7 @@ npm install
 ```bash
 npm test            # 76 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
-npm run demo:tour   # 真模型端到端全导览（要凭证、要花钱，约 $0.003）
+npm run demo        # 真模型端到端：自建环境 → 集群（要凭证、要花钱，约 $0.003）
 ```
 
 `npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），把 `AITEAM_AGENT_DIR` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
@@ -204,7 +235,7 @@ node audit/你的脚本.ts        # audit/ 下全是这种脚本，_faux.ts 提�
 ### 提交
 
 Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fix:` / `docs:` / `audit:` / `chore:`。
-`demo/run-output/` 是导览跑出来的产物（`tour.log` / agent 真写的文件），已经在 `.gitignore` 里，不要提交。
+`demo/work/` 是 demo 跑出来的产物（黑板 / 报告 / 临时文件），已经在 `.gitignore` 里，不要提交。
 
 ## 研究课题与研究方向
 
@@ -294,7 +325,7 @@ src/agent/     单 agent 操控 + 花名册 + 事件 + 用量
 src/tools/     自定义工具：define-agent-tool / spawn-agent / send-message
 test/          node:test，全部走本机假 provider，零 API 成本
 audit/         能力与极限审计的探测脚本与发现（证据链）
-demo/          真模型 demo：tour（全操控面导览）/ demo（多轮协作）/ self-env（自建环境）
+demo/          安装自检 demo：自建环境（demo/env）+ 一个 agent 集群（要凭证、要花钱）
 docs/          设计文档 + 用法讲解
 ```
 

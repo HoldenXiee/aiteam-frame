@@ -6,9 +6,8 @@
   "scripts": {
     "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "demo": "node demo/demo.ts",
-    "demo:self-env": "node demo/self-env.ts",
-    "demo:tour": "node demo/tour.ts"
+    "demo": "node demo/run.ts",
+    "demo:env": "node demo/env.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.99.1",

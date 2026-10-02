@@ -62,7 +62,7 @@ src/agent/       create-agent.ts / host.ts / loader.ts / events.ts / usage.ts / 
 src/tools/       define-agent-tool.ts / spawn-agent.ts / send-message.ts
 test/            node:test，本机假 provider，零 API 成本
 audit/           能力与极限审计的探测脚本与发现（证据链）
-demo/            真模型 demo：tour（全操控面导览）/ demo（多轮协作）/ self-env（自建环境）
+demo/            安装自检 demo：自建环境（demo/env）+ 一个 agent 集群，跑通即说明库装好了
 docs/DESIGN.md   宏观设计（唯一设计源）
 docs/GUIDE.md    用法讲解（面向设计者怎么用）
 docs/FACTS.md    已实测核对的实现决策

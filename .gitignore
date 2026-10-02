@@ -1,3 +1,6 @@
 node_modules/
 *.log
-demo/run-output/
+demo/env/auth.json
+demo/env/models-store.json
+demo/work/*
+!demo/work/AGENTS.md

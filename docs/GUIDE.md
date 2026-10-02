@@ -1,7 +1,9 @@
 # aiteam 用法讲解
 
 面向**设计者**（写代码的人）：本文讲这个库怎么用。
-配合两个东西读效果最好：可运行的导览 [`demo/tour.ts`](../demo/tour.ts) 和它跑出来的真实日志 [`demo/run-output/tour.log`](../demo/run-output/tour.log)（本文引用的输出都来自那次运行）。
+配合 [`demo/`](../demo/) 读效果最好：那是一份能跑的**安装自检**（自建环境 + 一个 agent 集群）。
+本文里标注「导览实测（日志第 N 章）」的片段，来自早期那份全操控面导览的真实运行输出 ——
+那份导览已经删掉了，片段作为「这个行为当时确实测到过」的证据保留。
 
 ---
 
@@ -66,14 +68,15 @@ my-pi/
 ```
 
 **没有 models.json 也能用**：pi 内置了 42 个 provider 的模型目录，`auth.json` 或环境变量凭证就够跑。
-导览里就是这么干的（日志第 1 章）：
+[`demo/env/`](../demo/env/) 就是这么干的，`npm run demo:env` 的实测输出：
 
 ```
-自建环境 C:\Users\Holder\.aiteam-tour-env（本机 pi 目录 C:\Users\Holder\.pi\agent 不参与）
-  技能：tour-skill(user)
-  插件：(无)
-  上下文文件：D:\space\aiteam\test\AGENTS.md
-  可用模型：29/29（opencode-go）
+自建环境体检 —— D:\space\aiteam\test\demo\env（本机 pi：C:\Users\Holder\.pi\agent，不参与）
+  凭证：D:\space\aiteam\test\demo\env\auth.json（demo 自己带一份，本机 pi 不参与）
+  技能：cluster-check(user)
+  插件：D:\space\aiteam\test\demo\env\extensions\env-probe.ts[tools=env_probe]
+  上下文文件：D:\space\aiteam\test\AGENTS.md、D:\space\aiteam\test\demo\work\AGENTS.md
+  可用模型：opencode-go 29 个
   警告：没有 models.json（只用环境变量凭证时可忽略）
 ```
 
@@ -432,12 +435,12 @@ await lead.prompt("用 spawn_agent 让 reviewer 审完 src/index.ts，再把结�
 
 ```bash
 npm test              # 14 个测试文件，本机假 provider，零 API 成本
-npm run demo:tour     # 全操控面导览（本文引用的那份日志）
-npm run demo          # 真模型多轮协作：形态 5「团队探讨到收敛」
-npm run demo:self-env # 只用自建环境（auth.json + 自己的技能）跑一轮
+npm run demo:env      # 只准备 + 体检 demo/env 那套自建环境（不花钱）
+npm run demo          # 端到端：自建环境 → 真模型 → agent 集群 → 对账
 ```
 
-导览的运行产物**不会清理**，都在 `demo/run-output/`：`tour.log`（全过程）、`report.json`（检查项与花费）、`facts.txt` / `gated.txt` / `blackboard.md`（agent 真写出来的文件）。
-它默认用 `opencode-go/deepseek-v4.1-flash`，全程约 59k tokens ≈ **$0.003**。换成自己的模型：`TOUR_MODEL=... npm run demo:tour`。
+`demo/` 的凭证 / 技能 / 插件都在 `demo/env/` 里，**不读本机 pi 的设置**，所以别人没装 pi 也能跑。
+产物都在 `demo/work/`：`blackboard.md`（侦察员写、核对员读的黑板）、`report.md`（书记员写的结论）、`facts.txt`。
+它默认用 `opencode-go/deepseek-v4.1-flash`，一次全程约 4 万 tokens ≈ **$0.003**。换模型：`DEMO_MODEL=... npm run demo`。
 
-导览里每章都会打印 `✔`（硬检查，失败即退出码 1）或 `·`（依赖模型配合的软提示）。
+每一步都会打印 `✔`（硬检查，失败即退出码 1）或 `·`（依赖模型配合的软提示）。
