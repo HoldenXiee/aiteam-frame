@@ -137,7 +137,7 @@ export interface ContextSurface {
   override(next: ((messages: AgentMessage[]) => AgentMessage[]) | AgentMessage[] | undefined): void;
   /**
    * 压缩。**要求 idle**：pi 的 `session.compact()` 第一行就是 `await this.abort()`（`agent-session.js:2101`），
-   * 运行中调用会静默 abort 在飞轮次並抛「Nothing to compact」类错误。要无守卫的真直通用 `raw.session.compact()`。
+   * 运行中调用会静默 abort 在飞轮次并抛「Nothing to compact」类错误。要无守卫的真直通用 `raw.session.compact()`。
    */
   compact(instructions?: string): Promise<void>;
   readonly raw: { session: AgentSession; sessionManager: SessionManager };
