@@ -79,15 +79,15 @@ export function createIo(deps: IoDeps): IoSurface {
     return { runId, text, usage, ...(error ? { error } : {}), messages };
   }
 
-  /** 起一次运行并结算。忙 → 抛错（调用者该走 queue）；未接受就失败 → 结算完区间再原样抛出 */
-  async function run(text: string, opts?: { images?: ImageContent[] }): Promise<RunResult> {
+  /** 起一次运行并结算。忙 → 抛错（调用者该走 queue）；未接受就失败 → 结算完区间再原样抛出。
+   *  runId 由调用方生成后传入：queue 的 fire-and-forget 路径要把 runId 带进错误上报里。 */
+  async function run(text: string, opts: { images?: ImageContent[] } | undefined, runId: string): Promise<RunResult> {
     deps.assertAlive();
     if (isRunning()) {
       throw new Error("agent 正在运行：请用 io.queue() 投递，或用 io.waitIdle() 等它跑完");
     }
     const end = beginRun();
     const from = session.messages.length;
-    const runId = nextRunId();
     deps.setStatus("running");
     bridge.setRunId(runId);
     let failure: unknown;
@@ -112,7 +112,7 @@ export function createIo(deps: IoDeps): IoSurface {
     get isRunning() {
       return isRunning();
     },
-    prompt: (text, opts) => run(text, opts),
+    prompt: (text, opts) => run(text, opts, nextRunId()),
     async queue(text) {
       deps.assertAlive();
       if (isRunning()) {
@@ -121,8 +121,18 @@ export function createIo(deps: IoDeps): IoSurface {
         return { queued: true };
       }
       // 闲 → 起一次运行但**不 await**（await 了 queue 就变成同步 ask）；结果只从事件可见。
-      // ponytail: 这条运行失败只吞不抛（brief 定的「queue 永不抛错」）；要拿到失败与结果就用 prompt()
-      void run(text).catch(() => {});
+      // 但**失败必须上报**：这条路径没有返回值、也没有 promise 给调用者，吞掉错误就是 v1 那种静默
+      // 失效（一次运行根本没跑起来，用户什么都看不到）。通道与扩展错误一致（R17）：console.error，
+      // 带 [aiteam] 前缀与 runId，便于和 pi 事件关联。
+      const runId = nextRunId();
+      const report = (err: unknown): void => {
+        console.error(`[aiteam] io.queue 起的运行失败 runId=${runId}：${err instanceof Error ? err.message : String(err)}`);
+      };
+      void run(text, undefined, runId).then(
+        // pi 对「接下了但跑挂了」不 reject（只把错误写进消息），所以两条路都要报
+        (result) => { if (result.error) report(result.error); },
+        report,
+      );
       return { queued: true };
     },
     async steer(text) {

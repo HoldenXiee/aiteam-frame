@@ -100,6 +100,25 @@ test("pending / isRunning 反映真实状态（含启动窗口）", async () => 
   } finally { a.dispose(); }
 });
 
+test("queue 空闲路径起的运行失败经 console.error 浮出来，且输出里有 runId", async () => {
+  // 这条路径没有返回值也没有 promise 给调用者 —— 失败不上报就是静默失效（R20）
+  const a = await makeAgent();
+  const original = console.error;
+  const lines: string[] = [];
+  console.error = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
+  try {
+    await a.io.queue("[[fail]] 故意失败");
+    await a.io.waitIdle();                       // 别用死 sleep 猜：等库自己的在飞运行收尾
+  } finally {
+    console.error = original;
+    a.dispose();
+  }
+  const reported = lines.find((line) => line.includes("[aiteam]"));
+  assert.ok(reported, `没有 [aiteam] 前缀的失败上报：${JSON.stringify(lines)}`);
+  assert.match(reported, /runId=r\d+/);
+  assert.match(reported, /faux-provider-boom/);   // 原始错误信息要在
+});
+
 test("运行中失败不 reject，但 RunResult.error 要显式暴露", async () => {
   // pi 对「接下了但跑挂了」不 reject，只把错误写进 assistant 消息 —— 不读出来就是静默失败
   const a = await makeAgent();
