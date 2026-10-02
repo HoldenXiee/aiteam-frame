@@ -272,11 +272,6 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     if (status === "disposed") throw new Error(`agent ${id} 已 dispose（disposed），不能再操作`);
   }
 
-  /** 任务 2-7 各实现一个面；这里只留下会喊的占位，不静默给假值 */
-  const notImplemented = (what: string): never => {
-    throw new Error(`${what} 未实现（还没接线到 pi）`);
-  };
-
   // ─────────────── io（驱动 + 结算，见 src/surfaces/io.ts）───────────────
   const io = createIo({
     session,
