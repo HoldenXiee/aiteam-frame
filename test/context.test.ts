@@ -44,6 +44,21 @@ test("compact() 成功，且 session_before_compact / session_compact 被触发"
   } finally { a.dispose(); }
 });
 
+test("R27：运行中调 compact() 抛错，且在飞的那轮不被静默打断", async () => {
+  const a = await makeAgent();
+  try {
+    // 先攒一段可压历史：否则「抛错」可能只是 pi 的 session too small，判不出守卫有没有生效
+    await a.io.prompt("[[huge:200000]] warm");
+    const p = a.io.prompt("[[sleep:400]] 慢");   // 不 await：制造在飞轮次
+    await assert.rejects(() => a.context.compact("压成一句"), /waitIdle|context\.raw/);
+    const result = await p;   // 真价值在这：在飞的那轮没被 pi 的首行 abort() 打断，正常跑完
+    assert.ok(result.text.length > 0, `在飞的那轮应当正常跑完并拿到文本，实际：${JSON.stringify(result)}`);
+    await a.context.compact("压成一句");   // idle 之后正常路径不被误伤（守卫不是粘的）
+  } finally {
+    a.dispose();
+  }
+});
+
 test("autoCompact 可读写，且反映到 session", async () => {
   const a = await makeAgent();
   try {

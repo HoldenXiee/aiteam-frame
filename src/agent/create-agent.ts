@@ -256,6 +256,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     session,
     sessionManager,
     bridge,
+    isRunning: () => io.isRunning,
     assertAlive,
   });
 
