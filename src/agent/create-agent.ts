@@ -14,6 +14,7 @@ import { buildLoader } from "./loader.ts";
 import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import { createIo } from "../surfaces/io.ts";
+import { createContext } from "../surfaces/context.ts";
 import type {
   Agent,
   AgentContext,
@@ -109,7 +110,7 @@ const SURFACE_KEYS = {
 } as const satisfies Record<string, readonly string[]>;
 
 /** 已经在 spec 里声明、但本任务还没接线的字段：宁可立刻喊，也不静默忽略（v1 的教训） */
-const NOT_WIRED = ["permissions.only", "permissions.deny", "permissions.gate", "tools.custom", "context.autoCompact"];
+const NOT_WIRED = ["permissions.only", "permissions.deny", "permissions.gate", "tools.custom"];
 
 function assertSpec(spec: AgentInit): void {
   const given = spec as Record<string, unknown>;
@@ -179,6 +180,8 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   });
   const session = created.session;
   holder.session = session;
+  // 创建期的唯一一个 context 面字段（§3.2）：写进 session，不写进模块状态
+  if (spec.context?.autoCompact !== undefined) session.setAutoCompactionEnabled(spec.context.autoCompact);
 
   // 扩展错误监听器（R17）。pi 的 `emitError` 只遍历 `errorListeners`，**没有任何 console 兜底**
   // （runner.js:497-501）；`createAgentSession` 不注入 `onError`（sdk.js 零命中），我们也没调过
@@ -249,25 +252,12 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     },
   });
 
-  const context: ContextSurface = {
-    get history() {
-      return notImplemented("context.history");
-    },
-    get usage() {
-      return notImplemented("context.usage");
-    },
-    get autoCompact() {
-      return notImplemented("context.autoCompact");
-    },
-    set autoCompact(_enabled: boolean) {
-      notImplemented("context.autoCompact");
-    },
-    override: () => notImplemented("context.override"),
-    compact: async () => notImplemented("context.compact"),
-    get raw() {
-      return notImplemented("context.raw");
-    },
-  };
+  const context: ContextSurface = createContext({
+    session,
+    sessionManager,
+    bridge,
+    assertAlive,
+  });
 
   const tools: ToolsSurface = {
     list: () => notImplemented("tools.list"),

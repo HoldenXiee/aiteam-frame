@@ -69,7 +69,7 @@ export interface Bridge {
   readonly factory: InlineExtension;                // 每次 reload 重跑：三张表接回 pi
   /** permissions 面的门。本任务不接线（留给 permissions 面），接线时在 dispatch 里排在监听表之前 */
   gate: ToolGate | undefined;
-  /** context 面的 override。本任务不接线（留给 context 面），接线时在 dispatch 里生效 */
+  /** context 面的 override（context 面接线）。dispatch 里排在监听表之前，与监听表共用同一守卫（R26） */
   contextOverride: ((messages: AgentMessage[]) => AgentMessage[]) | undefined;
   setRunId(id: string | undefined): void;
   reload(): Promise<void>;                          // 带 idle 守卫
@@ -80,6 +80,7 @@ export function createBridge(deps: { session: () => AgentSession; agent: () => A
   const tools = new Map<string, AgentTool>();
   const listeners = new Map<string, Set<Handler>>();
   let runId: string | undefined;
+  let contextOverride: Bridge["contextOverride"];
 
   /**
    * 派发器。四条规则，与 pi 的 `emitToolCall` 同构（依据：pi 源码
@@ -94,11 +95,19 @@ export function createBridge(deps: { session: () => AgentSession; agent: () => A
    * 无法复刻 pi 跨扩展的链式传递（pi 里后一个 handler 能看到前一个处理后的结果）。
    * 若照搬 last-wins，先返回的那个监听器的工作会被后一个**静默覆盖** —— 正是 v2 要根除的失效模式。
    * 所以同一事件只允许一个监听器返回变换结果；拦截走专属槽位（permissions.gate / tools.onResult / context.override）。
+   *
+   * 专属槽位（R26）**排在监听表之前**取用，并把 `hasResult` 预置成 true —— 也就是计入**同一个**守卫：
+   * 设了 `context.override` 之后，用户再 `on("context", …)` 返回变换就会抛下面这个错，而不是静默只生效一个。
    */
   async function dispatch(name: string, event: unknown, piCtx: ExtensionContext): Promise<unknown> {
     const ctx: AgentContext = { ...piCtx, agent: deps.agent(), runId };
     let result: unknown;
     let hasResult = false;
+    // `context` 钩子拿到的是**不含 system** 的那批消息（S2），override 收到的就是它、原样返回即可
+    if (name === "context" && contextOverride) {
+      result = { messages: contextOverride((event as { messages: AgentMessage[] }).messages) };
+      hasResult = true;
+    }
     for (const fn of [...(listeners.get(name) ?? []), ...(listeners.get(ANY_EVENT) ?? [])]) {
       const returned = await fn(event, ctx);
       if (!returned) continue;                            // 真值判据，与 pi 逐字一致
@@ -120,7 +129,12 @@ export function createBridge(deps: { session: () => AgentSession; agent: () => A
     tools,
     listeners,
     gate: undefined,
-    contextOverride: undefined,
+    get contextOverride() {
+      return contextOverride;
+    },
+    set contextOverride(fn) {
+      contextOverride = fn;
+    },
     setRunId(id) {
       runId = id;
     },
