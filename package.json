@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit",
-    "demo": "node demo/run.ts",
-    "demo:env": "node demo/env.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.99.1",
