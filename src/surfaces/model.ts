@@ -3,6 +3,15 @@
 // 契约（src/agent/types.ts）：`current` / `available` 是 pi 的 **Model 对象**（不是 `provider/id` 字符串），
 // `thinking` 是会话的思考档。`set` 收字符串 ref（`provider/id[:thinking]`，后缀会**兑现**为思考档，R45），`setThinking` 收档位。
 //
+// 后缀档的**校验前置、应用后置**（R45/R46）：
+//   - 校验用 `getSupportedThinkingLevels(model)`（对**新**模型判），不是 `session.getAvailableThinkingLevels()`
+//     —— 后者读的是 `this.model`，切模型前它还是**旧**模型，拿它判会判错。
+//   - 校验必须在 `await session.setModel` **之前**：`setModel` 先把 `state.model` 写下去、之后不抛，
+//     所以事后才发现档位非法就只能「模型已换 + 抛错」—— 那违反库内「被拒绝的操作不许留下半应用状态」
+//     （见 resources.ts 的 commit 回滚）。现在拒绝是原子的：模型、档位都没动。
+//   - 应用仍在 `setModel` **之后**：`setModel` 会拿 `_getThinkingLevelForModelSwitch` **无条件**重写思考档
+//     （agent-session.js:1878-1895），先应用会被它覆盖，而且会被**旧**模型的可用档先钳掉。
+//
 // 两处「不静默」：
 //   1. `set`：错模型名一律抛错（决策 #28）。pi 的 `resolveCliModel` 对不存在的模型只给 warning，
 //      `session.setModel` 收到 undefined 会直接炸在别的措辞上 —— 所以解析那一步由 createAgent 注入的
@@ -17,7 +26,7 @@
 // `session.model` / `session.thinkingLevel` 立刻变，pi 还会发 `model_select` / `thinking_level_select`。
 // 「换模型从下一次请求生效」本就是这件事的语义，拦下来只会去掉一个合法能力。
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { Model } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { ModelSurface, ThinkingLevel } from "../agent/types.ts";
 
 export interface ModelDeps {
@@ -52,21 +61,21 @@ export function createModel(deps: ModelDeps): ModelSurface {
       deps.assertAlive();
       // 先解析再交给 pi：pi 的 `setModel` 只认 Model 对象，而且它不会帮你找模型。
       const { model, thinkingLevel } = deps.resolveModel(ref);
-      // pi 自己负责：写会话与设置、按新模型的能力重钳思考档、发 model_select。
-      await session.setModel(model);
-      // R45：兑现 `provider/id:thinking` 后缀。创建期走 spec.thinking ?? 后缀（create-agent.ts:98），
-      // 运行期不能只换模型、把后缀丢掉——那正是本文件 :5-12 要禁的静默半应用。
-      // 刻意放在 setModel 之后：setModel 会重钳思考档，先应用会被它覆盖。
+      // R46：先判后缀档在新模型上合不合法，不合法就**什么都不动**地拒绝。
+      // 判据必须对 **model** 判——此刻 session 上还是旧模型。
       if (thinkingLevel) {
-        const available = session.getAvailableThinkingLevels();
-        if (!available.includes(thinkingLevel)) {
+        const supported = getSupportedThinkingLevels(model);
+        if (!supported.includes(thinkingLevel)) {
           throw new Error(
-            `模型「${ref}」的后缀思考档「${thinkingLevel}」它不支持（可用：${available.join("、")}）。` +
-              "模型已换成该模型，但思考档未变——继续请用 setThinking 显式指定。",
+            `模型「${ref}」的后缀思考档「${thinkingLevel}」它不支持（可用：${supported.join("、")}）。` +
+              "模型与思考档都未改动，继续请换一个档位或用 setThinking。",
           );
         }
-        session.setThinkingLevel(thinkingLevel);
       }
+      // pi 自己负责：写会话与设置、按新模型的能力重钳思考档、发 model_select。
+      await session.setModel(model);
+      // R45：兑现后缀。放 setModel 之后——它会无条件重写思考档（见文件头注释）
+      if (thinkingLevel) session.setThinkingLevel(thinkingLevel);
     },
     setThinking(level) {
       deps.assertAlive();

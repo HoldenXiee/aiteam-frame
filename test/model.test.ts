@@ -151,7 +151,7 @@ test("dispose 之后 model 面不许再用", async () => {
 
 // R45：`provider/id:thinking` 后缀不只是「设模型的写法」——创建期它就当思考档用
 // （create-agent.ts:98 `spec.thinking ?? resolved.thinkingLevel`），运行期 `set` 也必须兑现它。
-// 判据是**模型的 reasoning 能力**（spike S7）：echo-alt 是 reasoning:true，可见档是 ["off","high"]，
+// 判据是**模型的 reasoning 能力**（spike S7）：echo-alt 是 reasoning:true，可见档 5 档（含 high），
 // 而 echo 是 reasoning:false、只有 ["off"] —— 同一句 `:high` 在两者上一个成一个不成，
 // 所以下面两个用例合起来只可能归因于「后缀被读了吗」，不可能归因于「setThinking 本来就坏了」。
 test("R45：set 的后缀思考档真的生效（不是只换模型）", async () => {
@@ -165,12 +165,23 @@ test("R45：set 的后缀思考档真的生效（不是只换模型）", async (
   }
 });
 
-test("R45 反证：后缀档在该模型不可用时，不许只换模型就了事", async () => {
+test("R46 反证：后缀档非法时，拒绝必须是原子的（模型也不许换过去）", async () => {
   const a = await makeAgent();
   try {
-    // echo 是 reasoning:false，可见档只有 off ⇒ 后缀 high 非法
+    // 先换到 echo-alt，这样「模型被换走」才是可观测的
+    await a.model.set(FAUX_MODEL_ALT_REF);
+    assert.equal(a.model.current?.id, FAUX_MODEL_ALT_ID);
+    // echo 是 reasoning:false，可见档只有 off ⇒ 后缀 high 非法。
+    // 判据必须是**新模型**的能力：此刻 session 上还是 echo-alt，拿
+    // session.getAvailableThinkingLevels() 去判会问错模型（echo-alt 支持 high）。
     await assert.rejects(() => a.model.set(`${FAUX_MODEL_REF}:high`), /high/);
-    assert.equal(a.model.current?.id, FAUX_MODEL_ID, "模型本身是能换的（这里换的是自己）");
+    // 关键断言：拒绝之后模型**没被换走**。若校验放在 setModel 之后（半应用 + 抛错），这里必红。
+    assert.equal(
+      a.model.current?.id,
+      FAUX_MODEL_ALT_ID,
+      "被拒绝的 set 不许留下半应用状态：模型不能被换过去",
+    );
+    assert.equal(a.model.thinking, "off", "思考档也不许被动");
   } finally {
     a.dispose();
   }
