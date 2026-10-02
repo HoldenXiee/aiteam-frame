@@ -3,11 +3,12 @@
 // 机制：工具表活在桥接里（`bridge.tools`），往表里改完调 `session.reload()` —— pi 重跑扩展工厂，
 // 桥接把整张表重新注册给 pi（agent-session.js:2867-2880）。
 //
-// 两个**不能省**的细节（都在下面标了原因）：
+// 三个**不能省**的细节（都在下面标了原因）：
 //   1. `add` 时就把工厂调成成品再入表 —— 否则 reload 时工厂被调第二次；
 //   2. `add` 时把新名字并进 pi 的 `allowedToolNames` —— 白名单是**硬过滤**，不并进去的新工具会在
-//      reload 时被默默丢掉（`only: ["read"]` 下就是这条路）。
-// 活跃集**不用碰**：reload 自己会把新工具激活、把去掉的工具落下（见 `add` 里的长注释）。
+//      reload 时被默默丢掉（`only: ["read"]` 下就是这条路）；
+//   3. `add` 之后**显式激活** —— reload 的隐式激活带 `defaultActive !== false` 过滤，
+//      `defaultActive: false` 的工具不并就永远收不到。
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { Bridge } from "../agent/bridge.ts";
 import type { Agent, AgentTool, ToolsSurface } from "../agent/types.ts";
@@ -47,16 +48,17 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
 
     async add(tool: AgentTool): Promise<void> {
       deps.assertAlive();
-      // 工厂式**在这里**就调成成品（R30b）：`bridge.factory` 每次 reload 都会对表里的每个元素判一次
-      // `typeof tool === "function"`；存工厂进去的话 reload 时会被调第二次（同一个 ctx 会跑两遍、
-      // 工厂里的副作用也跟着跑两遍）。存成品之后那条函数分支对 add 进来的工具永不命中。
-      const def = typeof tool === "function" ? tool({ agent: deps.agent() }) : tool;
-      const previous = bridge.tools.get(def.name);
+      // 守卫排在工厂调用**之前**：一次注定被拒绝的 add 不该让设计者工厂的副作用先跑一遍。
       if (deps.isBusy()) {
         throw new Error(
           "agent 正在运行：工具声明面的改动要走 reload，只有在空闲时才能改 —— 先 io.waitIdle()",
         );
       }
+      // 工厂式**在这里**就调成成品（R30b）：`bridge.factory` 每次 reload 都会对表里的每个元素判一次
+      // `typeof tool === "function"`；存工厂进去的话 reload 时会被调第二次（同一个 ctx 会跑两遍、
+      // 工厂里的副作用也跟着跑两遍）。存成品之后那条函数分支对 add 进来的工具永不命中。
+      const def = typeof tool === "function" ? tool({ agent: deps.agent() }) : tool;
+      const previous = bridge.tools.get(def.name);
       bridge.tools.set(def.name, def);
       try {
         // 登记「可注册」：pi 的 `allowedToolNames` 是**硬过滤**（agent-session.js:2747 的
@@ -68,13 +70,17 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
       } catch (err) {
         if (previous === undefined) bridge.tools.delete(def.name);
         else bridge.tools.set(def.name, previous);
-        unregisterAllowed(def.name);
+        // 白名单只在「这个名字原先没登记过」时才该摘回去：重加同名工具时，此前那次成功的 add 已
+        // 合法把它写进白名单，无条件摘掉会留下「表里有、白名单没」→ 模型静默收不到。
+        if (previous === undefined) unregisterAllowed(def.name);
         throw err;
       }
-      // 活跃集不用手动并：reload 的 `_buildRuntime({ activeToolNames: [当前], includeAll: true })`
-      // 足以让新工具落进活跃集 —— `allowedToolNames` 非空时由 2800-2806 那段补进去，为空时由
-      // 2811-2816 的隐式激活补进去。实测（本任务）两条路都真的生效，所以这里不再画蛇添足：
-      // 多一行 `setActiveToolsByName` 会变成没有任何用例能判别的死代码。
+      // add 是设计者「我要它」的显式动作，必须真的 active。reload 的隐式激活那条路带
+      // `_isActivatedOnRegistration` 过滤（`defaultActive !== false`，agent-session.js:2829-2831）；
+      // 无白名单 + `defaultActive: false` 的工具因此 reload 后仍是 active:false、模型静默收不到。
+      // 这里显式并入 active set：`_applyToolLoadout`（:1098-1102）只做去重 + 注册表查找 + 非 hidden，
+      // 没有 defaultActive 过滤。
+      session.setActiveToolsByName([...session.getActiveToolNames(), def.name]);
     },
 
     async remove(name: string): Promise<void> {

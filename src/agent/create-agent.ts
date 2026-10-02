@@ -148,9 +148,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   const modelRuntime =
     deps.modelRuntime ??
     (await getSharedRuntime(agentDir, { modelNetwork: spec.modelNetwork, catalogBaseUrl: spec.catalogBaseUrl }));
-  const settingsManager = SettingsManager.inMemory(
-    spec.permissions?.only ? { defaultTools: spec.permissions.only } : {},
-  );
+  const settingsManager = SettingsManager.inMemory();
   const sessionManager = SessionManager.inMemory(cwd);
 
   // 工厂要在 createAgentSession 之前就交出去，而 session / agent 那时还没建好 —— 用 holder 惰性取。
@@ -176,14 +174,13 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   });
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
 
-  // `permissions.only` 的创建期接线：白名单要同时落**两个**地方，缺一个都错：
-  //   1. `settings.defaultTools` —— pi 把「活跃集」当**声明**持久化（每一轮的 system 消息里带一份
-  //      `toolsAdded`），`_restoreToolsFromTranscript()`（agent-session.js:1306-1310）会拿它去
-  //      `setActiveToolsByName`。不给 defaultTools 时它返回 `DEFAULT_TOOL_NAMES = [read,bash,edit,write]`
-  //      （settings-manager.js:35），于是「read,bash,edit,write」跑进 loadout，重启/续会话时活跃集被重置。
-  //      给了它，活跃集就跟着白名单走，不再恢复上一轮残留的那份。
-  //   2. `tools: only` —— pi 的 `allowedToolNames`，白名单之外的工具连注册表都进不去（连内置的也一样）。
-  // （`SettingsManager` 只有 getter，所以 defaultTools 只能在建它的时候给，不能在后面补。）
+  // `permissions.only` 的创建期接线只有**一处**：`createAgentSession({ tools: only })`。
+  //   - `sdk.js:145` 把它当 `allowedToolNames` —— 硬过滤，白名单之外的工具连注册表都进不去（含内置的）；
+  //   - `sdk.js:148` 的 `initialActiveToolNames = options.tools ?? …` 同时决定初始活跃集。
+  // 一处即两效，不需要再给 `settings.defaultTools`：`options.tools` 有值时它**永远不会被咨询**
+  // （`getDefaultTools()` 在 dist 里只有 `sdk.js:144` 一个消费者，而那行只在 `options.tools` 为
+  //  undefined 时才轮到）；`_restoreToolsFromTranscript()`（agent-session.js:1306-1310）也只在
+  //  `_initialActiveToolNames === undefined` 时才调（:194-195），给了 `tools` 就不会走到。
   const created = await createAgentSession({
     cwd,
     agentDir,

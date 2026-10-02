@@ -90,6 +90,43 @@ test("remove 之后从声明面消失，会话还能继续用", async () => {
   } finally { a.dispose(); }
 });
 
+test("add 一个 defaultActive:false 的工具：显式 add 要让它真的 active", async () => {
+  // reload 的隐式激活带 `defaultActive !== false` 过滤（agent-session.js:2829-2831），所以无白名单时
+  // 不显式并入活跃集的话，add 会变成静默 no-op：表里有、list 显示 active:false、模型收不到。
+  const a = await makeAgent();
+  try {
+    await a.tools.add((_ctx) => defineTool({
+      name: "probe_lazy", label: "Lazy", description: "默认不活跃的工具",
+      parameters: Type.Object({ text: Type.Optional(Type.String()) }),
+      defaultActive: false,
+      execute: async () => ({ content: [{ type: "text" as const, text: "lazy" }], details: {} }),
+    }));
+    assert.deepEqual(
+      a.tools.list().find((t) => t.name === "probe_lazy"),
+      { name: "probe_lazy", active: true },
+    );
+    await a.io.prompt("[[tool:probe_lazy]]");
+    assert.ok(sentTools().includes("probe_lazy"));   // 声明面真的收到了
+  } finally { a.dispose(); }
+});
+
+test("add 工厂式工具只调用工厂一次（R30b）", async () => {
+  // 工厂有可观察副作用才能判别「存成品」与「存工厂」：存工厂的话 reload 会再调一次 → calls=2。
+  const a = await makeAgent();
+  let calls = 0;
+  try {
+    await a.tools.add(() => {
+      calls += 1;
+      return defineTool({
+        name: "probe_once", label: "Once", description: "工厂只该被调一次",
+        parameters: Type.Object({ text: Type.Optional(Type.String()) }),
+        execute: async () => ({ content: [{ type: "text" as const, text: "once" }], details: {} }),
+      });
+    });
+    assert.equal(calls, 1);
+  } finally { a.dispose(); }
+});
+
 test("运行中 add → 抛错（idle 守卫）", async () => {
   const a = await makeAgent();
   try {
