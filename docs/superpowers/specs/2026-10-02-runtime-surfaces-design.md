@@ -160,7 +160,8 @@ tools.add / tools.remove / extensions.add / skills.add
 2. **跨扩展**：返回变换结果时链式传递（后一个扩展看到前一个处理后的结果）；返回**假值**（`undefined` / `null` / `0` / `''`）**不覆盖**前一个的有效结果（pi 用真值判据 `if (handlerResult)`）；返回 `{block:true}` **短路**（后续 handler 与其他扩展都收不到）。
 3. **桥接内部**（库自己的派发器，它是 pi 的**单个**扩展，所以 pi 的跨扩展机制在这里不生效）：监听器按注册顺序执行、拿到的是**原始事件**（**不复刻**链式）；合并规则照搬 pi 的 **last-wins**——最后一个非空结果生效，判据是真值（与 pi 逐字一致）。
 4. 因为桥接无法复刻链式，**同一个事件上只允许一个监听器返回变换结果**：第二个非 `undefined` 的返回值**抛错**，不静默丢弃前一个监听器的结果（静默丢弃正是本项目要消灭的失效模式）。要拦截就走专属槽位（`permissions.gate` / `tools.onResult` / `context.override`）。
-5. 库的桥接扩展是**第一个**注册的工厂，所以 `permissions.gate` 天然排在用户后加的扩展之前；`gate` 一旦拦住（`block` 短路），用户的 `on("tool_call")` **不会知道发生过这件事**——文档要明说。
+5. **槽位与监听表的关关系（R26）**：专属槽位（`gate` / `contextOverride` / `onResult`）**排在监听表之前**生效，且**槽位的结果计入同一个「已有非空结果」守卫**——所以「设了 `context.override`，又用 `on("context")` 返回变换」会**抛错**，而不是静默地只生效一个。槽位排前面还有一条硬理由：`permissions.gate` 必须抢在用户监听器之前，才能保证「拦住之后 `on("tool_call")` 不被调用」。
+6. 库的桥接扩展是**第一个**注册的工厂，所以 `permissions.gate` 天然排在用户后加的扩展之前；`gate` 一旦拦住（`block` 短路），用户的 `on("tool_call")` **不会知道发生过这件事**——文档要明说。
 
 ---
 
@@ -331,6 +332,7 @@ io.prompt("…")
 - 一次「运行」= `agent_start` → `agent_settled`。
 - `RunResult.messages` **不含 `system`**：pi 在首次 prompt 时才把 system 消息写进会话，不过滤的话只有**第一轮**会多带一条，导致轮与轮之间不可比。system 是会话级的，不属于任何一次运行。
 - `queue()` 在**空闲**时会起一次不 await 的运行（否则 `queue` 就变成同步 ask）。这种运行的失败**必须经 `console.error` 浮出**（带 `[aiteam]` 前缀与 `runId`），不能只吞不报——它是与 R17 同一条可见性通道。要拿到结果与失败就用 `prompt()`。
+- **「`queue` 永不抛错」的精确范围**（R25）：指**不因「目标忙」而抛错**——那正是 v1 `send()` 存在的理由（pi 的 `prompt()` 在目标 streaming 时直接抛）。但若**底层投递本身失败**（`session.followUp` 被 pi 拒收），`queue` **必须 reject**：把失败的投递报成 `{queued:true}` 是谎报，比 v1 的 `{delivered:"ran"}` 更糟。已知失败形态两条（reject 与 resolve-但-`error` 有值）都要覆盖。
 - `queue()` 投进来的消息若被并进同一次运行，**明说它属于同一次**（`messages` 区间里包含它），不再像 v1 的 `send()` 那样用 `{delivered:"ran"}` 谎报。
 - 并发 `prompt` 各自持自己的区间；不再有「排干共享消息池」导致的串台。
 - `runId` 由库生成，出现在 `RunResult` 上；钩子里通过 **`ctx.runId`** 读取。
