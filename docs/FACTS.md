@@ -100,3 +100,20 @@
 - `depthOf` 的 O(n²) **实践影响为零**：每层恒 1.4ms（n=64→512），被 `createAgentSession` 常数项淹没。
 - `temperature` 等采样旋钮**在 SDK 上可达**，只是库没接——不是「结构上做不到」。
 - 「`dispose` 会把 `session.messages` 清空」**是错的**：原样本是「建完就 dispose、从未 prompt」，0 是「本来就没有」。
+
+---
+
+## v2 探路实测（2026-10-02）
+
+对应 [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md) §7。全部在本机假 provider 上跑，零 API 成本；脚本在 `spike/`，完整输出与复现命令见 [`spike/FINDINGS.md`](../spike/FINDINGS.md)。
+
+| # | 事实 | 出处 |
+|---|---|---|
+| 1 | 把工具塞进内存表 + `session.reload()`，工具会进 `getActiveToolNames()`、进模型收到的 schema、能被执行；`remove` + reload 后从声明面消失 | `spike/s1-tool-reload.ts` |
+| 2 | `context` 钩子改的是**本轮发给模型的**，逐轮生效、不动历史；pi 传的是**副本**，原地改 `event.messages` 不污染 `session.messages`；钩子拿到的是**不含 system** 的消息 | `spike/s2-context-hook.ts` |
+| 3 | **`reload()` 在 streaming 中不抛错**，约 7ms 静默返回，在飞那轮照常跑完 ⇒ 「必须 idle」只能由库自己守 | `spike/s3-reload-while-running.ts` |
+| 4 | reload 之后桥接的钩子**完整复活且可反复**；running 中 reload 会发 `session_shutdown(reason:"reload")` | `spike/s3b-hooks-after-reload.ts` |
+| 5 | 同一事件的多个 handler **按注册顺序链式执行**，跨扩展顺序 = 扩展工厂注册顺序；返回 `{block:true}` **短路**（同扩展后续 handler 与其他扩展全收不到）；返回 `undefined` **不覆盖**前一个有效结果 | `spike/s4-handler-merge.ts` / `s4b-transform-merge.ts` |
+| 6 | pi 的 `ExtensionContext` 是对象字面量，`abort` / `compact` / `isIdle` / `getContextUsage` / `getSystemPrompt` / `hasPendingMessages` / `shutdown` / `isProjectTrusted` 全是**自有属性且不依赖 `this`** ⇒ `{...ctx, agent, runId}` 可直接用，不需要 Proxy | `spike/s5-ctx-shape.ts` |
+
+以上 6 条对 v1 的结论**没有更正**——它们是 pi 层的新事实，v1 未触碰这些面。

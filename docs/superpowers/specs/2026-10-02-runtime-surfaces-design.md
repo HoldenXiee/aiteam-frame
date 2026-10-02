@@ -1,7 +1,7 @@
 # aiteam v2 —— 运行期操控面设计规格
 
 - 状态：**待实现**（本文是 v2 的唯一宏观设计源）
-- 日期：2026-10-02（rev.2，含 API review 修订）
+- 日期：2026-10-02（rev.3：含 API review 修订 + 探路实测结论）
 - 关系：本规格是 v2 的宏观设计源。v1 的 [`docs/DESIGN.md`](../../DESIGN.md) 归档为历史与对照（`docs/archive/DESIGN-v1.md`），新 `docs/DESIGN.md` 由本规格派生
 - 路径：架构级（brainstorming → 本规格 → writing-plans）
 
@@ -120,7 +120,7 @@ tools.add / tools.remove / extensions.add / skills.add
   → await session.reload()     ← 一次
 ```
 
-- 前置条件：**必须 idle**。运行中调用抛错（不是排队）。
+- 前置条件：**必须 idle**。运行中调用抛错（不是排队）。**这个守卫必须由库自己加**：实测 pi 的 `reload()` 在 streaming 中 7ms 静默返回 `ok`、在飞的那轮照常跑完——也就是说**声明面变化对在飞轮次静默不生效**。这正是 v1 那类静默失效，不能靠 pi 兜（`spike/s3-reload-while-running.ts`）。
 - 语义：**重载**——发 `session_shutdown(reason:"reload")`、`settingsManager.reload()`、`resetApiProviders()`、`resourceLoader.reload()`、重建扩展运行器、重跑全部内联工厂。
 - 时序约定：**凡是碰「声明面」的都是 async**（`async` 而非「偶尔 async」）——因为声明面变化必须走 reload。
 
@@ -154,8 +154,13 @@ tools.add / tools.remove / extensions.add / skills.add
 - **运行期改动在 reload 后不会丢**——它们活在表里，不活在扩展闭包里。
 - **钩子顺序由桥接代码决定**（见下），不是碰运气。
 
-**顺序规则（写死，S4 实测确认合并语义）**：
-`permissions.gate` 先跑；被拦则不进 `on("tool_call")` 监听器。多个 `on` 监听器按注册顺序执行，**第一个返回有效结果者胜，不合并**；对事件的原地修改（如 `event.input`）对所有监听器可见。
+**顺序规则（已实测，`spike/s4-handler-merge.ts` / `s4b`）**：pi 原生就是这样，库不需要自己实现，但**必须写进文档**：
+
+1. 同一事件上的多个 handler **按注册顺序链式执行**；跨扩展的顺序 = 扩展工厂的注册顺序。
+2. 返回**变换结果**时链式传递：后一个 handler 看到的是前一个处理后的结果；返回 `undefined` **不覆盖**前一个的有效结果。
+3. 返回 `{block: true}` 是**短路**：同扩展的后续 handler 与其他扩展的 handler **全都收不到**这个事件（所以 `permissions.gate` 一旦拦住，用户的 `on("tool_call")` 不会知道发生过这件事——需在文档里明说）。
+
+库的桥接扩展是第一个注册的工厂，因此 `permissions.gate` 天然排在用户后加的扩展之前。
 
 ---
 
@@ -213,6 +218,8 @@ export type AgentContext = ExtensionContext & {
   /** 当前这次运行；不在运行中则为 undefined */
   readonly runId: string | undefined;
 };
+// 实测（spike/s5-ctx-shape.ts）：ctx 是对象字面量、方法全是自有属性且不依赖 this，
+// 所以实现上 `{ ...piCtx, agent, runId }` 直接用即可，不需要 Proxy。
 ```
 
 **返回值类型必须按事件收窄**（映射类型或 32 个重载，实现计划里定）：`tool_call` → `ToolCallEventResult`、`tool_result` → `ToolResultEventResult`、`context` / `context_with_system` → `ContextEventResult`、`turn_end` / `agent_before_settle` → `BoundaryResult`、`message_end` → `MessageEndEventResult`、`before_agent_start` → `BeforeAgentStartEventResult`、`input` → `InputEventResult`、`session_before_compact` → `SessionBeforeCompactResult`，其余为 `void`。全部类型从 pi 直接 import，不自造。
@@ -339,21 +346,20 @@ io.prompt("…")
 
 ---
 
-## 7. 实现前必须实测确认（不得当既成事实写进代码注释）
+## 7. 探路结论（已实测，2026-10-02）
 
-v1 的教训是「配置层静默失效」。以下四条在写实现之前先探路，各自留下一个可跑的探测脚本：
+全部在本机假 provider 上跑，零 API 成本。证据与完整输出见 [`spike/FINDINGS.md`](../../../spike/FINDINGS.md)，脚本在 `spike/`。
 
-| # | 待确认 | 若不成立的退路 |
-|---|---|---|
-| S1 | `session.reload()` 之后，新注册的扩展工具是否**自动 active**（源码看着像 `_buildRuntime({includeAllExtensionTools:true})` 会带上） | reload 后显式 `setActiveToolsByName([...旧, 新])` |
-| S2 | `context` 钩子改的是「本轮发给模型的」还是「会写进历史的」 | 若会写进历史，`override` 语义要改名并在文档里写死 |
-| S3 | `reload()` 在 running 时的真实破坏面 | 已有「必须 idle」前置；确认抛错时机与错误文本 |
-| S4 | **多 handler 的合并语义**（跨扩展时 pi 自己是否合并；同一钩子上我们的桥接与用户扩展的先后） | 若 pi 自会合并，把 §3.4 的顺序规则改成「不保证顺序，且文档写明」 |
-| S5 | **包装 ctx 而不破坏 pi 的方法绑定**：`AgentContext` 是「pi 的 ctx + 两个字段」，但 `abort()` / `isIdle()` / `getContextUsage()` 可能是原型上的方法，展开（`{...ctx}`）会丢 | 用 **Proxy**（`get` 优先取 agent / runId，其余透传并 `Reflect.get(..., receiver=原对象)`）或显式委托；不得用展开 |
+| # | 问题 | 实测结论 | 对设计的影响 |
+|---|---|---|---|
+| S1 | reload 后新注册的工具是否自动 active、能否被调用 | **成立**：进 `getActiveToolNames()`、进模型收到的 schema、能被执行、remove 后消失 | §3.4 桥接路线确认 |
+| S2 | `context` 钩子改的是本轮还是历史 | **本轮发给模型的**：逐轮生效、历史不受影响、原地改也不污染历史（pi 传副本）；钩子拿到的是不含 system 的消息 | `context.override` 语义照原设计 |
+| S3 | reload 撞上 running | **pi 不抛错**：7ms 静默返回 ok，在飞那轮照常跑完 | 「必须 idle」是**库自己加的守卫**，必须加 |
+| S3b | reload 后桥接的钩子是否还活着 | **活着、可反复**：门继续生效、新工具继续可见；reload 会发 `session_shutdown(reason:"reload")` | §3.4「改动活在表里」被证实 |
+| S4 | 多 handler 的顺序与合并 | 按注册顺序链式跑；返回 `block` **短路**（后续 handler 与其他扩展都收不到）；`undefined` 不覆盖前一个结果 | §3.4 顺序规则改成 pi 原生语义；`gate` 天然排在用户扩展之前 |
+| S5 | `AgentContext` 能否 `{...ctx}` 展开 | **可以**：ctx 是对象字面量，方法在自有属性且不依赖 `this` | **删掉原设的 Proxy 方案**，实现少一层包装 |
 
-另需确认：`tools.add` 之后模型**真的能看到**新工具的 schema（声明面变化生效）。
-
-**验证方式**：复用 `test/` 的假 provider 基建写探测，零 API 成本；结论写进 `docs/FACTS.md`。
+**没有推翻任何一条设计决策**；S3 修正了「抛错」的错误预期，S5 删掉了一处多余复杂度。
 
 ---
 
@@ -387,4 +393,5 @@ v1 的教训是「配置层静默失效」。以下四条在写实现之前先�
 ## 10. 待办：本文之后
 
 1. 按本文写实现计划（writing-plans 技能）。
-2. 实现前先完成 §7 的四条探路。
+
+§7 的探路已于 2026-10-02 完成，结论已写回本文（§3.3 / §3.4 / §4.1 / §7）。
