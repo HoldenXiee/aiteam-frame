@@ -31,14 +31,20 @@ export function under(file: string, dir: string): boolean {
 }
 
 /**
- * 设计者声明的扩展所提供的工具名。
+ * 设计者声明的扩展所提供的工具名（R41）。
  * 只认 `spec.extensions` 里显式给的那些（路径或内联工厂），**不**包括用户级/项目级自动发现的扩展 ——
  * 否则 `tools` 白名单会被环境里碰巧存在的扩展悄悄撑开，等于绕过设计者的能力裁剪。
  * （探路实测：内联工厂在 getExtensions() 里的 path 形如 `<inline:1>`。）
+ * `cwd` 必须传 agent 自己的那个：pi 把 `additionalExtensionPaths` 解成相对 **loader.cwd** 的绝对路径，
+ * 用 process.cwd() 去比对会让「相对路径 + 不同 cwd」的声明静默匹配不上。
  */
-export function declaredExtensionToolNames(spec: ResourceSpec, loader: DefaultResourceLoader): string[] {
+export function declaredExtensionToolNames(
+  spec: ResourceSpec,
+  loader: DefaultResourceLoader,
+  cwd: string = process.cwd(),
+): string[] {
   const declaredPaths = new Set(
-    (spec.extensions ?? []).filter((e): e is string => typeof e === "string").map((p) => norm(p)),
+    (spec.extensions ?? []).filter((e): e is string => typeof e === "string").map((p) => norm(resolve(cwd, p))),
   );
   return loader
     .getExtensions()
@@ -58,6 +64,8 @@ export interface LoaderInjections {
   extensionPaths: string[];
   skillPaths: string[];
   skillObjects: Skill[];
+  /** agent 的 cwd：路径比对要按它解析（pi 把注入路径解成相对 loader.cwd 的绝对路径） */
+  cwd: string;
 }
 
 const injections = new WeakMap<DefaultResourceLoader, LoaderInjections>();
@@ -75,7 +83,7 @@ export function loaderInjections(loader: DefaultResourceLoader): LoaderInjection
  * 两张路径表与 skillsOverride 都**永远**交给 pi（而不是按需）：运行期的 resources 面必须够得着它们（R39）。
  */
 export async function buildLoader(spec: ResourceSpec, deps: LoaderDeps): Promise<DefaultResourceLoader> {
-  const state: LoaderInjections = { extensionPaths: [], skillPaths: [], skillObjects: [] };
+  const state: LoaderInjections = { extensionPaths: [], skillPaths: [], skillObjects: [], cwd: deps.cwd };
   const skillNames: string[] = [];
 
   for (const ref of spec.skills ?? []) {

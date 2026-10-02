@@ -22,8 +22,9 @@ import type { Agent, AgentTool, PermissionsSurface, ToolsSurface } from "../agen
  * 它们是**唯一扛得过 `reload()` 的一层**：`setActiveToolsByName` 只改活跃集，reload 会拿
  * `activeToolNames + includeAllExtensionTools` 重算（agent-session.js:2741-2816）—— 只改活跃集的收紧
  * 会被静默抹掉（无白名单时扩展工具还会被 `defaultActive !== false` 那条分支推回来）。
+ * 导出给 `resources.ts` 用（R41：运行期加的扩展注册的工具名也要进白名单）。
  */
-function toolFilters(session: AgentSession): {
+export function toolFilters(session: AgentSession): {
   _allowedToolNames?: Set<string>;
   _excludedToolNames?: Set<string>;
 } {

@@ -10,7 +10,7 @@ import {
   resolveCliModel,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
-import { buildLoader } from "./loader.ts";
+import { buildLoader, declaredExtensionToolNames } from "./loader.ts";
 import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import { createIo } from "../surfaces/io.ts";
@@ -177,7 +177,15 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   });
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
 
-  // `permissions.only` 的创建期接线只有**一处**：`createAgentSession({ tools: only })`。
+  // R41：白名单会自动并入**你在同一个 spec 里显式声明的**工具（显式声明一定生效）。
+  // 来源只有扩展：`spec.tools.custom` 当下在 `NOT_WIRED` 里（传了就抛，见 assertSpec），那半条无可执行
+  // 路径 —— 接线它时**必须**同时把它的定义名并到这里，否则白名单又会把自定义工具静默挡在外面
+  // （用例「tools.custom 仍被 NOT_WIRED 挡着」钉的就是这个前提）。
+  // 环境自动发现的扩展**不**并入：白名单不该被环境里碰巧存在的扩展悄悄撑开（`declaredExtensionToolNames`）。
+  const only = spec.permissions?.only;
+  const whitelist = only ? [...new Set([...only, ...declaredExtensionToolNames(spec, loader, cwd)])] : undefined;
+
+  // `permissions.only` 的创建期接线只有**一处**：`createAgentSession({ tools: whitelist })`（R41 并入后的那份）。
   //   - `sdk.js:145` 把它当 `allowedToolNames` —— 硬过滤，白名单之外的工具连注册表都进不去（含内置的）；
   //   - `sdk.js:148` 的 `initialActiveToolNames = options.tools ?? …` 同时决定初始活跃集。
   // 一处即两效，不需要再给 `settings.defaultTools`：`options.tools` 有值时它**永远不会被咨询**
@@ -191,7 +199,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     resourceLoader: loader,
     sessionManager,
     settingsManager,
-    ...(spec.permissions?.only ? { tools: spec.permissions.only } : {}),
+    ...(whitelist ? { tools: whitelist } : {}),
     // 创建期 `deny` 落 `excludeTools`（`sdk.js:146` → pi 的 `_excludedToolNames`）：比白名单更硬 ——
     // 被排除的名字连工具注册表都进不去，也不会被 `initialActiveToolNames` 选中。
     ...(spec.permissions?.deny ? { excludeTools: spec.permissions.deny } : {}),

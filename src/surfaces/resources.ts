@@ -12,10 +12,12 @@
 //
 // 状态全在 loader 那边（见 `LoaderInjections`），本文件只负责改表 + reload + 守卫。
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { AgentSession, DefaultResourceLoader, InlineExtension, Skill } from "@earendil-works/pi-coding-agent";
 import type { Bridge } from "../agent/bridge.ts";
 import { loaderInjections, samePath, under } from "../agent/loader.ts";
 import type { ExtensionsSurface, SkillsSurface } from "../agent/types.ts";
+import { toolFilters } from "./tools.ts";
 
 export interface ResourcesDeps {
   loader: DefaultResourceLoader;
@@ -72,6 +74,28 @@ function factoryList(loader: DefaultResourceLoader): InlineExtension[] {
   return (loader as unknown as { extensionFactories: InlineExtension[] }).extensionFactories;
 }
 
+/**
+ * R41：这次 `extensions.add` 声明出来的扩展所提供的工具名。
+ * - 路径 add：按**路径**认（`samePath` 或 `under`，目录扩展也认）；
+ * - 工厂 add：按「reload 后**新出现**的 `<inline:N>`」认（pi 按工厂表下标编号，push 在末尾 ⇒ 新加的那个是新 id）
+ *   —— 环境自动发现的扩展永远是真实路径，不会是 inline。
+ * 两条认法都只可能碰到「本 spec 显式声明的」或「本次 add 显式声明的」扩展，所以边界不破。
+ */
+function declaredToolNames(
+  loader: DefaultResourceLoader,
+  extension: string | InlineExtension,
+  cwd: string,
+  before: Set<string>,
+): string[] {
+  const abs = typeof extension === "string" ? resolve(cwd, extension) : undefined;
+  return loader
+    .getExtensions()
+    .extensions.filter((e) =>
+      abs ? samePath(e.path, abs) || under(e.path, abs) : e.path.startsWith("<inline:") && !before.has(e.path),
+    )
+    .flatMap((e) => [...e.tools.keys()]);
+}
+
 export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
   const { loader, session } = deps;
 
@@ -90,13 +114,29 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
     /** 碰声明面 → async（reload），要求 idle。路径落库自己的路径表，内联工厂落 loader 自己的工厂表 */
     async add(extension) {
       guard(deps);
+      // R41：这次 add 的扩展注册的工具名要在**注册表过滤之前**进白名单，否则被 pi 硬过滤掉、无人可知。
+      // 但工厂注册了哪些名字只有 reload 之后才知道（工厂在 reload 里被调用；为了取名字先自己调一遍
+      // 会让设计者工厂的副作用跑两次，R30b 的教训）⇒ 有白名单时补一趟 reload。
+      const allowed = toolFilters(session)._allowedToolNames;
+      const state = loaderInjections(loader);
+      const before = new Set(loader.getExtensions().extensions.map((e) => e.path));
       if (typeof extension === "string") {
-        const paths = loaderInjections(loader).extensionPaths;
+        const paths = state.extensionPaths;
         await commit(deps, () => push(paths, extension));
-        return;
+      } else {
+        const factories = factoryList(loader);
+        await commit(deps, () => push(factories, extension));
       }
-      const factories = factoryList(loader);
-      await commit(deps, () => push(factories, extension));
+      if (!allowed) return;   // 没有白名单：注册表不做过滤（与 tools.add 的 registerAllowed 同为 no-op）
+      const added = declaredToolNames(loader, extension, state.cwd, before).filter((n) => !allowed.has(n));
+      if (!added.length) return;
+      for (const name of added) allowed.add(name);
+      try {
+        await deps.bridge.reload();
+      } catch (err) {
+        for (const name of added) allowed.delete(name);
+        throw err;
+      }
     },
 
     /** 只认显式加进来的路径（创建期 `spec.extensions` 与运行期 `add`）；环境自动发现的不在表里 */

@@ -21,6 +21,41 @@ function skillDir(name: string, description = "探路技能"): string {
   return dir;
 }
 
+/** 一个只注册指定工具的扩展源码（pi 用 jiti 加载 .ts） */
+function extSource(toolName: string): string {
+  return `import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+export default function (pi) {
+  pi.registerTool(defineTool({
+    name: "${toolName}",
+    label: "${toolName}",
+    description: "路径扩展注册的工具",
+    parameters: Type.Object({}),
+    execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+  }));
+}
+`;
+}
+
+/** 在 `dir` 里写一个只注册 `toolName` 的扩展，返回文件绝对路径 */
+function extIn(dir: string, toolName: string): string {
+  const file = join(dir, `${toolName}.ts`);
+  writeFileSync(file, extSource(toolName));
+  return file;
+}
+
+/** 新建临时目录并在里面写一个扩展文件，返回文件路径（R41 的「路径扩展」用） */
+function extFile(toolName: string): string {
+  return extIn(mkdtempSync(join(tmpdir(), `aiteam-ext-${toolName}-`)), toolName);
+}
+
+/** 把扩展放进 `<cwd>/.pi/extensions/`（pi 的**环境自动发现**路径，不由本库注入） */
+function envExt(cwd: string, toolName: string): void {
+  const dir = join(cwd, ".pi", "extensions");
+  mkdirSync(dir, { recursive: true });
+  extIn(dir, toolName);
+}
+
 test("extensions.add(工厂)：其注册的工具出现在声明面", async () => {
   const a = await makeAgent();
   try {
@@ -145,4 +180,93 @@ test("skills.add(Skill 对象)：运行期加的第一个也能进 list()", asyn
     await a.skills.remove(obj!.filePath);
     assert.ok(!has());
   } finally { a.dispose(); }
+});
+
+// ─────────────── R41：显式声明一定生效 ───────────────
+// `permissions.only` 非空时 pi 会硬过滤注册表（FACTS #11），所以「本 spec / 本次 add 里显式声明的工具」
+// 必须在过滤之前进白名单，否则设计者两行之内写下白名单与扩展，扩展的工具却静默无效。
+
+test("R41 创建期：only 非空时 spec.extensions 里显式声明的内联工厂工具仍在声明面", async () => {
+  const a = await makeAgent({
+    permissions: { only: ["read"] },
+    extensions: [(pi) => pi.registerTool(echoTool() as ToolDefinition)],
+  });
+  try {
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["probe_echo", "read"]);
+  } finally { a.dispose(); }
+});
+
+test("R41 创建期：only 非空时 spec.extensions 里显式声明的路径扩展工具仍在声明面", async () => {
+  const a = await makeAgent({
+    permissions: { only: ["read"] },
+    extensions: [extFile("file_probe_tool")],
+  });
+  try {
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["file_probe_tool", "read"]);
+  } finally { a.dispose(); }
+});
+
+test("R41 创建期：相对扩展路径按 agent 的 cwd 解析（不是 process.cwd()）", async () => {
+  // pi 把 `additionalExtensionPaths` 解成相对 **loader.cwd** 的绝对路径；比对若用 process.cwd()，
+  // 「相对路径 + 不同 cwd」的显式声明就会静默匹配不上、工具被过滤掉。
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-rel-ext-"));
+  extIn(cwd, "rel_probe_tool");
+  const a = await makeAgent({
+    cwd,
+    permissions: { only: ["read"] },
+    extensions: ["./rel_probe_tool.ts"],
+  });
+  try {
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["read", "rel_probe_tool"]);
+  } finally { a.dispose(); }
+});
+
+test("R41 运行期：only 非空时 extensions.add(工厂) 注册的工具并入白名单", async () => {
+  const a = await makeAgent({ permissions: { only: ["read"] } });
+  try {
+    await a.io.prompt("hi");
+    assert.deepEqual(sentTools(), ["read"]);   // 前提：白名单本来精确地只有 read
+    await a.extensions.add((pi) => pi.registerTool(echoTool() as ToolDefinition));
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["probe_echo", "read"]);
+  } finally { a.dispose(); }
+});
+
+test("R41 运行期：only 非空时 extensions.add(路径) 注册的工具并入白名单", async () => {
+  // 相对路径：同时钉住「路径认法按 agent 的 cwd 解析」（与创建期那条同一个理由）
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-rel-add-"));
+  extIn(cwd, "file_probe_tool");
+  const a = await makeAgent({ cwd, permissions: { only: ["read"] } });
+  try {
+    await a.extensions.add("./file_probe_tool.ts");
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["file_probe_tool", "read"]);
+  } finally { a.dispose(); }
+});
+
+test("R41 边界：环境自动发现的扩展所注册的工具**不**并入白名单", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-env-ext-"));
+  envExt(cwd, "env_probe_tool");
+  // 正对照：没有白名单时它确实被环境发现、工具确实注册上了（否则下面的断言是空转）
+  const plain = await makeAgent({ cwd });
+  try {
+    await plain.io.prompt("hi");
+    assert.ok(sentTools().includes("env_probe_tool"), `前提：环境扩展没被加载：${sentTools()}`);
+  } finally { plain.dispose(); }
+  const only = await makeAgent({ cwd, permissions: { only: ["read"] } });
+  try {
+    await only.io.prompt("hi");
+    // 并入就红了：白名单不该被环境里碰巧存在的扩展悄悄撑开（v1 `declaredExtensionToolNames` 的既定边界）
+    assert.deepEqual(sentTools(), ["read"]);
+  } finally { only.dispose(); }
+});
+
+test("R41 前提：tools.custom 仍被 NOT_WIRED 挡着（来源一当下无可执行路径）", async () => {
+  // R41 来源一 = `spec.tools.custom` 的定义名。它当下没接线：create-agent.ts 的 NOT_WIRED 让传了就抛。
+  // 所以那半条无可执行路径（写进去就是新的死代码）。这条用例钉住这个前提 —— 将来谁解开 NOT_WIRED，
+  // 它会**先红**，提醒他同时把自定义工具名并进白名单，否则 R41 的缺口会重新打开。
+  await assert.rejects(() => makeAgent({ tools: { custom: [echoTool()] } }), /尚未实现/);
 });
