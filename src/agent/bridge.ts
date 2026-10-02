@@ -76,7 +76,12 @@ export interface Bridge {
   eventNames(): string[];
 }
 
-export function createBridge(deps: { session: () => AgentSession; agent: () => Agent }): Bridge {
+export function createBridge(deps: {
+  session: () => AgentSession;
+  agent: () => Agent;
+  /** 忙判据（R29）：由 createAgent 注入的**唯一一份**定义，`reload()` 的 idle 守卫用 */
+  isBusy: () => boolean;
+}): Bridge {
   const tools = new Map<string, AgentTool>();
   const listeners = new Map<string, Set<Handler>>();
   let runId: string | undefined;
@@ -143,8 +148,10 @@ export function createBridge(deps: { session: () => AgentSession; agent: () => A
       const session = deps.session();
       // pi 的 reload() 撞上 running 会静默返回 ok、在飞那轮照常跑完（spike S3）——
       // 声明面变化对在飞轮次静默不生效。pi 不兜底，这道守卫必须由库自己加。
-      if (session.isStreaming || session.pendingMessageCount > 0) {
-        throw new Error("agent 正忙（streaming 或有排队消息）：声明面只能在 idle 时重载，先 io.waitIdle()");
+      // 判据来自 createAgent 的 `isBusy`（R29）：`io.isRunning || session.pendingMessageCount > 0`。
+      // 不在这里重写一遍 —— 两份口径迟早分叉，而这个守卫存在的理由就是「不许漏判」。
+      if (deps.isBusy()) {
+        throw new Error("agent 正忙（在飞运行或有排队消息）：声明面只能在空闲时重载，先 io.waitIdle()");
       }
       await session.reload();
     },

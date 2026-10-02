@@ -13,8 +13,8 @@ export interface ContextDeps {
   sessionManager: SessionManager;
   /** override 存进桥接的专属槽位：派发 `context` 时排在监听表之前取用，并与监听表共用同一守卫（R26） */
   bridge: Pick<Bridge, "contextOverride">;
-  /** io 面的忙闲判据（含库自维护的在飞计数）—— compact() 的 idle 守卫用，见那儿的注释 */
-  isRunning: () => boolean;
+  /** 忙判据（R29）：与 bridge.reload / tools.add 是**同一份**定义（createAgent 注入），compact 的 idle 守卫用 */
+  isBusy: () => boolean;
   assertAlive: () => void;
 }
 
@@ -46,10 +46,11 @@ export function createContext(deps: ContextDeps): ContextSurface {
       deps.assertAlive();
       // pi 的 session.compact() **首行就是 await abort()**（dist/core/agent-session.js:2101）：运行中调用会
       // 静默打断在飞的那轮。规格只说「async、真跑一轮」，这道守卫是本库自己加的（R27）。
-      // 判据与 bridge.reload() 那条一致（isStreaming || pendingMessageCount），但忙的那一半用 io.isRunning ——
-      // 它是 `running > 0 || isStreaming`，严格覆盖 reload 的判据，且能兜住「io.prompt() 已发起、pi 还没翻
-      // isStreaming」的启动窗口（这种窗口里在飞轮次恰恰最容易被 abort 掉）。
-      if (deps.isRunning() || session.pendingMessageCount > 0) {
+      // 判据是 createAgent 的唯一一份 `isBusy`（R29）：它是 `io.isRunning || session.pendingMessageCount > 0`。
+      // `io.isRunning` 是 `running > 0 || session.isStreaming` —— 那个 running 计数是必需的，因为
+      // `session.isStreaming` 要等 `prompt()` 内部几个 await 之后才翻真，而启动窗口里在飞的那轮
+      // 恰恰最容易被 compact 的 abort 打掉。
+      if (deps.isBusy()) {
         throw new Error(
           "agent 正在运行：compact 会先 abort 在飞的那轮（pi 的 session.compact 首行就是 abort），只能等它跑完再做" +
             " —— 先 io.waitIdle()；要自己承担打断就走 context.raw.session.compact()",

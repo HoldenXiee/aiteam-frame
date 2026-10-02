@@ -53,6 +53,9 @@ export interface AgentInit extends ResourceSpec {
   /**
    * 创建期只有 `only` / `deny`：创建时最常说的是「只给它这几个」，所以这里是**精确白名单**。
    * 运行期（`agent.permissions`）才有并集语义的 `allow`。同名不同义是陷阱，故这里叫 `only`。
+   *
+   * 已接线（任务 4）：`only` → pi 的 `allowedToolNames` + 初始活跃集；白名单之外的**任何**工具
+   * （内置的、扩展的、运行期 `tools.add` 的）都不进声明面。`deny` / `gate` 仍未接线。
    */
   permissions?: { only?: string[]; deny?: string[]; gate?: ToolGate };
   tools?: { custom?: AgentTool[] };

@@ -15,6 +15,7 @@ import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import { createIo } from "../surfaces/io.ts";
 import { createContext } from "../surfaces/context.ts";
+import { createTools } from "../surfaces/tools.ts";
 import type {
   Agent,
   AgentContext,
@@ -110,7 +111,7 @@ const SURFACE_KEYS = {
 } as const satisfies Record<string, readonly string[]>;
 
 /** 已经在 spec 里声明、但本任务还没接线的字段：宁可立刻喊，也不静默忽略（v1 的教训） */
-const NOT_WIRED = ["permissions.only", "permissions.deny", "permissions.gate", "tools.custom"];
+const NOT_WIRED = ["permissions.deny", "permissions.gate", "tools.custom"];
 
 function assertSpec(spec: AgentInit): void {
   const given = spec as Record<string, unknown>;
@@ -147,17 +148,24 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   const modelRuntime =
     deps.modelRuntime ??
     (await getSharedRuntime(agentDir, { modelNetwork: spec.modelNetwork, catalogBaseUrl: spec.catalogBaseUrl }));
-  const settingsManager = SettingsManager.inMemory({});
+  const settingsManager = SettingsManager.inMemory(
+    spec.permissions?.only ? { defaultTools: spec.permissions.only } : {},
+  );
   const sessionManager = SessionManager.inMemory(cwd);
 
   // 工厂要在 createAgentSession 之前就交出去，而 session / agent 那时还没建好 —— 用 holder 惰性取。
   const holder: { session?: AgentSession; agent?: Agent } = {};
-  const need = (what: string): never => {
+  // 先声明、后赋值：桥接的守卫与三个面都按**调用时**取值，所以 isBusy 直到 io 建好之前不可用。
+  // （桥接工厂 / reload 只可能在本函数返回之后触发，那时 isBusy 已经指向 io。）
+  let isBusy: () => boolean;
+  const need: (what: string) => never = (what) => {
     throw new Error(`桥接：${what} 还没建好`);
   };
   const bridge = createBridge({
     session: () => holder.session ?? need("session"),
     agent: () => holder.agent ?? need("agent"),
+    // R29：桥接的 reload 守卫与 io / context / tools 共用同一个判据（由 createAgent 注入）
+    isBusy: () => isBusy(),
   });
 
   const loader = await buildLoader(spec, {
@@ -168,6 +176,14 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   });
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
 
+  // `permissions.only` 的创建期接线：白名单要同时落**两个**地方，缺一个都错：
+  //   1. `settings.defaultTools` —— pi 把「活跃集」当**声明**持久化（每一轮的 system 消息里带一份
+  //      `toolsAdded`），`_restoreToolsFromTranscript()`（agent-session.js:1306-1310）会拿它去
+  //      `setActiveToolsByName`。不给 defaultTools 时它返回 `DEFAULT_TOOL_NAMES = [read,bash,edit,write]`
+  //      （settings-manager.js:35），于是「read,bash,edit,write」跑进 loadout，重启/续会话时活跃集被重置。
+  //      给了它，活跃集就跟着白名单走，不再恢复上一轮残留的那份。
+  //   2. `tools: only` —— pi 的 `allowedToolNames`，白名单之外的工具连注册表都进不去（连内置的也一样）。
+  // （`SettingsManager` 只有 getter，所以 defaultTools 只能在建它的时候给，不能在后面补。）
   const created = await createAgentSession({
     cwd,
     agentDir,
@@ -175,6 +191,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     resourceLoader: loader,
     sessionManager,
     settingsManager,
+    ...(spec.permissions?.only ? { tools: spec.permissions.only } : {}),
     ...(model ? { model } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
   });
@@ -252,23 +269,34 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     },
   });
 
+  // 忙判据的**唯一一处定义**：声明面（reload）与 compact 都会「先 abort 或静默不生效」在飞的那轮，
+  // 所以两边必须口径一致，否则迟早分叉成两份措辞、两份逻辑。
+  // 两个分量都不是装饰：
+  //   - `io.isRunning` = `running > 0 || session.isStreaming`。`session.isStreaming` 就是 pi 的
+  //     `_isAgentRunActive`，它在 `_runAgentPrompt` 第一行才置真（agent-session.js:1320），而 `prompt()`
+  //     要先 await 好几回合（`_runInputHandlers` → emitBeforeAgentStart / 图片归一化，:1470-1563）才走到
+  //     那里 —— 所以 `io.prompt()` 刚发起、还没 await 时 isStreaming 是**假**的。这段启动窗口里
+  //     pi 的 `reload()` 不会抛错，它照常跑完、在飞的请求不受影响，于是「刚加的工具在飞那轮里不存在」
+  //     这种**静默**失效就发生了（实测 S3）。`running` 计数在第一个 await 之前同步自增，正好补上这个洞。
+  //   - `pendingMessageCount` 只数 pi 的 steering / follow-up 队列。follow-up 是**idle 时也能排队**的
+  //     （agent-session.js:1824-1825），此刻 isRunning 仍是假、但一轮运行马上就要开始。丢了这一项就漏判。
+  isBusy = () => io.isRunning || session.pendingMessageCount > 0;
+
   const context: ContextSurface = createContext({
     session,
     sessionManager,
     bridge,
-    isRunning: () => io.isRunning,
+    isBusy,
     assertAlive,
   });
 
-  const tools: ToolsSurface = {
-    list: () => notImplemented("tools.list"),
-    add: async () => notImplemented("tools.add"),
-    remove: async () => notImplemented("tools.remove"),
-    onResult: () => notImplemented("tools.onResult"),
-    get raw() {
-      return notImplemented("tools.raw");
-    },
-  };
+  const tools: ToolsSurface = createTools({
+    session,
+    bridge,
+    agent: () => holder.agent ?? need("agent"),
+    isBusy,
+    assertAlive,
+  });
 
   const permissions: PermissionsSurface = {
     gate: () => notImplemented("permissions.gate"),
