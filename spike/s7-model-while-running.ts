@@ -32,11 +32,19 @@ const modelsPath = writeModelsJson(agentDir, faux.baseUrl, [FAUX_MODEL_ID, FAUX_
 const modelRuntime = await ModelRuntime.create({ modelsPath, allowModelNetwork: false });
 const settingsManager = SettingsManager.inMemory({});
 
-// 捕获每次出网请求的负载（pi 的 before_provider_request）——思考档的落点只能从这里看
+// 捕获每次出网请求的负载（pi 的 before_provider_request）——思考档的落点只能从这里看；
+// 同时把 pi 的 model_select / thinking_level_select 收下来，看调用方能不能“察觉”中途换档。
 const payloads: any[] = [];
+const selects: string[] = [];
 const capture = (pi: ExtensionAPI): void => {
   pi.on("before_provider_request", (event: any) => {
     payloads.push(event.payload);
+  });
+  pi.on("model_select" as any, (event: any) => {
+    selects.push(`model_select ${event.previousModel?.id ?? "?"}→${event.model?.id ?? "?"} (source=${event.source})`);
+  });
+  pi.on("thinking_level_select" as any, (event: any) => {
+    selects.push(`thinking_level_select ${event.previousLevel}→${event.level}`);
   });
 };
 const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, extensionFactories: [capture] });
@@ -130,20 +138,10 @@ head("D. 思考档有没有落到请求负载上（off vs high，alt 有 reasoni
   session.setThinkingLevel("high");
   await session.prompt("high 档");
   const [a, b] = payloads.slice(from);
-  const keys = (x: any) => Object.keys(x ?? {}).sort().join(",");
-  const strip = (x: any) => {
-    const { messages: _m, ...rest } = x ?? {};
-    return JSON.stringify(rest);
-  };
   console.log(`  off  : ${JSON.stringify({ reasoning_effort: a?.reasoning_effort, thinking: a?.thinking, reasoning: a?.reasoning })}`);
   console.log(`  high : ${JSON.stringify({ reasoning_effort: b?.reasoning_effort, thinking: b?.thinking, reasoning: b?.reasoning })}`);
-  check("两次请求负载的键集合一致", keys(a) === keys(b), keys(a));
-  check(
-    "负载里确实有思考档的差别（去掉 messages 后相比）",
-    strip(a) !== strip(b),
-    strip(a) === strip(b) ? "（两次负载的配置部分逐字相同——思考档没上网）" : undefined,
-  );
-  console.log(`  off 键：${keys(a)}`);
+  check("off 档的负载里没有 reasoning_effort", a?.reasoning_effort === undefined);
+  check("high 档的负载里 reasoning_effort=\"high\"", b?.reasoning_effort === "high", b?.reasoning_effort);
 }
 
 head("E. setModel 到未授权的 provider：抛错且不留半应用状态");
@@ -158,6 +156,7 @@ head("E. setModel 到未授权的 provider：抛错且不留半应用状态");
 }
 
 console.log(`\n假服务收到的 model 字段（全部）：${faux.calls.map((c) => c.model).join(" , ")}`);
+console.log(`中途换档事件（调用方“察觉”的通道）：\n  ${selects.join("\n  ") || "（无）"}`);
 try {
   session.dispose();
 } catch {
