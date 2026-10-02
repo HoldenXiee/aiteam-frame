@@ -82,17 +82,36 @@ export function createBridge(deps: { session: () => AgentSession; agent: () => A
   let runId: string | undefined;
 
   /**
-   * 派发器：按注册顺序跑监听表，返回 `{block:true}` 立即短路（pi 实测语义，S4/S4b）。
-   * 跨扩展之间的链式与合并由 pi 自己完成（S4b），这里只管本扩展的监听表。
+   * 派发器。四条规则，与 pi 的 `emitToolCall` 同构（依据：pi 源码
+   * `dist/core/extensions/runner.js:951-969`，**不是**简报早版「取第一个非 undefined」的措辞）：
+   *
+   *   1. last-wins —— 最后一个返回非空结果的监听器生效；
+   *   2. 真值判据 —— `!returned` 就跳过（`undefined` / `null` / `0` / `''` / `false` 都不算结果）；
+   *   3. `{block:true}` 立即短路返回 —— 优先级最高，先于下面那条守卫；
+   *   4. 双变换抛错 —— 同一事件上已有非空结果时，第二个非空结果**抛错**，不静默丢弃。
+   *
+   * 规则 4 是本库自己的取舍：桥接是 pi 的**单个**扩展，每个监听器拿到的都是原始事件，
+   * 无法复刻 pi 跨扩展的链式传递（pi 里后一个 handler 能看到前一个处理后的结果）。
+   * 若照搬 last-wins，先返回的那个监听器的工作会被后一个**静默覆盖** —— 正是 v2 要根除的失效模式。
+   * 所以同一事件只允许一个监听器返回变换结果；拦截走专属槽位（permissions.gate / tools.onResult / context.override）。
    */
   async function dispatch(name: string, event: unknown, piCtx: ExtensionContext): Promise<unknown> {
     const ctx: AgentContext = { ...piCtx, agent: deps.agent(), runId };
     let result: unknown;
+    let hasResult = false;
     for (const fn of [...(listeners.get(name) ?? []), ...(listeners.get(ANY_EVENT) ?? [])]) {
       const returned = await fn(event, ctx);
-      if (returned === undefined) continue;               // undefined 不覆盖前一个有效结果
+      if (!returned) continue;                            // 真值判据，与 pi 逐字一致
+      if ((returned as { block?: boolean }).block) return returned; // block 短路优先于守卫
+      if (hasResult) {
+        throw new Error(
+          `事件「${name}」上已有监听器返回了变换结果；` +
+            "桥接无法像 pi 跨扩展那样链式传递，所以同一事件只允许一个监听器返回变换结果。" +
+            "要拦截请用专属槽位（permissions.gate / tools.onResult / context.override）",
+        );
+      }
       result = returned;
-      if ((returned as { block?: boolean } | null)?.block) return returned;
+      hasResult = true;
     }
     return result;
   }

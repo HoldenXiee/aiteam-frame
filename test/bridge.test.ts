@@ -52,6 +52,37 @@ test("spec 未知字段 → 抛错并指出字段名", async () => {
   await assert.rejects(() => makeAgent({ permisions: {} } as never), /permisions/);
 });
 
+test("同一事件上两个监听器都返回变换结果 → 报错拦下，不静默丢弃前一个", async () => {
+  // 用 tool_call 而不是 context：pi 的 emitContext / emitToolResult 把 handler 抛的错吞进自己的
+  // error listener（runner.js:1020 等），而 emitToolCall 不吞（runner.js:951-969）；且 agent 层会把
+  // hook 抛的错转成 toolResult 文本。所以只有 tool_call 能把抛错暴露成可断言的证据。
+  const a = await makeAgent();
+  a.on("tool_call", () => ({ reason: "第一个变换" }));
+  a.on("tool_call", () => ({ reason: "第二个变换" }));
+  try {
+    await a.io.prompt('[[tool:read]] [[args:{"path":"/nope"}]]');
+    const results = (a.io.raw.messages as any[]).filter((m) => m.role === "toolResult");
+    assert.equal(results.length, 1);
+    const text = JSON.stringify(results[0].content);
+    assert.match(text, /tool_call/);          // 错误信息要指名事件
+    assert.match(text, /permissions\.gate/);  // 且说清出路
+  } finally { a.dispose(); }
+});
+
+test("block 短路优先于双变换守卫：先变换、后 block → 不抛错且工具真被拦下", async () => {
+  const a = await makeAgent();
+  const order: string[] = [];
+  a.on("tool_call", () => { order.push("transform"); return { reason: "变换" }; });
+  a.on("tool_call", () => { order.push("block"); return { block: true, reason: "probe-blocked" }; });
+  try {
+    await a.io.prompt('[[tool:read]] [[args:{"path":"/nope"}]]');
+    assert.deepEqual(order, ["transform", "block"]);
+    const results = (a.io.raw.messages as any[]).filter((m) => m.role === "toolResult");
+    assert.equal(results.length, 1);
+    assert.match(JSON.stringify(results[0].content), /probe-blocked/);
+  } finally { a.dispose(); }
+});
+
 test("dispose 之后操作 → 抛错", async () => {
   const a = await makeAgent();
   a.dispose();
