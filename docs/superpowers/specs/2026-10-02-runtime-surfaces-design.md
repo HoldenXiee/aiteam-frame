@@ -1,7 +1,7 @@
 # aiteam v2 —— 运行期操控面设计规格
 
 - 状态：**待实现**（本文是 v2 的唯一宏观设计源）
-- 日期：2026-10-02（rev.6：任务 5 审查回写——`permissions.only/allow/deny` 由「同步只改活跃集」改为 **async + reload**；显式 `tools.add` 必须解除同名 deny。依据是 R35/R37/R38，实测事实见 `docs/FACTS.md` #13）
+- 日期：2026-10-02（rev.7：任务 6 — R41「显式声明一定生效」：创建期把 `tools.custom` 与 `spec.extensions` 显式声明的扩展工具并入白名单；环境自动发现的扩展不并入。`only` 的「精确」因此有了确定边界）
 - 关系：本规格是 v2 的宏观设计源。v1 的 [`docs/DESIGN.md`](../../DESIGN.md) 归档为历史与对照（`docs/archive/DESIGN-v1.md`），新 `docs/DESIGN.md` 由本规格派生
 - 路径：架构级（brainstorming → 本规格 → writing-plans）
 
@@ -184,6 +184,7 @@ tools.add / tools.remove / extensions.add / skills.add
 **三处与早版措辞的消歧**（实现计划自检时发现同名不同义，会同治于本文与计划）：
 
 1. **创建期用 `only` 而不是 `allow`**。创建时最常说的是「只给它这几个」（精确白名单，对应 pi 的 `tools` 选项）；运行期 `allow` 是**并集启用**。同名不同义是陷阱，所以创建期叫 `only`：`permissions: { only?: string[]; deny?: string[] }`。
+   **R41 补充**：白名单会自动并入**你在同一个 spec 里显式声明的**工具（`tools.custom` 的定义名 + `extensions` 里显式声明的扩展/内联工厂所注册的工具名）；**环境自动发现的扩展不并入**。理由见 §11，边界沿用 v1 `loader.ts` 里 `declaredExtensionToolNames` 的既定口径。
 2. **运行期补 `only(names)`** 做精确设置。`allow`（并集）/ `deny`（移除）/ `only`（精确）三档语义互不重叠。
 3. **`skills.add` 只接受路径或 `Skill` 对象，不接受裸技能名**。技能是被环境发现的，不是按名注册的；运行期「按名 add」没有意义，只能变成静默 no-op——传名字时招错并指向 `skills.list()`。
 
@@ -427,5 +428,20 @@ io.prompt("…")
 3. 消除的是**静默失效**——本项目的立项理由。
 
 **R37：显式 `tools.add(x)` 必须解除同名的 deny。**
-
 起因是另一个跨面交互：`deny` 过的名字再 `tools.add` 会**静默不生效**（新工具停在 `active:false`）。取向与「`add` 会扩白名单」一致：**显式 add 一定让它生效**（R34 已为 `defaultActive:false` 立过同一原则）。若要让 deny 压过 add，那 add 就必须**抛错**——但那是多一条错误路径、且与既有取向矛盾；故取「add 解除 deny」。
+
+**R41：显式声明一定生效——创建期把设计者声明过的工具并入白名单。**（任务 6 实现者披露的缺口触发）
+
+**现象**：`permissions.only` 非空时，`spec.extensions` 里声明的扩展所注册的工具会被 pi 的白名单**硬过滤**掉、**无人并入白名单** ⇒ 设计者在同一个 spec 里两行之内写了白名单和扩展，扩展的工具却**静默无效**。运行期 `extensions.add(...)` 同理。
+
+**根因是一处死代码被漏接线**：`src/agent/loader.ts` 的 `declaredExtensionToolNames(spec, loader)` 在 v2 **无任何调用者**，而它的注释写明了 v1 的既定口径：
+
+> 只认 `spec.extensions` 里显式给的那些（路径或内联工厂），**不**包括用户级/项目级自动发现的扩展 —— 否则 `tools` 白名单会被环境里碰巧存在的扩展悄悄撑开，等于绕过设计者的能力裁剪。
+
+**裁决**：把「设计者在**本 spec 里显式声明**的工具」并入白名单——`spec.tools.custom` 的定义名 + `spec.extensions` 里显式声明的扩展/内联工厂所注册的工具名；运行期 `extensions.add(...)` 同样并入该扩展新注册的工具名。**环境自动发现的扩展不并入**（v1 那条边界继续成立）。
+
+理由：与 R34/R37 **同一原则——显式声明一定生效**。设计者写下的声明如果静默无效，正是本项目要根除的形态。
+
+**考虑过并否决的替代方案**：抛错 / 只警告。否决理由：显式声明就该生效；让设计者为了「我明明写了扩展」再去 `only` 里手抄工具名，是把库的机械约束转嫁给使用者。
+
+**代价若错**：`only` 的「精确」被削弱成「精确 + 你在同一 spec 里显式声明的工具」。
