@@ -329,6 +329,8 @@ io.prompt("…")
 ```
 
 - 一次「运行」= `agent_start` → `agent_settled`。
+- `RunResult.messages` **不含 `system`**：pi 在首次 prompt 时才把 system 消息写进会话，不过滤的话只有**第一轮**会多带一条，导致轮与轮之间不可比。system 是会话级的，不属于任何一次运行。
+- `queue()` 在**空闲**时会起一次不 await 的运行（否则 `queue` 就变成同步 ask）。这种运行的失败**必须经 `console.error` 浮出**（带 `[aiteam]` 前缀与 `runId`），不能只吞不报——它是与 R17 同一条可见性通道。要拿到结果与失败就用 `prompt()`。
 - `queue()` 投进来的消息若被并进同一次运行，**明说它属于同一次**（`messages` 区间里包含它），不再像 v1 的 `send()` 那样用 `{delivered:"ran"}` 谎报。
 - 并发 `prompt` 各自持自己的区间；不再有「排干共享消息池」导致的串台。
 - `runId` 由库生成，出现在 `RunResult` 上；钩子里通过 **`ctx.runId`** 读取。
