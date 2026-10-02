@@ -1,5 +1,5 @@
-// spec → ControlledAgent：生命周期、事件订阅、用量、工具接线、审批门。
-// host 相关（花名册登记、护栏计数、宿主事件）在 host.ts 那一层挂进来，这里只认 deps。
+// spec → Agent：配置校验、loader、session、常驻桥接、七面装配、生命周期。
+// 本任务只装配 io（最小驱动版）与桥接；其余六个面是「一碰就喊」的类型占位（分工见实现计划）。
 import { join } from "node:path";
 import {
   ModelRuntime,
@@ -8,30 +8,26 @@ import {
   createAgentSession,
   getAgentDir,
   resolveCliModel,
-  type ExtensionAPI,
-  type InlineExtension,
-  type ToolDefinition,
+  type AgentSession,
 } from "@earendil-works/pi-coding-agent";
-import { buildLoader, declaredExtensionToolNames } from "./loader.ts";
-import { normalizeEvent } from "./events.ts";
-import { hostInternalsOf } from "./host.ts";
-import { createSpawnAgentTool } from "../tools/spawn-agent.ts";
-import { createSendMessageTool } from "../tools/send-message.ts";
-import { addUsage, emptyUsage } from "./usage.ts";
+import { buildLoader } from "./loader.ts";
+import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
+import { emptyUsage } from "./usage.ts";
 import type {
-  AgentEventMap,
-  AgentEventName,
-  AgentHost,
-  AgentMessage,
-  AgentSpec,
-  AgentToolContext,
-  ControlledAgent,
+  Agent,
+  AgentContext,
+  AgentInit,
+  ContextSurface,
   CreateAgentDeps,
-  PromptOpts,
+  ExtensionsSurface,
+  ExtensionEvent,
+  IoSurface,
+  ModelSurface,
+  PermissionsSurface,
   RunResult,
-  SendOpts,
-  SendResult,
-  Usage,
+  SkillsSurface,
+  ThinkingLevel,
+  ToolsSurface,
 } from "./types.ts";
 
 let counter = 0;
@@ -39,6 +35,8 @@ function nextId(): string {
   counter += 1;
   return `a${counter}`;
 }
+
+let runCounter = 0;
 
 export function defaultAgentDir(): string {
   return process.env.AITEAM_AGENT_DIR || getAgentDir();
@@ -64,16 +62,10 @@ export function getSharedRuntime(agentDir: string, opts: RuntimeOpts = {}): Prom
   return runtime;
 }
 
-/** 模型目录的网络与来源开关（来自 MemberSpec） */
+/** 模型目录的网络与来源开关（来自 spec） */
 export interface RuntimeOpts {
   modelNetwork?: boolean;
   catalogBaseUrl?: string;
-}
-
-/** 库自带的能力工具：spec.tools 里点了名就自动挂上（规格 §9「已定」）。
- *  做成函数而不是模块级常量，避免 create-agent ↔ tools 的循环初始化顺序敏感。 */
-function libraryTools(): Record<string, (ctx: AgentToolContext) => ToolDefinition> {
-  return { spawn_agent: createSpawnAgentTool, send_message: createSendMessageTool };
 }
 
 /** 解析出来的模型：直接取 resolveCliModel 的返回类型，不自己重定义 */
@@ -81,9 +73,9 @@ type ResolvedModel = NonNullable<ReturnType<typeof resolveCliModel>["model"]>;
 
 /** 决策 #28：resolveCliModel 对不存在的模型只给 warning，必须自己判 */
 function resolveModel(
-  spec: AgentSpec,
+  spec: AgentInit,
   modelRuntime: ModelRuntime,
-): { model?: ResolvedModel; thinkingLevel?: AgentSpec["thinking"] } {
+): { model?: ResolvedModel; thinkingLevel?: ThinkingLevel } {
   if (!spec.model) return { thinkingLevel: spec.thinking };
   const resolved = resolveCliModel({ cliModel: spec.model, modelRuntime });
   if (resolved.error || !resolved.model) {
@@ -95,210 +87,254 @@ function resolveModel(
   return { model: resolved.model, thinkingLevel: spec.thinking ?? resolved.thinkingLevel };
 }
 
-export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}): Promise<ControlledAgent> {
-  const host: AgentHost | undefined = deps.host;
-  const internals = hostInternalsOf(host);
-  // 配置优先级：成员定义（或顶层 spec）> host.defaults（决策 #13）
-  const spec: AgentSpec = internals ? { ...internals.defaults, ...rawSpec } : rawSpec;
+/** spec 顶层的可用字段 */
+const SPEC_KEYS = [
+  "id",
+  "cwd",
+  "agentDir",
+  "modelNetwork",
+  "catalogBaseUrl",
+  "role",
+  "model",
+  "thinking",
+  "permissions",
+  "tools",
+  "context",
+  "skills",
+  "extensions",
+] as const;
+
+/** 每个面对象内的可用字段 */
+const SURFACE_KEYS = {
+  permissions: ["only", "deny", "gate"],
+  tools: ["custom"],
+  context: ["autoCompact"],
+} as const satisfies Record<string, readonly string[]>;
+
+/** 已经在 spec 里声明、但本任务还没接线的字段：宁可立刻喊，也不静默忽略（v1 的教训） */
+const NOT_WIRED = ["permissions.only", "permissions.deny", "permissions.gate", "tools.custom", "context.autoCompact"];
+
+function assertSpec(spec: AgentInit): void {
+  const given = spec as Record<string, unknown>;
+  for (const key of Object.keys(given)) {
+    if (!SPEC_KEYS.includes(key as (typeof SPEC_KEYS)[number])) {
+      throw new Error(`createAgent：未知字段「${key}」。可用字段：${SPEC_KEYS.join("、")}`);
+    }
+  }
+  for (const [surface, allowed] of Object.entries(SURFACE_KEYS)) {
+    const group = given[surface];
+    if (!group || typeof group !== "object") continue;
+    for (const key of Object.keys(group)) {
+      if (!(allowed as readonly string[]).includes(key)) {
+        throw new Error(`createAgent：${surface} 里的未知字段「${key}」。可用字段：${allowed.join("、")}`);
+      }
+    }
+  }
+  for (const path of NOT_WIRED) {
+    const [surface, key] = path.split(".");
+    const group = given[surface] as Record<string, unknown> | undefined;
+    if (group && typeof group === "object" && group[key] !== undefined) {
+      throw new Error(`createAgent：${path} 尚未实现（还没接线到 pi），先别传`);
+    }
+  }
+}
+
+export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps = {}): Promise<Agent> {
+  const spec = rawSpec ?? {};
+  assertSpec(spec);
 
   const id = spec.id ?? nextId();
   const cwd = spec.cwd ?? process.cwd();
   const agentDir = spec.agentDir ?? defaultAgentDir();
   const modelRuntime =
     deps.modelRuntime ??
-    internals?.modelRuntime ??
     (await getSharedRuntime(agentDir, { modelNetwork: spec.modelNetwork, catalogBaseUrl: spec.catalogBaseUrl }));
   const settingsManager = SettingsManager.inMemory({});
+  const sessionManager = SessionManager.inMemory(cwd);
 
-  // holder：工厂式工具在 createAgentSession 之前就要交出 name/parameters，
-  // 而 ControlledAgent 那时还没构造完 —— 所以 ctx.agent 用 getter 惰性取（决策 #12）。
-  const holder: { agent?: ControlledAgent } = {};
-  const makeCtx = (signal?: AbortSignal): AgentToolContext => ({
-    get agent() {
-      if (!holder.agent) throw new Error("工具上下文里的 agent 尚未构造完成");
-      return holder.agent;
-    },
-    host,
-    signal,
+  // 工厂要在 createAgentSession 之前就交出去，而 session / agent 那时还没建好 —— 用 holder 惰性取。
+  const holder: { session?: AgentSession; agent?: Agent } = {};
+  const need = (what: string): never => {
+    throw new Error(`桥接：${what} 还没建好`);
+  };
+  const bridge = createBridge({
+    session: () => holder.session ?? need("session"),
+    agent: () => holder.agent ?? need("agent"),
   });
 
-  const customTools: ToolDefinition[] = [];
-  for (const tool of spec.customTools ?? []) {
-    customTools.push(typeof tool === "function" ? tool(makeCtx()) : tool);
-  }
-  const providedNames = new Set(customTools.map((t) => t.name));
-  for (const [toolName, make] of Object.entries(libraryTools())) {
-    if (spec.tools?.includes(toolName) && !providedNames.has(toolName)) {
-      customTools.push(make(makeCtx()));
-    }
-  }
-
-  const extensionFactories: InlineExtension[] = [];
-  if (spec.onToolCall) {
-    const gate = spec.onToolCall;
-    extensionFactories.push((pi: ExtensionAPI) => {
-      pi.on("tool_call", async (event) => {
-        const verdict = await gate({ name: event.toolName, input: event.input }, makeCtx());
-        return verdict ? { block: true, reason: verdict.reason } : undefined;
-      });
-    });
-  }
-
-  const loader = await buildLoader(spec, { cwd, agentDir, settingsManager, extensionFactories });
-
-  // 决策 #4：只有设计者给了 tools 白名单时才并入 customTools 与「他声明的」扩展工具名；
-  // 不给就一个都不动。环境里自动发现的扩展不算数，否则白名单形同虚设。
-  // 用 `?.length` 而不是真值判断：`tools: []` 是「一个工具都不给」，不能被 customTools 撑开。
-  const tools = spec.tools?.length
-    ? [...new Set([...spec.tools, ...customTools.map((t) => t.name), ...declaredExtensionToolNames(spec, loader)])]
-    : spec.tools;
-
+  const loader = await buildLoader(spec, {
+    cwd,
+    agentDir,
+    settingsManager,
+    extensionFactories: [bridge.factory],
+  });
   const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
-  const { session } = await createAgentSession({
+
+  const created = await createAgentSession({
     cwd,
     agentDir,
     modelRuntime,
     resourceLoader: loader,
-    customTools,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager,
     settingsManager,
     ...(model ? { model } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
-    ...(tools ? { tools } : {}),
-    ...(spec.excludeTools ? { excludeTools: spec.excludeTools } : {}),
   });
+  const session = created.session;
+  holder.session = session;
 
-  // ─────────────── 内部状态 ───────────────
-  const listeners = new Map<AgentEventName, Set<(payload: any) => void>>();
-  /** 已经算进用量的 assistant 消息（用对象身份而不是下标，上下文压缩后也不会错算） */
-  const counted = new WeakSet<object>();
-  const state: { status: ControlledAgent["status"]; usage: Usage; lastResult: RunResult | undefined } = {
-    status: "idle",
-    usage: emptyUsage(),
-    lastResult: undefined,
-  };
-
-  const unsubscribe = session.subscribe((raw) => {
-    const normalized = normalizeEvent(raw);
-    if (!normalized) return;
-    const { type, ...payload } = normalized;
-    for (const fn of listeners.get(type) ?? []) fn(payload);
-  });
+  // ─────────────── 状态 ───────────────
+  let status: Agent["status"] = "idle";
+  const usage = emptyUsage();
 
   function assertAlive(): void {
-    if (state.status === "disposed") throw new Error(`agent ${id} 已 dispose（disposed），不能再操作`);
+    if (status === "disposed") throw new Error(`agent ${id} 已 dispose（disposed），不能再操作`);
   }
 
-  // session.waitForIdle() 在「还没开始 streaming」的窗口里会直接返回，
-  // 而 send() 正是先启动再返回 —— 所以自己要记得「有几个跑在飞」（决策 #21/#23）
-  let running = 0;
-  let idleWaiters: Array<() => void> = [];
-  function endRun(): void {
-    running -= 1;
-    if (running === 0) for (const wake of idleWaiters.splice(0)) wake();
-  }
+  /** 任务 2-7 各实现一个面；这里只留下会喊的占位，不静默给假值 */
+  const notImplemented = (what: string): never => {
+    throw new Error(`${what} 未实现（还没接线到 pi）`);
+  };
 
-  /** 本次运行新增的 assistant 用量 + 最后一段文本 + 错误 */
-  function collectRun(): RunResult {
-    let fresh = emptyUsage();
-    let text = "";
-    let error: string | undefined;
-    for (const message of session.messages as AgentMessage[]) {
-      if (message.role !== "assistant" || counted.has(message)) continue;
-      counted.add(message);
-      if (message.usage) fresh = addUsage(fresh, message.usage);
-      const chunk = message.content
-        .filter((c): c is { type: "text"; text: string } => c.type === "text")
-        .map((c) => c.text)
-        .join("");
-      if (chunk) text = chunk;
-      if (message.errorMessage) error = message.errorMessage;
-    }
-    state.usage = addUsage(state.usage, fresh);
-    return { text, usage: fresh, ...(error ? { error } : {}) };
-  }
+  // ─────────────── io（本任务的最小驱动版；结算与 queue/steer/abort 归任务 2）───────────────
+  const io: IoSurface = {
+    get pending() {
+      return session.pendingMessageCount;
+    },
+    get isRunning() {
+      return session.isStreaming;
+    },
+    async prompt(text, opts) {
+      assertAlive();
+      status = "running";
+      const runId = `run${(runCounter += 1)}`;
+      bridge.setRunId(runId);
+      try {
+        await session.prompt(text, opts?.images ? { images: opts.images } : undefined);
+      } finally {
+        bridge.setRunId(undefined);
+        if (status === "running") status = "idle";
+      }
+      // 占位：真正的结算（文本 / 用量 / 消息区间 / 错误归属）归任务 2
+      return { runId, text: "", usage: emptyUsage(), messages: [] };
+    },
+    queue: async () => notImplemented("io.queue"),
+    steer: async () => notImplemented("io.steer"),
+    abort: async () => notImplemented("io.abort"),
+    async waitIdle() {
+      await session.waitForIdle();
+    },
+    raw: session,
+  };
 
-  async function prompt(text: string, opts?: PromptOpts): Promise<RunResult> {
-    assertAlive();
-    // 预算触顶就不再接新活（边界：0 = 一个都不许）
-    if (host?.budgetTokens !== undefined && host.usage.totalTokens >= host.budgetTokens) {
-      throw new Error(`宿主预算已耗尽（budgetTokens=${host.budgetTokens}）：不再接新的一轮`);
-    }
-    state.status = "running";
-    running += 1;
-    try {
-      await session.prompt(text, opts?.images ? { images: opts.images } : undefined);
-    } catch (err) {
-      // 未接受就失败（目标正忙、没有可用模型…）：抛出去，这不是「跑完但出错」
-      if (state.status === "running") state.status = session.isStreaming ? "running" : "idle";
-      throw err;
-    } finally {
-      endRun();
-    }
-    const result = collectRun();
-    state.lastResult = result;
-    if (state.status === "running") state.status = result.error ? "error" : "idle";
-    internals?.roundCompleted(holder.agent!, result);
-    return result;
-  }
+  const context: ContextSurface = {
+    get history() {
+      return notImplemented("context.history");
+    },
+    get usage() {
+      return notImplemented("context.usage");
+    },
+    get autoCompact() {
+      return notImplemented("context.autoCompact");
+    },
+    set autoCompact(_enabled: boolean) {
+      notImplemented("context.autoCompact");
+    },
+    override: () => notImplemented("context.override"),
+    compact: async () => notImplemented("context.compact"),
+    get raw() {
+      return notImplemented("context.raw");
+    },
+  };
 
-  /**
-   * 投递一条消息。目标忙时排队，**永不抛错**（决策 #18/#19/#26）。
-   * 空闲时直接跑，但**不 await** —— await 了 send 就变成同步 ask，会把死锁引进来（决策 #23）。
-   *
-   * 忙闲判据必须同时看 `running`：SDK 的 `isStreaming` 要等 `session.prompt()` 内部几个 await
-   * 之后才翻真，而 `send()` 是先发起再返回 —— 只看 isStreaming 的话，启动窗口里的第二次投递
-   * 会再调一次 `session.prompt()`，被 SDK 以 already-processing 拒掉，消息没跑却谎报 "ran"。
-   */
-  async function send(text: string, opts?: SendOpts): Promise<SendResult> {
-    assertAlive();
-    if (running > 0 || session.isStreaming) {
-      if (opts?.mode === "interrupt") await session.steer(text);
-      else await session.followUp(text);
-      return { delivered: "queued" };
-    }
-    void prompt(text).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      for (const fn of listeners.get("error") ?? []) fn({ message });
-    });
-    return { delivered: "ran" };
-  }
+  const tools: ToolsSurface = {
+    list: () => notImplemented("tools.list"),
+    add: async () => notImplemented("tools.add"),
+    remove: async () => notImplemented("tools.remove"),
+    onResult: () => notImplemented("tools.onResult"),
+    get raw() {
+      return notImplemented("tools.raw");
+    },
+  };
 
-  async function steer(text: string): Promise<void> {
-    assertAlive();
-    await session.steer(text);
-  }
+  const permissions: PermissionsSurface = {
+    gate: () => notImplemented("permissions.gate"),
+    allow: () => notImplemented("permissions.allow"),
+    deny: () => notImplemented("permissions.deny"),
+    only: () => notImplemented("permissions.only"),
+  };
 
-  async function waitForIdle(): Promise<void> {
-    // 已回收的分身永远「已静下来」，不抛错（决策 #21）
-    if (state.status === "disposed") return;
-    if (running > 0) await new Promise<void>((resolve) => idleWaiters.push(resolve));
-    await session.waitForIdle();
-  }
+  const extensions: ExtensionsSurface = {
+    list: () => notImplemented("extensions.list"),
+    errors: () => notImplemented("extensions.errors"),
+    add: async () => notImplemented("extensions.add"),
+    remove: async () => notImplemented("extensions.remove"),
+    get raw() {
+      return notImplemented("extensions.raw");
+    },
+  };
 
-  async function abort(): Promise<void> {
-    assertAlive();
-    state.status = "aborted";
-    await session.abort();
-  }
+  const skills: SkillsSurface = {
+    list: () => notImplemented("skills.list"),
+    add: async () => notImplemented("skills.add"),
+    remove: async () => notImplemented("skills.remove"),
+    get raw() {
+      return notImplemented("skills.raw");
+    },
+  };
 
-  function on<E extends AgentEventName>(event: E, fn: (payload: AgentEventMap[E]) => void): () => void {
-    let set = listeners.get(event);
+  const modelSurface: ModelSurface = {
+    get current() {
+      return notImplemented("model.current");
+    },
+    get thinking() {
+      return notImplemented("model.thinking");
+    },
+    get available() {
+      return notImplemented("model.available");
+    },
+    set: async () => notImplemented("model.set"),
+    setThinking: () => notImplemented("model.setThinking"),
+    get raw() {
+      return notImplemented("model.raw");
+    },
+  };
+
+  // ─────────────── 观测 ───────────────
+  function subscribe(name: string, handler: Handler): () => void {
+    let set = bridge.listeners.get(name);
     if (!set) {
       set = new Set();
-      listeners.set(event, set);
+      bridge.listeners.set(name, set);
     }
-    set.add(fn);
-    return () => set.delete(fn);
+    set.add(handler);
+    return () => {
+      set.delete(handler);
+    };
   }
 
+  function on<E extends ExtensionEvent["type"]>(
+    event: E,
+    handler: (event: Extract<ExtensionEvent, { type: E }>, ctx: AgentContext) => unknown,
+  ): () => void {
+    assertAlive();
+    if (!bridge.eventNames().includes(event)) {
+      throw new Error(`未知事件「${event}」。可用事件名：${bridge.eventNames().join("、")}`);
+    }
+    return subscribe(event, handler);
+  }
+
+  function onAny(handler: (event: ExtensionEvent, ctx: AgentContext) => unknown): () => void {
+    assertAlive();
+    return subscribe(ANY_EVENT, handler);
+  }
+
+  // ─────────────── 生命周期 ───────────────
   function dispose(): void {
-    if (state.status === "disposed") return;
+    if (status === "disposed") return;
     const wasStreaming = session.isStreaming;
-    state.status = "disposed";
-    listeners.clear();
-    unsubscribe();
-    internals?.agentDisposed(holder.agent!);
+    status = "disposed";
+    bridge.listeners.clear();
     if (wasStreaming) {
       // 先 abort，等它 settle，再真回收 —— 否则会留下悬挂的请求与永不 settle 的 promise
       void session
@@ -315,38 +351,25 @@ export async function createAgent(rawSpec: AgentSpec, deps: CreateAgentDeps = {}
     }
   }
 
-  const agent = {
+  const agent: Agent = {
     id,
-    session,
-    parentId: deps.parent?.id,
-    member: deps.member,
-    get status() {
-      return state.status;
-    },
-    get isStreaming() {
-      return session.isStreaming;
-    },
     get usage() {
-      return state.usage;
+      return usage;
     },
-    get lastResult() {
-      return state.lastResult;
+    get status() {
+      return status;
     },
-    prompt,
-    send,
-    steer,
-    waitForIdle,
-    abort,
+    io,
+    context,
+    tools,
+    permissions,
+    extensions,
+    skills,
+    model: modelSurface,
     on,
+    onAny,
     dispose,
-  } as unknown as ControlledAgent;
-
+  };
   holder.agent = agent;
-  try {
-    internals?.register(agent);
-  } catch (err) {
-    agent.dispose(); // 登记失败（重复 id / 超限）：把刚建好的 session 收干净再抛
-    throw err;
-  }
   return agent;
 }

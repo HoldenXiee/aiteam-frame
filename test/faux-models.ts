@@ -7,8 +7,16 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 export const FAUX_PROVIDER = "faux";
 export const FAUX_MODEL_ID = "echo";
 export const FAUX_MODEL_REF = `${FAUX_PROVIDER}/${FAUX_MODEL_ID}`;
+/** 第二个模型：`model.set` 这类「换一个模型」的实验要有个换过去的对象 */
+export const FAUX_MODEL_ALT_ID = "echo-alt";
+export const FAUX_MODEL_ALT_REF = `${FAUX_PROVIDER}/${FAUX_MODEL_ALT_ID}`;
 
-export function writeModelsJson(agentDir: string, baseUrl: string, modelId: string = FAUX_MODEL_ID): string {
+export function writeModelsJson(
+  agentDir: string,
+  baseUrl: string,
+  modelIds: string | string[] = FAUX_MODEL_ID,
+): string {
+  const ids = Array.isArray(modelIds) ? modelIds : [modelIds];
   mkdirSync(agentDir, { recursive: true });
   const modelsPath = join(agentDir, "models.json");
   writeFileSync(
@@ -21,17 +29,15 @@ export function writeModelsJson(agentDir: string, baseUrl: string, modelId: stri
             baseUrl,
             api: "openai-completions",
             apiKey: "faux-key",
-            models: [
-              {
-                id: modelId,
-                name: `Faux ${modelId}`,
-                reasoning: false,
-                input: ["text"],
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                contextWindow: 200000,
-                maxTokens: 8192,
-              },
-            ],
+            models: ids.map((id) => ({
+              id,
+              name: `Faux ${id}`,
+              reasoning: false,
+              input: ["text"],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 200000,
+              maxTokens: 8192,
+            })),
           },
         },
       },
@@ -50,7 +56,7 @@ export async function makeFauxRuntime(
   const agentDir = join(root, "agent");
   const cwd = join(root, "work");
   mkdirSync(cwd, { recursive: true });
-  const modelsPath = writeModelsJson(agentDir, baseUrl);
+  const modelsPath = writeModelsJson(agentDir, baseUrl, [FAUX_MODEL_ID, FAUX_MODEL_ALT_ID]);
   const runtime = await ModelRuntime.create({ modelsPath, allowModelNetwork: false });
   return { runtime, agentDir, cwd };
 }

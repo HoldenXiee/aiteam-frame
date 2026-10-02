@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { buildLoader } from "./loader.ts";
 import { defaultAgentDir, getSharedRuntime } from "./create-agent.ts";
-import type { MemberSpec } from "./types.ts";
+import type { AgentInit } from "./types.ts";
 
 export interface EnvModelGroup {
   provider: string;
@@ -53,7 +53,7 @@ export interface InspectDeps {
  * 验证语句：`await inspectEnv({ agentDir, cwd })` 回答「有哪些模型 / 插件 / 技能」。
  * 传的 spec 与 createAgent 同形，所以看到的就是建成后会生效的那套环境。
  */
-export async function inspectEnv(spec: MemberSpec = {}, deps: InspectDeps = {}): Promise<EnvReport> {
+export async function inspectEnv(spec: Partial<AgentInit> = {}, deps: InspectDeps = {}): Promise<EnvReport> {
   const agentDir = spec.agentDir ?? defaultAgentDir();
   const cwd = spec.cwd ?? process.cwd();
   const warnings: string[] = [];

@@ -1,4 +1,4 @@
-// 由 MemberSpec 造 ResourceLoader：显式注入技能、扩展、角色，不依赖磁盘发现的偶然性（决策 #1）。
+// 由 ResourceSpec 造 ResourceLoader：显式注入技能、扩展、角色，不依赖磁盘发现的偶然性（决策 #1）。
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
@@ -7,7 +7,7 @@ import {
   type SettingsManager,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
-import type { MemberSpec } from "./types.ts";
+import type { ResourceSpec } from "./types.ts";
 
 export interface LoaderDeps {
   cwd: string;
@@ -36,7 +36,7 @@ function under(file: string, dir: string): boolean {
  * 否则 `tools` 白名单会被环境里碰巧存在的扩展悄悄撑开，等于绕过设计者的能力裁剪。
  * （探路实测：内联工厂在 getExtensions() 里的 path 形如 `<inline:1>`。）
  */
-export function declaredExtensionToolNames(spec: MemberSpec, loader: DefaultResourceLoader): string[] {
+export function declaredExtensionToolNames(spec: ResourceSpec, loader: DefaultResourceLoader): string[] {
   const declaredPaths = new Set(
     (spec.extensions ?? []).filter((e): e is string => typeof e === "string").map((p) => norm(p)),
   );
@@ -47,10 +47,10 @@ export function declaredExtensionToolNames(spec: MemberSpec, loader: DefaultReso
 }
 
 /**
- * 配置收敛：把 MemberSpec 里声明的技能/扩展/角色变成 DefaultResourceLoader 的显式注入。
+ * 配置收敛：把 ResourceSpec 里声明的技能/扩展/角色变成 DefaultResourceLoader 的显式注入。
  * 技能名解析失败、Skill 对象指向不存在的文件 —— 一律抛错，不静默降级（决策 #2/#27）。
  */
-export async function buildLoader(spec: MemberSpec, deps: LoaderDeps): Promise<DefaultResourceLoader> {
+export async function buildLoader(spec: ResourceSpec, deps: LoaderDeps): Promise<DefaultResourceLoader> {
   const skillPaths: string[] = [];
   const skillNames: string[] = [];
   const skillObjects: Skill[] = [];
