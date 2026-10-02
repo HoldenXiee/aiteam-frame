@@ -116,5 +116,8 @@
 | 5 | 同一事件的多个 handler **按注册顺序链式执行**，跨扩展顺序 = 扩展工厂注册顺序；返回 `{block:true}` **短路**（同扩展后续 handler 与其他扩展全收不到）；返回 `undefined` **不覆盖**前一个有效结果 | `spike/s4-handler-merge.ts` / `s4b-transform-merge.ts` |
 | 6 | pi 的 `ExtensionContext` 是对象字面量，`abort` / `compact` / `isIdle` / `getContextUsage` / `getSystemPrompt` / `hasPendingMessages` / `shutdown` / `isProjectTrusted` 全是**自有属性且不依赖 `this`** ⇒ `{...ctx, agent, runId}` 可直接用，不需要 Proxy | `spike/s5-ctx-shape.ts` |
 
-以上 6 条对 v1 的结论**没有更正**——它们是 pi 层的新事实，v1 未触碰这些面。
+以上这些对 v1 的结论**没有更正**——它们是 pi 层的新事实，v1 未触碰这些面。
 | 7 | pi 用 `hasHandlers(eventType)` 决定走不走扩展分支（17 处：`tool_call` / `turn_end` / `input` / `agent_before_settle` / `before_provider_request` 等）。**但给全部 41 个 `on()` 事件挂 no-op handler 后，请求次数、messageCount、tools 声明、system 长度、会话消息序列、产出文本、报错全部与「无扩展」基线一致**；`compact()` 走的正是被守卫的压缩分支，两边结局同样一致 | `spike/s6-all-events.ts` / `s6b-compaction.ts` |
+| 8 | **`session.compact()` 的第一行是 `await this.abort()`**（`agent-session.js:2101`）——运行中调用它会**静默 abort 在飞的那一轮**；会话太小时还会抛 `Nothing to compact (session too small)`（`:2120`）。所以库的 `context.compact()` 必须自带 idle 守卫，真直通留给 `raw` | v2 任务 3 实现者披露 + 源码核实 |\n| 9 | `session.reload()` 会 `new ExtensionRunner(...)`（`agent-session.js:2852`），**挂在 runner 实例上的监听器会随旧实例一起死**（`_applyExtensionBindings` 只重挂 `bindExtensions` 存到 session 上的那个）。库的错误监听器必须 re-arm | v2 任务 1 复审实测 |\n| 10 | pi 的 `emitError` 只遍历 `errorListeners`、**没有 console 兜底**（`runner.js:497-501`），而 `createAgentSession` 不注入 `onError` ⇒ 不注册监听器 = 钩子异常彻底静默（`emitContext` 等会 catch） | v2 任务 1 实现者披露 + 源码核实 |\nEOF
+| 9 | `session.reload()` 会 `new ExtensionRunner(...)`（`agent-session.js:2852`），**挂在 runner 实例上的监听器随旧实例一起死**（`_applyExtensionBindings` 只重挂 `bindExtensions` 存到 session 上的那个）⇒ 库的错误监听器必须 re-arm | v2 任务 1 复审实测 |
+| 10 | pi 的 `emitError` 只遍历 `errorListeners`、**没有 console 兜底**（`runner.js:497-501`），而 `createAgentSession` 不注入 `onError` ⇒ 不注册监听器 = 钩子异常彻底静默（`emitContext` 等会 catch 进 `emitError`） | v2 任务 1 实现者披露 + 源码核实 |

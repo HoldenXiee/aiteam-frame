@@ -124,7 +124,10 @@ export interface IoSurface {
 }
 
 export interface ContextSurface {
-  /** 会话里存的**历史**（只读快照） */
+  /**
+   * 会话里存的**历史**（只读快照）。**不含 `system`**——与 `RunResult.messages` 一致；
+   * 要看会话原样（含 system）用 `raw.session.messages`。
+   */
   readonly history: readonly AgentMessage[];
   /** 上下文占用（来自 session.getContextUsage()） */
   readonly usage: ContextUsage | undefined;
@@ -132,6 +135,10 @@ export interface ContextSurface {
   autoCompact: boolean;
   /** 改「这一轮发给模型的内容」；历史不变。传 undefined 清除 */
   override(next: ((messages: AgentMessage[]) => AgentMessage[]) | AgentMessage[] | undefined): void;
+  /**
+   * 压缩。**要求 idle**：pi 的 `session.compact()` 第一行就是 `await this.abort()`（`agent-session.js:2101`），
+   * 运行中调用会静默 abort 在飞轮次並抛「Nothing to compact」类错误。要无守卫的真直通用 `raw.session.compact()`。
+   */
   compact(instructions?: string): Promise<void>;
   readonly raw: { session: AgentSession; sessionManager: SessionManager };
 }
