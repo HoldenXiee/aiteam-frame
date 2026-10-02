@@ -12,7 +12,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { buildLoader } from "./loader.ts";
 import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
-import { emptyUsage } from "./usage.ts";
+import { addUsage, emptyUsage } from "./usage.ts";
+import { createIo } from "../surfaces/io.ts";
 import type {
   Agent,
   AgentContext,
@@ -21,10 +22,8 @@ import type {
   CreateAgentDeps,
   ExtensionsSurface,
   ExtensionEvent,
-  IoSurface,
   ModelSurface,
   PermissionsSurface,
-  RunResult,
   SkillsSurface,
   ThinkingLevel,
   ToolsSurface,
@@ -35,8 +34,6 @@ function nextId(): string {
   counter += 1;
   return `a${counter}`;
 }
-
-let runCounter = 0;
 
 export function defaultAgentDir(): string {
   return process.env.AITEAM_AGENT_DIR || getAgentDir();
@@ -227,7 +224,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
 
   // ─────────────── 状态 ───────────────
   let status: Agent["status"] = "idle";
-  const usage = emptyUsage();
+  let usage = emptyUsage();
 
   function assertAlive(): void {
     if (status === "disposed") throw new Error(`agent ${id} 已 dispose（disposed），不能再操作`);
@@ -238,36 +235,19 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     throw new Error(`${what} 未实现（还没接线到 pi）`);
   };
 
-  // ─────────────── io（本任务的最小驱动版；结算与 queue/steer/abort 归任务 2）───────────────
-  const io: IoSurface = {
-    get pending() {
-      return session.pendingMessageCount;
+  // ─────────────── io（驱动 + 结算，见 src/surfaces/io.ts）───────────────
+  const io = createIo({
+    session,
+    bridge,
+    assertAlive,
+    getStatus: () => status,
+    setStatus: (next) => {
+      status = next;
     },
-    get isRunning() {
-      return session.isStreaming;
+    accumulate: (fresh) => {
+      usage = addUsage(usage, fresh);
     },
-    async prompt(text, opts) {
-      assertAlive();
-      status = "running";
-      const runId = `run${(runCounter += 1)}`;
-      bridge.setRunId(runId);
-      try {
-        await session.prompt(text, opts?.images ? { images: opts.images } : undefined);
-      } finally {
-        bridge.setRunId(undefined);
-        if (status === "running") status = "idle";
-      }
-      // 占位：真正的结算（文本 / 用量 / 消息区间 / 错误归属）归任务 2
-      return { runId, text: "", usage: emptyUsage(), messages: [] };
-    },
-    queue: async () => notImplemented("io.queue"),
-    steer: async () => notImplemented("io.steer"),
-    abort: async () => notImplemented("io.abort"),
-    async waitIdle() {
-      await session.waitForIdle();
-    },
-    raw: session,
-  };
+  });
 
   const context: ContextSurface = {
     get history() {
