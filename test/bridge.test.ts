@@ -139,3 +139,51 @@ test("dispose 之后操作 → 抛错", async () => {
   assert.equal(a.status, "disposed");
   await assert.rejects(() => a.io.prompt("x"), /disposed/);
 });
+
+// R47：pi 的派发用真值判据，而它的每个事件都只解构对象式变换结果。像
+// `(e) => arr.push(e)` 这种极常见写法返回的是**数组长度**（真值），会被当成变换结果，
+// 后果是 payload 被整体替换 ⇒ 空回复 + 长时间重试 + **无任何报错**（任务 8 探针实测 14 秒）。
+// 所以非对象真值要当场抛错，把人钉在误用上而不是让人去猜为什么这一轮什么都没说。
+test("R47：监听器返回非对象真值（如 push 的长度）当场抛错", async () => {
+  const a = await makeAgent();
+  const logs: string[] = [];
+  const orig = console.error;
+  console.error = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  try {
+    // 判别点：`push` 的返回值是真值但不是对象。若守卫缺席，这一行不会报任何错，
+    // 而且不会立刻暴露——要等到整轮跑完才以「空文本」的形式现身（任务 8 探针实测 14 秒）。
+    a.on("before_provider_request", ((e: any) => arr.push(e.type)) as never);
+    await a.io.prompt("[[tool:read]] 触发一次出网请求");
+    // 注意：这里**不能**断言「prompt 抛错」。pi 把扩展钩子的错误交给 onError 通路
+    // （`emitError`），异常不会穿出 prompt —— 本库的 R17 把它转成 `[aiteam]` 前缀的 console.error。
+    // 所以判别的读法是「有具名、点出误用的错误」，而不是「异常穿出来」。
+    // 若把这层守卫删掉，这条必然红：logs 会空，而现象变成空文本 + 静默重试。
+    const hit = logs.find((l) => l.includes("before_provider_request") && l.includes("number"));
+    assert.ok(
+      hit,
+      `push 的返回值该被当场拦下并报出误用；实际日志：${JSON.stringify(logs)}`,
+    );
+    assert.match(hit!, /块体/, "错误文案该直接给出正确写法");
+  } finally {
+    console.error = orig;
+    a.dispose();
+  }
+});
+const arr: string[] = [];
+
+test("R47 对照：块体写法（什么都不返回）不受影响", async () => {
+  const a = await makeAgent();
+  try {
+    const arr: string[] = [];
+    a.on("before_provider_request", (e: any) => {
+      arr.push(e.type);
+    });
+    const r = await a.io.prompt("[[tool:read]] 走完一轮");
+    assert.equal(r.error, undefined, `块体监听器不该干扰运行：${JSON.stringify(r)}`);
+    assert.ok(arr.length > 0, "监听器确实被调到了");
+  } finally {
+    a.dispose();
+  }
+});

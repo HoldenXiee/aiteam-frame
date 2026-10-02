@@ -76,6 +76,35 @@ export interface Bridge {
   eventNames(): string[];
 }
 
+/**
+ * R47：监听器返回了**真值但不是对象**时抛错。
+ *
+ * pi 的派发用真值判据（与本文件 `:139` 逐字一致），而它全部 `handlerResult` 消费点都**解构对象字段**
+ * （runner.js 逐行核实：`:1009`/`:1034` 要 `.messages`，`:1070-1072` 对任何非 undefined 返回
+ * **整体替换 payload**）——**没有任何事件接受非对象变换结果**。
+ *
+ * 危险在于这句写法极常见：`on("before_provider_request", (e) => arr.push(e))`。
+ * `push` 返回**数组新长度**（真值），于是被当成变换结果 ⇒ payload 被整个换掉 ⇒ 0 条消息的请求
+ * ⇒ pi 静默重试 ⇒ 空文本、耗时 14 秒、**无任何可见错误**（任务 8 探针实测：14265ms、provider 被调 4 次）。
+ * 抛错会经 R17 的可观测错误通路变成具名 console 输出，而不是默默腐蚀整轮。
+ *
+ * 这不是重复造轮子（不违反 L1）：pi 自己只对 `user_bash` 做形状校验（runner.js:975），
+ * 对 `before_provider_request` 不设防。**真值判据本身不许改**（改成「非 undefined」会与 pi 分叉），
+ * 只加一层类型守卫。`block` 短路在前，不经过这里。
+ */
+function assertTransformShape(name: string, returned: unknown): void {
+  const t = typeof returned;
+  if (t !== "object" && t !== "function") {
+    throw new Error(
+      `事件「${name}」的监听器返回了 ${t}（${String(returned)}）。` +
+        "监听器的返回值会被当作**变换结果**交给 pi，而 pi 的每个事件都只接受对象式的变换结果。" +
+        "像 `(e) => arr.push(e)` 这种写法返回的是数组长度，会被当成变换结果用，" +
+        "后果是载荷被整体替换（表现为空回复、长时间重试、且没有任何报错）。" +
+        "只是想收集事件请写成块体：`(e) => { arr.push(e); }`",
+    );
+  }
+}
+
 export function createBridge(deps: {
   session: () => AgentSession;
   agent: () => Agent;
@@ -138,6 +167,7 @@ export function createBridge(deps: {
       const returned = await fn(event, ctx);
       if (!returned) continue;                            // 真值判据，与 pi 逐字一致
       if ((returned as { block?: boolean }).block) return returned; // block 短路优先于守卫
+      assertTransformShape(name, returned);               // R47：非对象真值不是变换结果，是误用
       if (hasResult) {
         throw new Error(
           `事件「${name}」上已有监听器返回了变换结果；` +

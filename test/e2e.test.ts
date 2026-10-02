@@ -32,7 +32,7 @@ test("七面联跑：加工具 → 装门 → 加扩展 → 加技能 → 改上
   });
   const events: string[] = [];
   // 注意：处理器必须显式返回 undefined —— `events.push(...)` 的返回值是长度（真值），桥接会把它
-  // 当成变换结果交给 pi（`context` 上尤其致命）。
+  // 当成变换结果交给 pi（`before_provider_request` 上尤其致命）。
   const off = a.onAny((e) => { events.push(e.type); });
   try {
     // tools：运行期加一个工具，它必须真的 active（不是只登记在表里）
