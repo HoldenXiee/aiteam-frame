@@ -183,6 +183,16 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
   const session = created.session;
   holder.session = session;
 
+  // 扩展错误监听器（R17）。pi 的 `emitError` 只遍历 `errorListeners`，**没有任何 console 兜底**
+  // （runner.js:497-501）；`createAgentSession` 不注入 `onError`（sdk.js 零命中），我们也没调过
+  // `bindExtensions`。净效果：桥接抛出的异常，在 `context` / `tool_result` 这类「handler 抛错被
+  // `emitError` 吞掉」的事件上会彻底消失（runner.js:1018-1026 等）—— 用户看不到任何症状，正是 v2
+  // 要根除的失效模式。注册这个监听器是让它们变成可见输出的唯一途径。
+  const offExtensionError = session.extensionRunner.onError((e) => {
+    // event 与 extensionPath 都要带上：没有这两样，用户不知道该去关哪个钩子
+    console.error(`[aiteam] 扩展/钩子错误 event=${e.event} path=${e.extensionPath}：${e.error}`);
+  });
+
   // ─────────────── 状态 ───────────────
   let status: Agent["status"] = "idle";
   const usage = emptyUsage();
@@ -334,6 +344,7 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
     if (status === "disposed") return;
     const wasStreaming = session.isStreaming;
     status = "disposed";
+    offExtensionError(); // 否则已 dispose 的会话还在往控制台写
     bridge.listeners.clear();
     if (wasStreaming) {
       // 先 abort，等它 settle，再真回收 —— 否则会留下悬挂的请求与永不 settle 的 promise

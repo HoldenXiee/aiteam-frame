@@ -83,6 +83,25 @@ test("block 短路优先于双变换守卫：先变换、后 block → 不抛错
   } finally { a.dispose(); }
 });
 
+test("context 上的钩子抛错 → 经 console.error 浮出来（pi 在这个事件上会吞异常）", async () => {
+  // R17：pi 的 emitContext 把 handler 抛的错吞进 emitError，而 emitError 只投 errorListeners、
+  // 没有 console 兜底。createAgent 注册的扩展错误监听器是这类异常唯一的可见出口。
+  const a = await makeAgent();
+  a.on("context", (e: any) => ({ messages: e.messages }));
+  a.on("context", (e: any) => ({ messages: e.messages }));
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    await a.io.prompt("hi");
+  } finally {
+    console.error = original;
+    a.dispose();
+  }
+  assert.ok(logged.length > 0, "console.error 应当被调用");
+  assert.ok(logged.some((line) => line.includes("context")), `输出里应含事件名 context，实际：${logged.join(" | ")}`);
+});
+
 test("dispose 之后操作 → 抛错", async () => {
   const a = await makeAgent();
   a.dispose();
