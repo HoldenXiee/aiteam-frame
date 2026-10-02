@@ -120,13 +120,12 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
       const allowed = toolFilters(session)._allowedToolNames;
       const state = loaderInjections(loader);
       const before = new Set(loader.getExtensions().extensions.map((e) => e.path));
-      if (typeof extension === "string") {
-        const paths = state.extensionPaths;
-        await commit(deps, () => push(paths, extension));
-      } else {
-        const factories = factoryList(loader);
-        await commit(deps, () => push(factories, extension));
-      }
+      // 留住 commit 的回滚：第二趟 reload（并入白名单那次）失败时，第一趟的注入也要撤掉，
+      // 否则扩展已经在注入表里、也已经加载过，调用方却拿到异常 —— 正是「被拒绝的 add 不许留下
+      // 半应用状态」要挡的（与下面 skills.add(路径) 校验失败即回滚同一条自律）。
+      const rollback = await (typeof extension === "string"
+        ? commit(deps, () => push(state.extensionPaths, extension))
+        : commit(deps, () => push(factoryList(loader), extension)));
       if (!allowed) return;   // 没有白名单：注册表不做过滤（与 tools.add 的 registerAllowed 同为 no-op）
       const added = declaredToolNames(loader, extension, state.cwd, before).filter((n) => !allowed.has(n));
       if (!added.length) return;
@@ -135,6 +134,10 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
         await deps.bridge.reload();
       } catch (err) {
         for (const name of added) allowed.delete(name);
+        rollback();
+        // 取舍（诚实披露）：注入表先恢复一致，但 loader 上一次 reload 的缓存（`getExtensions()`）要到
+        // 下一次 reload 才跟上 ⇒ `extensions.list()` 会**短暂**显示这个已被撤销的扩展。持久层一致比
+        // 瞬时视图一致更重要：留着它的话，下一次 add / reload 会把这个「调用方认为失败」的扩展带进来。
         throw err;
       }
     },
@@ -142,8 +145,12 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
     /** 只认显式加进来的路径（创建期 `spec.extensions` 与运行期 `add`）；环境自动发现的不在表里 */
     async remove(path) {
       guard(deps);
-      const list = loaderInjections(loader).extensionPaths;
-      const at = list.findIndex((p) => samePath(p, path));
+      const state = loaderInjections(loader);
+      const list = state.extensionPaths;
+      // 基准是 **agent 的 cwd**：pi 把注入路径解成相对 loader.cwd 的绝对路径（resource-loader.js:787
+      // 的 `resolveResourcePath`），库里存的却是设计者原样给的字符串（可能是 "./x.ts"）—— 用
+      // process.cwd() 去比对，「相对 add + 绝对 remove」在 cwd ≠ 进程 cwd 时会误报「不是显式加进来的」。
+      const at = list.findIndex((p) => samePath(p, path, state.cwd));
       if (at < 0) {
         throw new Error(
           `扩展「${path}」不是本库显式加进来的扩展路径（内联工厂与环境自动发现的扩展都不归这里管）——` +
@@ -193,11 +200,12 @@ export function createSkills(deps: ResourcesDeps): SkillsSurface {
             "要看当前有哪些技能用 skills.list()",
         );
       }
-      const paths = state().skillPaths;
+      const { skillPaths: paths, cwd: base } = state();
       const rollback = await commit(deps, () => push(paths, skill));
       // 表改了但一个技能都没加载出来 = 静默无效果（目录里没有 SKILL.md、或 SKILL.md 不合法）。
       // 与 buildLoader 对创建期路径的判据一致：不静默降级（决策 #2/#27）。
-      if (!loaded().some((s) => samePath(s.filePath, skill) || under(s.filePath, skill))) {
+      // 比对基准是 agent 的 cwd：`skill` 是设计者原样给的路径，pi 按 loader.cwd 解析它。
+      if (!loaded().some((s) => samePath(s.filePath, skill, base) || under(s.filePath, skill, base))) {
         rollback();
         throw new Error(`技能路径没能加载出任何技能：${skill}（目录里要有 SKILL.md）`);
       }
@@ -206,9 +214,10 @@ export function createSkills(deps: ResourcesDeps): SkillsSurface {
     /** 只认显式加进来的（创建期 `spec.skills` 与运行期 `add`）；环境自动发现的删不掉 */
     async remove(path) {
       guard(deps);
-      const { skillPaths, skillObjects } = state();
-      // `under(path, p)`：加进来的是目录、调用方按技能的 SKILL.md 文件路径来删，也算删它
-      const at = skillPaths.findIndex((p) => samePath(p, path) || under(path, p));
+      const { skillPaths, skillObjects, cwd } = state();
+      // `under(path, p)`：加进来的是目录、调用方按技能的 SKILL.md 文件路径来删，也算删它。
+      // 基准是 agent 的 cwd（同 extensions.remove）：表里存的可能是相对路径。
+      const at = skillPaths.findIndex((p) => samePath(p, path, cwd) || under(path, p, cwd));
       if (at >= 0) {
         await commit(deps, () => {
           const [removed] = skillPaths.splice(at, 1);
@@ -216,6 +225,9 @@ export function createSkills(deps: ResourcesDeps): SkillsSurface {
         });
         return;
       }
+      // 这里**不**传 agent cwd，是故意的：`Skill` 对象的 `filePath` 由设计者直接给出，pi 原样使用
+      // （`skillsOverride` 不解析），本库的 `existsSync` 校验也按 process.cwd() 解释它 —— 两边同一个
+      // 基准才自洽。传 agent cwd 会让「相对 filePath + 对象 add/remove」这一对互相错位。
       const objAt = skillObjects.findIndex((o) => samePath(o.filePath, path));
       if (objAt >= 0) {
         await commit(deps, () => {

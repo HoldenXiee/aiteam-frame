@@ -16,17 +16,23 @@ export interface LoaderDeps {
   extensionFactories?: InlineExtension[];
 }
 
-function norm(p: string): string {
-  return resolve(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+/**
+ * `cwd` 只影响**相对路径**的解析基准（绝对路径不看它）。默认 process.cwd() —— 这默认只对
+ * 「两边都由本进程按 process.cwd() 解释」的调用者成立；凡是路径被 **pi 按 loader.cwd 解析过**的比对
+ * （`spec.*` 声明的路径、运行期 add/remove 的路径），调用方**必须**传 agent 的 cwd，否则「相对路径 +
+ * cwd ≠ 进程 cwd」会静默失配（资源没加载出来 / remove 误报「不是显式加进来的」）。
+ */
+function norm(p: string, cwd: string = process.cwd()): string {
+  return resolve(cwd, p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-export function samePath(a: string, b: string): boolean {
-  return norm(a) === norm(b);
+export function samePath(a: string, b: string, cwd?: string): boolean {
+  return norm(a, cwd) === norm(b, cwd);
 }
 
-export function under(file: string, dir: string): boolean {
-  const f = norm(file);
-  const d = norm(dir);
+export function under(file: string, dir: string, cwd?: string): boolean {
+  const f = norm(file, cwd);
+  const d = norm(dir, cwd);
   return f === d || f.startsWith(`${d}/`);
 }
 
@@ -113,6 +119,8 @@ export async function buildLoader(spec: ResourceSpec, deps: LoaderDeps): Promise
     additionalSkillPaths: state.skillPaths,
     skillsOverride: (base) => ({
       skills: [
+        // 两边都是 pi 解析过的文件路径（`b.filePath` 来自磁盘发现 / `o.filePath` 是设计者原样给的、
+        // 由 `existsSync` 按 process.cwd() 校验过的），所以这里保留 process.cwd() 基准。
         ...base.skills.filter((b) => !state.skillObjects.some((o) => samePath(o.filePath, b.filePath))),
         ...state.skillObjects,
       ],
@@ -132,9 +140,10 @@ export async function buildLoader(spec: ResourceSpec, deps: LoaderDeps): Promise
     }
   }
   for (const ref of state.skillPaths) {
+    // `ref` 是设计者原样给的路径，pi 按 loader.cwd 解析它（`updateSkillsFromPaths` → `loadSkills({cwd})`）
     const hit = /\.md$/i.test(ref)
-      ? available.some((s) => samePath(s.filePath, ref))
-      : available.some((s) => under(s.filePath, ref));
+      ? available.some((s) => samePath(s.filePath, ref, deps.cwd))
+      : available.some((s) => under(s.filePath, ref, deps.cwd));
     if (!hit) throw new Error(`技能路径没能加载出任何技能：${ref}`);
   }
 

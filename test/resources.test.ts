@@ -11,8 +11,10 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSkillsFromDir, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { makeAgent, sentTools, echoTool } from "./helpers.ts";
+import { loadSkillsFromDir, SettingsManager, type AgentSession, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { buildLoader } from "../src/agent/loader.ts";
+import { createExtensions } from "../src/surfaces/resources.ts";
+import { makeAgent, sentTools, echoTool, fauxAgentDir, fauxCwd } from "./helpers.ts";
 
 /** 造一个只含一个技能文件的临时目录；返回目录路径 */
 function skillDir(name: string, description = "探路技能"): string {
@@ -54,6 +56,14 @@ function envExt(cwd: string, toolName: string): void {
   const dir = join(cwd, ".pi", "extensions");
   mkdirSync(dir, { recursive: true });
   extIn(dir, toolName);
+}
+
+/** 注册两个工具的扩展工厂：`probe_echo` + `probe_two`（R43 用 deny 只点名其中一个） */
+function twoToolFactory() {
+  return (pi: { registerTool: (t: ToolDefinition) => unknown }) => {
+    pi.registerTool(echoTool("probe_echo") as ToolDefinition);
+    pi.registerTool(echoTool("probe_two") as ToolDefinition);
+  };
 }
 
 test("extensions.add(工厂)：其注册的工具出现在声明面", async () => {
@@ -269,4 +279,132 @@ test("R41 前提：tools.custom 仍被 NOT_WIRED 挡着（来源一当下无可�
   // 所以那半条无可执行路径（写进去就是新的死代码）。这条用例钉住这个前提 —— 将来谁解开 NOT_WIRED，
   // 它会**先红**，提醒他同时把自定义工具名并进白名单，否则 R41 的缺口会重新打开。
   await assert.rejects(() => makeAgent({ tools: { custom: [echoTool()] } }), /尚未实现/);
+});
+
+// ─────────────── R43：越具体的声明越强 —— deny 压过 R41 的并入 ───────────────
+// 同一个 spec 里 `permissions.deny: ["x"]` 而扩展又注册了 `x` 时，排除集压过并入（pi 的
+// `isAllowedTool = 白名单放行 && !排除集`，agent-session.js:2748）。扩展**同时**注册一个没被点名的工具，
+// 保证这条用例钉的是「deny 生效」而不是「整个扩展被并坏了」。
+
+test("R43 创建期：deny 压过 R41 并入（被点名的工具仍被排除，同扩展的另一个工具照常生效）", async () => {
+  const a = await makeAgent({
+    permissions: { only: ["read"], deny: ["probe_echo"] },
+    extensions: [twoToolFactory()],
+  });
+  try {
+    await a.io.prompt("hi");
+    // probe_echo 被 deny 点名 → 不在；probe_two 走 R41 并入 → 在。若并入把 deny 覆盖了（allow 式
+    // `_excludedToolNames.delete`），probe_echo 会重新出现、这条变红。
+    assert.deepEqual([...sentTools()].sort(), ["probe_two", "read"]);
+  } finally { a.dispose(); }
+});
+
+test("R43 运行期：extensions.add 也压不过已存在的 deny", async () => {
+  const a = await makeAgent({ permissions: { only: ["read"], deny: ["probe_echo"] } });
+  try {
+    await a.io.prompt("hi");
+    assert.deepEqual(sentTools(), ["read"]);   // 前提：白名单本来只有 read
+    await a.extensions.add(twoToolFactory());
+    await a.io.prompt("hi");
+    assert.deepEqual([...sentTools()].sort(), ["probe_two", "read"]);
+  } finally { a.dispose(); }
+});
+
+// ─────────────── remove 的路径基准 = agent 的 cwd（与 declaredExtensionToolNames 同一口径） ───────────────
+// pi 把注入路径解成相对 loader.cwd 的绝对路径，而库里存的是设计者原样给的字符串（可能是 "./x"）。
+// 比对若用 process.cwd()，`cwd ≠ 进程 cwd` 时「相对 add + 绝对 remove」会误报「不是显式加进来的」。
+
+test("extensions.remove 的基准是 agent 的 cwd：相对 add + 绝对 remove 能对上", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-cwd-ext-"));
+  extIn(cwd, "cwd_probe_tool");
+  const abs = join(cwd, "cwd_probe_tool.ts");
+  const a = await makeAgent({ cwd });
+  try {
+    await a.extensions.add("./cwd_probe_tool.ts");
+    await a.extensions.remove(abs);
+    // 第二次 remove 必须报「不是显式加进来的」——证明第一次是真的摘掉了，不是碰巧没抛错
+    await assert.rejects(() => a.extensions.remove(abs), /不是本库显式加进来的/);
+  } finally { a.dispose(); }
+});
+
+test("skills.add(相对路径) 基准是 agent 的 cwd（校验不误报「没加载出技能」）", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-cwd-skill-"));
+  mkdirSync(join(cwd, "skills", "rel-skill"), { recursive: true });
+  writeFileSync(
+    join(cwd, "skills", "rel-skill", "SKILL.md"),
+    "---\nname: rel-skill\ndescription: 相对技能\n---\n\n正文\n",
+  );
+  const a = await makeAgent({ cwd });
+  try {
+    // 只钉 add 侧的校验基准（remove 的基准由下一条用例单独钉）
+    await a.skills.add("./skills/rel-skill");
+    assert.ok(a.skills.list().some((s) => s.name === "rel-skill"));
+  } finally { a.dispose(); }
+});
+
+test("skills.remove(相对路径) 基准是 agent 的 cwd：绝对 add + 相对 remove 能对上", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-cwd-skill-rm-"));
+  mkdirSync(join(cwd, "skills", "rel-skill"), { recursive: true });
+  writeFileSync(
+    join(cwd, "skills", "rel-skill", "SKILL.md"),
+    "---\nname: rel-skill\ndescription: 相对技能\n---\n\n正文\n",
+  );
+  const a = await makeAgent({ cwd });
+  try {
+    await a.skills.add(join(cwd, "skills", "rel-skill"));
+    assert.ok(a.skills.list().some((s) => s.name === "rel-skill"));
+    await a.skills.remove("./skills/rel-skill/SKILL.md");   // 目录 add、按 SKILL.md 文件路径 remove（走 under）
+    assert.ok(!a.skills.list().some((s) => s.name === "rel-skill"));
+  } finally { a.dispose(); }
+});
+
+test("创建期相对技能路径按 agent 的 cwd 解析（不是 process.cwd()）", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-decl-skill-"));
+  mkdirSync(join(cwd, "skills", "decl-skill"), { recursive: true });
+  writeFileSync(
+    join(cwd, "skills", "decl-skill", "SKILL.md"),
+    "---\nname: decl-skill\ndescription: 声明技能\n---\n\n正文\n",
+  );
+  // 修之前 buildLoader 会抛「技能路径没能加载出任何技能」—— pi 明明按 loader.cwd 加载到了，
+  // 本库的校验却按 process.cwd() 比对（同一个基准 bug）。
+  const a = await makeAgent({ cwd, skills: ["./skills/decl-skill"] });
+  try {
+    assert.ok(a.skills.list().some((s) => s.name === "decl-skill"));
+  } finally { a.dispose(); }
+});
+
+// ─────────────── 第二趟 reload 失败必须回滚第一趟 ───────────────
+
+test("extensions.add 第二趟 reload 失败 → 注入表回滚，不留半应用状态", async () => {
+  // R41 的双趟 reload 只在「有白名单 + 这次真有新工具名」时跑第二趟。第二趟失败时若只摘白名单名、
+  // 不回滚第一趟的 push，扩展就留在注入表里（下次 reload 还会被带进来），而调用方拿到的是异常 ——
+  // 与 skills.add(路径) 校验失败即回滚自相矛盾。
+  // 真实的 `session.reload()` 没法在第二次稳定抛错，所以这里直连 `createExtensions`，把 bridge.reload
+  // 换成「第一趟真 reload、第二趟抛错」的桩 —— 被测的是 resources.ts 的回滚，不是 pi。
+  const loader = await buildLoader({}, {
+    cwd: fauxCwd,
+    agentDir: fauxAgentDir,
+    settingsManager: SettingsManager.inMemory(),
+  });
+  const allowed = new Set(["read"]);
+  let reloads = 0;
+  const factories = () => (loader as unknown as { extensionFactories: unknown[] }).extensionFactories;
+  const ext = createExtensions({
+    loader,
+    session: { _allowedToolNames: allowed } as unknown as AgentSession,
+    bridge: {
+      reload: async () => {
+        reloads += 1;
+        if (reloads === 2) throw new Error("第二趟 reload 炸了");
+        await loader.reload();
+      },
+    },
+    isBusy: () => false,
+    assertAlive: () => {},
+  });
+  assert.equal(factories().length, 0, "前提：还没加任何内联工厂");
+  await assert.rejects(() => ext.add(twoToolFactory()), /第二趟 reload 炸了/);
+  assert.equal(reloads, 2, "前提：确实跑到了第二趟 reload");
+  assert.equal(factories().length, 0, "第一趟 push 的工厂要撤回去（半应用状态）");
+  assert.deepEqual([...allowed], ["read"], "并入的白名单名也要摘回去");
 });
