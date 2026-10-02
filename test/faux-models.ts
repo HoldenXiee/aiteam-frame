@@ -10,6 +10,9 @@ export const FAUX_MODEL_REF = `${FAUX_PROVIDER}/${FAUX_MODEL_ID}`;
 /** 第二个模型：`model.set` 这类「换一个模型」的实验要有个换过去的对象 */
 export const FAUX_MODEL_ALT_ID = "echo-alt";
 export const FAUX_MODEL_ALT_REF = `${FAUX_PROVIDER}/${FAUX_MODEL_ALT_ID}`;
+/** 支持思考档（reasoning）的那个模型：不支持的话 `getAvailableThinkingLevels()` 只有 ["off"]，
+ *  setThinking 的合法值路径就测不出来（pi 按 `model.reasoning` 决定可用档）。*/
+const REASONING_MODEL_IDS = new Set([FAUX_MODEL_ALT_ID]);
 
 export function writeModelsJson(
   agentDir: string,
@@ -32,7 +35,7 @@ export function writeModelsJson(
             models: ids.map((id) => ({
               id,
               name: `Faux ${id}`,
-              reasoning: false,
+              reasoning: REASONING_MODEL_IDS.has(id),
               input: ["text"],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
               contextWindow: 200000,

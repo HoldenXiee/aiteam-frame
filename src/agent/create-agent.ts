@@ -17,6 +17,7 @@ import { createIo } from "../surfaces/io.ts";
 import { createContext } from "../surfaces/context.ts";
 import { createTools, createPermissions } from "../surfaces/tools.ts";
 import { createExtensions, createSkills } from "../surfaces/resources.ts";
+import { createModel } from "../surfaces/model.ts";
 import type {
   Agent,
   AgentContext,
@@ -71,19 +72,29 @@ export interface RuntimeOpts {
 /** 解析出来的模型：直接取 resolveCliModel 的返回类型，不自己重定义 */
 type ResolvedModel = NonNullable<ReturnType<typeof resolveCliModel>["model"]>;
 
-/** 决策 #28：resolveCliModel 对不存在的模型只给 warning，必须自己判 */
+/** 决策 #28 的判据只有这一处：`resolveCliModel` 对不存在的模型只给 warning，也不保证 model 存在。
+ *  创建期（spec.model）与运行期（model.set）都走这里 —— 两边口径不许分叉。 */
+function resolveModelOrThrow(
+  ref: string,
+  modelRuntime: ModelRuntime,
+): { model: ResolvedModel; thinkingLevel?: ThinkingLevel } {
+  const resolved = resolveCliModel({ cliModel: ref, modelRuntime });
+  if (resolved.error || !resolved.model) {
+    throw new Error(`模型「${ref}」解析失败：${resolved.error ?? "未知原因"}`);
+  }
+  if (resolved.warning) {
+    throw new Error(`模型「${ref}」解析有警告：${resolved.warning}`);
+  }
+  return { model: resolved.model, thinkingLevel: resolved.thinkingLevel };
+}
+
+/** 创建期解析：没给 `model` 就只带思考档，不做任何解析 */
 function resolveModel(
   spec: AgentInit,
   modelRuntime: ModelRuntime,
 ): { model?: ResolvedModel; thinkingLevel?: ThinkingLevel } {
   if (!spec.model) return { thinkingLevel: spec.thinking };
-  const resolved = resolveCliModel({ cliModel: spec.model, modelRuntime });
-  if (resolved.error || !resolved.model) {
-    throw new Error(`模型「${spec.model}」解析失败：${resolved.error ?? "未知原因"}`);
-  }
-  if (resolved.warning) {
-    throw new Error(`模型「${spec.model}」解析有警告：${resolved.warning}`);
-  }
+  const resolved = resolveModelOrThrow(spec.model, modelRuntime);
   return { model: resolved.model, thinkingLevel: spec.thinking ?? resolved.thinkingLevel };
 }
 
@@ -320,22 +331,13 @@ export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps
 
   const skills: SkillsSurface = createSkills({ loader, bridge, isBusy, assertAlive });
 
-  const modelSurface: ModelSurface = {
-    get current() {
-      return notImplemented("model.current");
-    },
-    get thinking() {
-      return notImplemented("model.thinking");
-    },
-    get available() {
-      return notImplemented("model.available");
-    },
-    set: async () => notImplemented("model.set"),
-    setThinking: () => notImplemented("model.setThinking"),
-    get raw() {
-      return notImplemented("model.raw");
-    },
-  };
+  const modelSurface: ModelSurface = createModel({
+    session,
+    modelRuntime,
+    // 决策 #28 的唯一判据：ref 解析不出来（或只有警告）就抛错，绝不静默降级到别的模型
+    resolveModel: (ref) => resolveModelOrThrow(ref, modelRuntime).model,
+    assertAlive,
+  });
 
   // ─────────────── 观测 ───────────────
   function subscribe(name: string, handler: Handler): () => void {
