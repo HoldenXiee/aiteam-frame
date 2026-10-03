@@ -1,40 +1,31 @@
-// 探针：验证"结构保证型共享"模式——宿主监听 round_completed 事件，
-// 由框架代码（而非模型裁量）把分身产出自动落盘到共享黑板文件。
-// 背景：指令式共享（成员描述 / lead 派工转述 / role 注入）在大任务上全部失效；
-// 事件驱动的结构落盘 3/3 场次全部成功。本探针固化该模式供 GUIDE 引用。
+// 探针：结构保证型共享黑板模式（重构后架构下的形态）。
+// 重构后多 agent 编排在使用者代码：黑板由使用者代码写（blackboard.jsonl）——
+// 本探针固化"写侧落盘 → 读侧注入"的完整回路：worker 产出 → 黑板 → 读者 agent 上下文。
 // 跑法：node audit/verify-structural-blackboard.ts
 import { appendFileSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { createAgentHost, createAgent } from "../src/index.ts";
-import { startFaux } from "../test/faux-server.ts";
-import { makeFauxRuntime, FAUX_MODEL_REF } from "../test/faux-models.ts";
-import { runTool } from "../test/helpers.ts";
+import { makeOfflineAgent } from "../examples/lib/harness.ts";
 
-const faux = await startFaux();
-const made = await makeFauxRuntime(faux.baseUrl);
-const workDir = mkdtempSync(join(tmpdir(), "aiteam-bb-"));
-const blackboard = join(workDir, "blackboard.md");
+const workDir = mkdtempSync(join(process.env.TEMP ?? "tmp", "aiteam-bb-"));
+const blackboard = join(workDir, "blackboard.jsonl");
 
-const host = createAgentHost({ members: { worker: { description: "计算成员", tools: [] } } });
+const worker = await makeOfflineAgent({ id: "worker", role: "计算成员：原样返回收到的内容。" });
+const SECRET = "BOARD-MARKER-d41a9f";
+const workerRun = await worker.io.prompt(`输出以下一行：${SECRET}`);
+const workerText = workerRun.text ?? "";
 
-// 结构保证的核心：宿主事件 → 框架代码落盘，模型无裁量权
-host.on("round_completed", ({ agent, result }) => {
-  if (agent.id === "lead") return;
-  const text = String(result?.text ?? "").trim();
-  if (!text) return;
-  appendFileSync(blackboard, `\n## [${agent.id}]\n\n${text}\n`, "utf-8");
-});
+// 写侧：使用者代码把分身产出落盘（结构保证——不经过任何模型裁量）
+appendFileSync(blackboard, JSON.stringify({ agent: worker.id, output: workerText }) + "\n", "utf-8");
 
-const lead = await createAgent(
-  { model: FAUX_MODEL_REF, cwd: workDir, agentDir: made.agentDir, tools: ["spawn_agent"] },
-  { host, modelRuntime: made.runtime },
-);
-await runTool("spawn_agent", { member: "worker", task: "echo:worker-output-42" }, { agent: lead, host } as never);
-await host.dispose();
+// 读侧：读者 agent 的上下文里注入黑板内容
+const reader = await makeOfflineAgent({ id: "reader", role: "审核成员：基于黑板内容作答。" });
+const board = readFileSync(blackboard, "utf-8");
+const readerRun = await reader.io.prompt(`共享黑板内容如下：\n<blackboard>\n${board}\n</blackboard>\n请原样复述黑板里的输出。`);
 
-const ok = existsSync(blackboard) && readFileSync(blackboard, "utf-8").includes("worker-output-42");
+const ok =
+  existsSync(blackboard) &&
+  (readerRun.text ?? "").includes(SECRET) &&
+  board.includes(worker.id);
 console.log(ok
-  ? `✓ 结构保证型共享生效：分身产出已自动落盘 ${blackboard}`
-  : `✗ 黑板未写入`);
-process.exit(ok ? 0 : 1);
+  ? `✓ 黑板回路无损：worker 产出 → blackboard.jsonl（${(readFileSync(blackboard, "utf-8").length)} 字节）→ reader 上下文`
+  : `✗ 黑板回路有损`);
