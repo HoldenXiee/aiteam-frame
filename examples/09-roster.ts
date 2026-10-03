@@ -15,8 +15,10 @@
 // 期望看到：花名册两条成员；第一次 spawn 命中 researcher、真起了一个子 agent
 // （工具声明只有 read）；第二次 spawn 被花名册挡下，父 agent 读到拒绝理由。
 //
-// 若要用真模型，改这两行：`makeOfflineAgent()` → `makeOfflineAgent({ model: "<provider>/<id>", modelNetwork: true })`
-// （默认 ref 在 examples/lib/harness.ts；运行期换模型走 `agent.model.set(...)`，见 07-model.ts）。
+// 若要用真模型：光换 model ref 不够 —— 临时 agentDir 里只有假 provider 的 models.json，
+// 换没有声明的模型会被 aiteam 当错误抛（不是警告）。请把 makeOfflineAgent 的 agentDir 和
+// model 都换成你自己的（真 key 在 ~/.pi/），并去掉 examples/lib/harness.ts 里钉死的
+// PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgent } from "../src/index.ts";
