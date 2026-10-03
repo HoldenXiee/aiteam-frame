@@ -12,6 +12,8 @@
 
 ## 1. 依赖与配置收敛
 
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
+
 | # | 决策 | 理由 |
 |---|---|---|
 | 1 | 自己构造 `DefaultResourceLoader`，用 `additionalSkillPaths` / `extensionFactories` / `additionalExtensionPaths` / `appendSystemPrompt` **显式注入**，不依赖磁盘发现 | 理由不是「绕开 trust」（探路已证伪：SDK 路径下 `projectTrusted` 默认就是 `true`），而是**确定性**：注入什么就是什么，不受磁盘布局与 cwd 影响 |
@@ -23,6 +25,8 @@
 
 ## 2. 配置优先级与资源隔离
 
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
+
 | # | 决策 | 理由 |
 |---|---|---|
 | 8 | `ModelRuntime` 由宿主共享、**按 `agentDir` 缓存**、可注入 | 每 agent 一个会重复读盘并重复刷新模型目录；但全局只留一个会让第二个不同 `agentDir` 的分身读到**第一个**的 `models.json` / `auth.json`（实测复现：表现为「模型找不到」，报错还指向模型名） |
@@ -30,6 +34,8 @@
 | 13 | `host.defaults` 是所有成员的基线，被成员定义覆盖；优先级为 `host.defaults` ← `members[x]` ← 顶层 `spec`，浅合并覆盖（数组整体替换，不拼接） | 避免「默认值只管子 agent」这种需要读源码才能明白的语义 |
 
 ## 3. 创建与工具接线
+
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
 
 | # | 决策 | 理由 |
 |---|---|---|
@@ -41,6 +47,8 @@
 
 ## 4. 会话与运行时
 
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
+
 | # | 决策 | 理由 |
 |---|---|---|
 | 5 | `RunResult.error` 显式暴露 | pi 的 `prompt()` 在**接受后**失败是通过事件流报告的，不 reject。不暴露的话调用方会误判成功 |
@@ -49,6 +57,8 @@
 | 25 | **`role` 用 `appendSystemPrompt` 实现**，不用 `systemPrompt` 也不用 `systemPromptOverride` | 实测：`systemPromptOverride(base)` 的 base 是 `systemPrompt` **选项的值**，不是 pi 内置默认提示词；`systemPrompt` 是整体替换，会把 `<tools>` 段一起换掉。`appendSystemPrompt` 保留默认行为，角色说明追加在 `<tools>` 之后、`<available_skills>` 之前 |
 
 ## 5. 投递、等待与生命周期
+
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
 
 | # | 决策 | 理由 |
 |---|---|---|
@@ -60,6 +70,8 @@
 
 ## 6. 拓扑、护栏与归属
 
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
+
 | # | 决策 | 理由 |
 |---|---|---|
 | 14 | 深度由 `parent` 链推出，**不作为参数传入** | 可被伪造的参数等于没有护栏 |
@@ -70,6 +82,8 @@
 | 24 † | 不做轮次硬上限 | 「轮次上限 + 督导 agent」是一种可用方案，不是唯一方案；硬上限会阻止合法的长任务。统一由 `budgetTokens` 兜底，需要更早干预时用 #22 的事件 |
 
 ## 7. 模型目录与环境自检
+
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
 
 | # | 决策 | 理由 |
 |---|---|---|
@@ -84,6 +98,9 @@
 - **`opencode-go` 本就是内置 provider**（pi 0.99.1：29 个模型，`minimax-m3` / `qwen3.8-flash` 已内置路由到 `anthropic-messages`）。`pi-opencode-provider` 那类插件的增量只剩「不等 pi.dev 目录」，**不移植**。
 
 ## 8. 由上述决策推出的、值得记住的边界
+
+> ⚠️ **v1 期结论**（机制层已在 v2 重写）。此表描述库**当时**的形状；涉及 `spawn_agent` / `send_message` / 花名册 / 护栏的行在 v2 已不适用。
+
 
 - `tools` 是唯一受声明管辖的白名单。`extensions`（加载）与 `skills`（注入）**不受**声明控制——想让某个环境里存在的扩展不生效，做不到，且零信号。
 - 白名单非空 ⇒ customTools **强制生效**。
