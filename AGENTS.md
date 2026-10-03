@@ -2,6 +2,12 @@
 
 本文只描述**这个项目是什么**，不描述怎么做。开发流程、纪律、下一步计划不在本文范围内。
 
+> **在 aiteam 里配置 agent 集群 / 示例 / demo 的 agent 时，模型默认用 `(opencode-go) space-bunny-free`。**
+>
+> **启动 subagent 时不要传模型名** —— 留空即用会话默认模型。不为了「强一点」随手指定更贵的模型：额度比速度重要。
+>
+> 注：用**本机假 provider**（`faux/*`，见 `test/faux-models.ts`、`examples/lib/faux-models.ts`）的那些 agent 不在此列 —— 它们是离线、零成本、有判别力的测试基建，不要换成真模型。
+
 ---
 
 ## 一句话
