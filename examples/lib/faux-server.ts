@@ -11,7 +11,6 @@ export interface FauxCall {
   system: string;
   lastUser: string;
   messageCount: number;
-  roles: string[];
 }
 
 export interface Faux {
@@ -63,7 +62,6 @@ export async function startFaux(): Promise<Faux> {
         system,
         lastUser,
         messageCount: messages.length,
-        roles: messages.map((m: any) => m.role),
       });
 
       try {
@@ -179,4 +177,9 @@ function respond(res: ServerResponse, payload: any, lastUser: string): void {
 
   if (sleepMs > 0) setTimeout(send, sleepMs);
   else send();
+}
+
+/** `[[sleep:MS]]` 制造「正忙」窗口时，用它等这轮跑完 */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
