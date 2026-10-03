@@ -56,7 +56,14 @@ test("七面联跑：加工具 → 装门 → 加扩展 → 加技能 → 改上
 
     // io：第一轮。声明面的四个来源（创建期 only / 创建期 custom / 运行期 add / 运行期扩展）都要在
     const first = await a.io.prompt("hello");
-    assert.equal(first.text, "echo:hello");
+    // 断言里带上 error / usage：并发跑全套时偶发过一次空文本（114 例里 1 次，未能复现）。
+    // 只报「'' !== 'echo:hello'」看不出是哪一类失败（超时 / 连接 / 假服务没起来）。
+    // pi 对「接受后失败」不 reject、只把原因写进 error —— 不打出来就永远是谜。
+    assert.equal(
+      first.text,
+      "echo:hello",
+      `第一轮文本不对。error=${JSON.stringify(first.error)} usage=${JSON.stringify(first.usage)}`,
+    );
     assert.deepEqual([...sentTools()].sort(), ["probe_added", "probe_echo", "probe_ext", "read"]);
     // 实测校准（不是照抄「system + 1」的假设）：假服务记的 messageCount 含 system 那条，
     // 第一轮还没有历史，所以正好 system + 这一条 user = 2。

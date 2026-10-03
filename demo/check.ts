@@ -312,15 +312,15 @@ async function main(): Promise<void> {
         const alienExts = report.extensions.filter((e) => inHost(e.path));
 
         // ① 自己的那份必须看得到 —— 否则「空」是假阴性
-        if (!ownSkills.some((sk) => sk.name === "demo-skill" && under(sk.filePath, env.agentDir))) {
+        if (!ownSkills.some((sk) => sk.name === "env-style" && under(sk.filePath, env.agentDir))) {
           throw new Error(
-            `看不到 demo 自己的技能 demo-skill：report.skills=${JSON.stringify(report.skills.map((x) => x.name))}` +
+            `看不到 demo 自己的技能 env-style：report.skills=${JSON.stringify(report.skills.map((x) => x.name))}` +
               `（agentDir=${env.agentDir}）`,
           );
         }
-        if (!ownExts.some((e) => e.path.includes("demo-ext") && under(e.path, env.agentDir))) {
+        if (!ownExts.some((e) => e.path.includes("env-tools") && under(e.path, env.agentDir))) {
           throw new Error(
-            `看不到 demo 自己的扩展 demo-ext：report.extensions=${JSON.stringify(report.extensions.map((e) => e.path))}` +
+            `看不到 demo 自己的扩展 env-tools：report.extensions=${JSON.stringify(report.extensions.map((e) => e.path))}` +
               `（agentDir=${env.agentDir}）`,
           );
         }
@@ -334,8 +334,8 @@ async function main(): Promise<void> {
         }
         // ③ 而且它注册的工具也必须只是自己那个（walker 的报错是「工具名对不上」，这里一次抓全）
         const envToolNames = report.extensions.flatMap((e) => e.tools ?? []);
-        if (!envToolNames.includes("demo_env_tool")) {
-          throw new Error(`demo 自己的扩展没注册出工具 demo_env_tool：${JSON.stringify(envToolNames)}`);
+        if (!envToolNames.includes("env_checklist")) {
+          throw new Error(`demo 自己的扩展没注册出工具 env_checklist：${JSON.stringify(envToolNames)}`);
         }
         return {
           detail: `只看得到自己的 ${ownSkills.length} 个技能、${ownExts.length} 个扩展`,
@@ -349,7 +349,7 @@ async function main(): Promise<void> {
       hints: [
         "看不到自己的技能/扩展 ⇒ demo/run/ 被手工清过或写失败：删掉 demo/run/ 再重跑（ensureEnv 会重建并 seed）",
         "混进了宿主的技能/扩展 ⇒ agentDir 指错了（检查 demo/env.ts 的 runDir()，或有没有别的环境变量把它带偏）",
-        "技能报 ENOENT ⇒ pi 要求 filePath 指向真文件：确认 demo/run/*/skills/demo-skill/SKILL.md 真在磁盘上",
+        "技能报 ENOENT ⇒ pi 要求 filePath 指向真文件：确认 demo/run/*/skills/env-style/SKILL.md 真在磁盘上",
       ],
     },
     {

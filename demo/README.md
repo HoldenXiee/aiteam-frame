@@ -56,6 +56,28 @@ $ PI_OFFLINE=1 node demo/check.ts
 | 6 | **一个工具真被模型调用** | 工具**执行体**里的闭包计数器 +1（`tools.list()` 里有它**不**算数：那只说明声明在） |
 | 7 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
 
+### 环境自动发现的技能与插件：不只是「能看见」，还要「真被用上」
+
+`demo/env.ts` 会往自己的 agentDir 里 seed 一份技能（`env-style`）与一份扩展（`env-tools.ts`，
+注册 `env_checklist` 工具），两者都**不在 spec 里** —— 走的是「环境自动发现」这条路。
+`agent-team.ts` 里它们被**真的用上**：
+
+| 资源 | 怎么被用上 | 判据 |
+|---|---|---|
+| 技能 `env-style` | `role` 里要求按它写（每节末尾一行「依据：」） | 报告小节里出现那行 |
+| 扩展工具 `env_checklist` | 让一个**干净的**探针 agent 调它 | 返回值里含「由环境扩展」那句 |
+
+**一个真实取舍**（demo 专门演示）：环境自动发现的扩展所注册的工具，**只在没写 `permissions.only` 时可见** ——
+白名单不该被环境里碰巧存在的扩展悄悄撑开（R41）。写作员是 demo 里唯一没写 `only` 的 agent。
+
+**真模型 vs 假 provider 的差异**（实测，不是猜测）：
+- 假 provider 照提示词里的脚本必调工具；真模型有自己的取舍，可能直接回文字、不调工具。
+- 所以那个工具调用用一个**新建的**探针 agent，而不是复用写作员 —— 实测：写作员上下文里堆了十几轮
+  「不许动黑板」的对话之后，面对新指令会**延续原有行为模式**，回空文本、连工具调用都不产生
+  （`text=""`、`error=undefined`、消息里只有 user+assistant 各一条）。换干净上下文就正常。
+- 同理 `draft_section` / `cite_check` 在真模型下可能不被调用 —— demo 会**如实打印**「模型没调用」
+  并区分它与「扩展没生效」（后者要看 `extensions.errors()`），不静默也不误诊。
+
 ### 第 7 项为什么单列：隔离要「两边都成立」才叫隔离
 
 `agentDir` 只要没被填过东西，`skills.list()` / `extensions.list()` 返回空**说明不了任何事**——

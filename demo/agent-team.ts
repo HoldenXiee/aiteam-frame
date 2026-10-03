@@ -444,14 +444,23 @@ async function main(): Promise<void> {
       cwd: env.cwd,
       model: env.model, // 也用便宜档起，写作阶段再运行期升档（model 面）
       modelNetwork: env.real ? undefined : false,
-      role: "写作员：把黑板上的材料组织成一份报告；不查新资料、不改别人的记录、不动黑板。",
-      skills: [join(skillsRoot, "writing-style")], // 写作员的技能与检索员不同
+      role:
+        "写作员：把黑板上的材料组织成一份报告；不查新资料、不改别人的记录、不动黑板。" +
+        // 这条技能**不在 spec 里**，来自 agentDir 的自动发现（demo/env.ts 里 seed 的 env-style）。
+        // 把它写进 role 是为了让「技能被真的用上」可观察：报告小节末尾会出现「依据：」那行。
+        // 要检验它是不是技能带来的：删掉 demo/run/*/skills/env-style/SKILL.md 再跑，那行就没有了。
+        "按环境里的 env-style 技能写：每个小节标题以 ## 开头，小节末尾单独一行「依据：<语料 id>」。",
+      skills: [join(skillsRoot, "writing-style")], // 写作员的技能与检索员不同（这一条是显式声明的）
       tools: {
         custom: [readBoardTool("写作员"), draftTool("写作员"), clearBoardTool("写作员")],
       },
-      // 要检验这条，改成 X 再跑：把 only 里加上 "search"、再给写作员 searchExtension ——
-      // 写作员就会自己查资料，跳过两个检索分身；同一份报告两条路的结果可直接对比。
-      permissions: { only: ["read_blackboard", "draft_section", "clear_blackboard"] },
+      // **刻意不写 `only`** —— 这是 demo 里唯一没写白名单的 agent，因为要演示一件事：
+      // 环境自动发现的扩展（env-tools.ts）注册的工具，**只在没写 only 时可见**。
+      // 写了 only 就会被硬过滤掉：白名单不该被环境里碰巧存在的扩展悄悄撑开（R41，见 src/agent/loader.ts）。
+      // 要检验这条，改成 X 再跑：给写作员加上 `only: ["read_blackboard","draft_section","clear_blackboard"]` ——
+      // env_checklist 立刻从工具集里消失（下面打印的活跃工具列表能看出来）。
+      // 另一条：把 only 里加上 "search"、再给写作员 searchExtension —— 写作员会自己查资料、
+      // 跳过两个检索分身；同一份报告两条路的结果可直接对比。
     }),
   );
   agents.push(writer);
@@ -557,7 +566,16 @@ async function main(): Promise<void> {
         sections.map((x) => `\n- heading「${x.heading}」，ids 用 ${x.ids.join("、")}`).join(""),
     ),
   );
-  console.log(`    大纲：${drafts().map((entry) => entry.heading).join(" ｜ ")}`);
+  const drafted = drafts();
+  console.log(`    大纲：${drafted.map((entry) => entry.heading).join(" ｜ ") || "（空）"}`);
+  if (!drafted.length) {
+    // 真模型可能不用 draft_section，直接在回复里把报告写掉（实测）。这不是 bug，是模型选择——
+    // 但**不能静默**：否则报告里「大纲」一节是空的，读的人会以为流程坏了。
+    console.log(
+      "      ↑ 模型没有调用 draft_section（它选择直接在回复里写）。" +
+        "假 provider 会照脚本必调，真模型有自己的取舍——这是**已知差异**，不是流程坏了。",
+    );
+  }
   const cite = await writer.io.prompt(
     ask(
       '定稿前查一遍引用。\n[[tool:cite_check]] [[args:{"ids":["C1","C3","C9"]}]]',
@@ -565,7 +583,76 @@ async function main(): Promise<void> {
     ),
   );
   const citeRan = entryOfKind("cite_check").length > 0; // 它真跑了才会在黑板上留下一笔（那一笔是工具自己写的）
-  console.log(`    cite_check（${citeRan ? "运行期扩展注册的工具真跑了" : "没跑起来 —— 运行期扩展没生效"}）：${oneLine(cite.text)}`);
+  console.log(
+    `    cite_check（${citeRan ? "运行期扩展注册的工具真跑了" : env.real ? "模型没调用它（见下）" : "没跑起来 —— 运行期扩展没生效"}）：${oneLine(cite.text)}`,
+  );
+  if (!citeRan && env.real) {
+    // 同 draft_section：真模型可能选择不调。区分「模型没调」与「扩展没生效」——
+    // 后者要看 extensions.errors()，前者只是模型的取舍。混在一起会把模型行为误诊成代码缺陷。
+    const errs = writer.extensions.errors();
+    console.log(
+      `      ↑ 扩展本身是好的（errors=${errs.length}，cite_check 在活跃工具里=${writer.io.raw.getActiveToolNames().includes("cite_check")}）` +
+        "——所以这是「模型没调」而不是「运行期扩展没生效」。",
+    );
+  }
+
+  // ── 环境自动发现这条路：技能 + 插件（都不在 spec 里）──
+  // 技能 env-style 靠 role 里那句话被用上 ⇒ 报告小节的「依据：」那行（下面 writeReport 会读它）。
+  // 插件 env-tools 注册的 env_checklist 工具：让写作员真的调一次，证明环境插件这条路是通的。
+  // 注意它只在**没写 only** 的 agent 上可见 —— 写作员正是那个（见上面创建它的注释）。
+  const envToolVisible = writer.io.raw.getActiveToolNames().includes("env_checklist");
+  const envSkillVisible = writer.skills.list().some((sk) => sk.name === "env-style");
+  console.log(
+    `    环境自动发现：技能 env-style=${envSkillVisible ? "可见" : "不可见"}` +
+      `，扩展工具 env_checklist=${envToolVisible ? "可见" : "不可见（写了 only 就会这样，见创建那里的注释）"}`,
+  );
+  if (envToolVisible) {
+    // 用**新建的** agent 调这个工具，而不是复用写作员 —— 实测教训：
+    // 写作员此时上下文里已经堆了十几轮「不许动黑板」的对话，真模型会**延续那个行为模式**，
+    // 面对新指令直接回空文本、不调工具（`text=""` `error=undefined`，消息里连工具调用都没有）。
+    // 换一个干净上下文就正常调起来（同一个 role、同一个 agentDir）。
+    // 这不是绕过问题，而是把变量隔开：要验的是「环境扩展的工具能不能被调用」，
+    // 不是「一个刚被明确限制过的 agent 愿不愿意做新事」。
+    const envProbe = watch(
+      await createAgent({
+        id: "环境工具探针",
+        agentDir: env.agentDir,
+        cwd: env.cwd,
+        model: env.model,
+        modelNetwork: env.real ? undefined : false,
+        role: "按指令调用工具。",
+      }),
+    );
+    agents.push(envProbe);
+    const envCall = await envProbe.io.prompt(
+      ask(
+        '给报告列一份交付清单。\n[[tool:env_checklist]] [[args:{"items":["每节都有依据行","引用都核对过","审批门拦过"]}]]',
+        // 真模型要说得更明确：只写「列一份清单」它可能直接在回复里写（实测：回空文本、不调工具）。
+        // 说清「必须调用这个工具」「这是流程的一步」之后它才动。
+        "这是流程的最后一步，请调用 env_checklist 工具（不要只用文字回答），" +
+          "items 依次传入：每节都有依据行、引用都核对过、审批门拦过。",
+
+      ),
+    );
+    // 判据是**工具返回值里那段只有它才会写的话**（「由环境扩展 env-tools.ts 提供」）——
+    // 不看 tools.list()（那只说明声明在，不说明执行体跑过），也不看黑板（环境扩展够不着 demo 的 record）。
+    const envRan = envCall.text.includes("由环境扩展");
+    if (!envRan) {
+      // 诊断信息给足：真模型不肯调工具时，光看 text="" 完全无从下手。
+      throw new Error(
+        `环境扩展注册的 env_checklist 没被执行。
+` +
+          `  text  = ${JSON.stringify(envCall.text)}
+` +
+          `  error = ${JSON.stringify(envCall.error)}
+` +
+          `  messages(最后 3 条) = ${JSON.stringify(envCall.messages.slice(-3).map((m: any) => `${m.role}:${typeof m.content === "string" ? m.content.slice(0, 80) : "[blocks]"} `))}
+` +
+          `  活跃工具 = ${JSON.stringify(envProbe.io.raw.getActiveToolNames())}`,
+      );
+    }
+    console.log(`    env_checklist（环境扩展注册的工具）：真跑了 —— ${oneLine(envCall.text)}`);
+  }
   const attempt = await writer.io.prompt(
     ask(
       '黑板有点乱，试着清掉它。\n[[tool:clear_blackboard]] [[args:{"reason":"看不清了"}]]',

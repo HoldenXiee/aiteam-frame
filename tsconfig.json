@@ -1,10 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -13,5 +17,16 @@
     "erasableSyntaxOnly": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "test", "demo", "examples"]
+  "include": [
+    "src",
+    "test",
+    "demo",
+    "examples"
+  ],
+  "exclude": [
+    "node_modules",
+    "demo/run",
+    "demo/work",
+    "spike"
+  ]
 }
