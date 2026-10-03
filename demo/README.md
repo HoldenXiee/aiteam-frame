@@ -62,7 +62,7 @@ $ PI_OFFLINE=1 node demo/check.ts
 
 ```text
 [5/7] 一轮 io.prompt 拿到非空文本   … 失败
-    原始错误：RunResult.text 是空的："echo:自检第 5 项：请回一句话"          ← 原始错误（含栈，便于贴给维护者）
+    原始错误：RunResult.text 是空的：""                                ← 原始错误（含栈，便于贴给维护者）
       at Object.run (file:///.../demo/check.ts:202:25)
       ...
     最可能的三个原因与怎么补：                     ← 三个原因，每条都带动作
