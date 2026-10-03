@@ -81,14 +81,96 @@ $ PI_OFFLINE=1 node demo/check.ts
 - **第 3 项之后**：环境产物被改坏。`demo/env/agent/` 与 `demo/work/` 都是**可再生的产物**：
   `rm -rf demo/env/agent demo/work`（Windows 用资源管理器删掉）再重跑，`ensureEnv()` 会重建。
 
+## 跑 agent-team 这个例子：多 agent 分工协作写一份报告
+
+自检通过之后，下一个要跑的是这个 —— 它把七个操控面串成一件真事：两个检索分身查语料、把采信的记进黑板，
+一个写作分身读完黑板、拟定大纲、被审批门拦下一次「清空黑板」，最后报告由脚本的代码从黑板 + 语料拼出。
+
+```bash
+PI_OFFLINE=1 node demo/agent-team.ts
+```
+
+退出码 **0**。跑完会打印七面各自被调用了几次，并**断言每一项 ≥ 1**（哪个面没出场就退出码 1，报「那是设计缺陷，修设计，不要删断言」）。
+
+## agent-team 的预期输出（真实跑出来的）
+
+```text
+$ PI_OFFLINE=1 node demo/agent-team.ts
+[1] 环境（demo 自己的 agentDir / cwd，离线假 provider）
+    agentDir = D:\space\aiteam\test\demo\env\agent
+    cwd      = D:\space\aiteam\test\demo\work
+    语料     = 6 条（C1、C2、C3、C4、C5、C6）
+[2] 成员与分身：检索员 ×2 + 写作员 ×1 = 3 个分身 —— 起几个是使用者代码的决定
+    检索员-1  model=echo  技能=[research-style]  检索线=「上下文 白名单」/ 标签 tools
+    检索员-2  model=echo  技能=[research-style]  检索线=「审批门 分工 分身 装载」/ 标签 装载
+    写作员  model=echo  技能=[writing-style]  extensions=1  工具白名单=[read_blackboard、draft_section、clear_blackboard]
+[3] 检索阶段：每个检索分身各查一轮，采信记进黑板
+    [检索员-1] 第一问命中：C1、C2
+    [检索员-1] tools 面：运行期 add(search_by_tag) → 模型现在看得到 [note、search、search_by_tag]
+    [检索员-1] 采信：C1、C2
+    [检索员-2] 第一问命中：C2、C3、C4、C5、C6
+    [检索员-2] 采信：C3、C4、C5、C6
+    context 钩子实测（会话里的条数 → 经 override 真发出去的条数）：
+      检索员-1  1 → 1
+      检索员-1  3 → 3
+      检索员-1  5 → 1  ← 裁掉了
+      检索员-1  8 → 4  ← 裁掉了
+      检索员-2  1 → 1
+      检索员-2  3 → 3
+      检索员-2  5 → 1  ← 裁掉了
+      检索员-2  7 → 3  ← 裁掉了
+[4] 写作阶段：便宜的检索 → 强的写作
+    model 面：echo/off → echo-alt/high
+    extensions 面：运行期 add(引用检查) → 1 → 2 个（errors=0）
+    大纲：一、上下文预算：裁的是这一轮，不是历史 ｜ 二、工具集与审批门：先裁能力，再拦动作 ｜ 三、分工与装载：便宜的检索、强的写作
+    cite_check（运行期扩展注册的工具真跑了）：echo:引用检查：3 条 不在语料里：C9
+    审批门：看过 6 次调用，拦下 1 次
+    被拦后模型读到的是：echo:写作员不许做这类会抹掉别人成果的操作；要清空黑板请改设计者代码，不要在会话里试
+[5] 汇总：报告由代码拼（黑板 + 语料），写到 demo/work/report.md
+    D:\space\aiteam\test\demo\work\report.md：93 行；采信语料 6 条；黑板流水 16 条
+[6] 自证：七个面各自被调用了几次（数据来自计数代理，不是手写的数字）
+    io            9  █████████
+    context       2  ██
+    tools         1  █
+    permissions   1  █
+    extensions    5  █████
+    skills        5  █████
+    model         2  ██
+    七面全部 ≥ 1 ✓
+
+全部跑通 —— 报告在 demo/work/report.md。改一处设计决策、再跑一次，就能检验那条假设。
+```
+
+机器路径会不同，其余一致（本机连跑两次的 `report.md` md5 相同，产物可复现）。
+
+**产物在 `demo/work/`**（gitignored，可随时删掉重跑）：
+
+| 文件 | 是什么 |
+|---|---|
+| `demo/work/report.md` | 报告本体：由 `demo/agent-team.ts` 的 `writeReport()` 从黑板 + 语料拼出 |
+| `demo/work/blackboard.jsonl` | 黑板：这次协作的每一笔（检索 / 采信 / 读板 / 起草 / 门 / 引用检查） |
+| `demo/work/skills/{research-style,writing-style}/SKILL.md` | 两个角色各自的技能（脚本自己写的，真实存在的 SKILL.md） |
+
+两件必须先知道的事：
+
+1. **报告里的每一句话都是代码拼的，不是「模型」写的。** 假 provider 只会回 `echo:<原文截断>`，所以
+   `agent-team.ts` 里那些 `[[tool:…]]` / `[[call:…]]` 是**给假 provider 的脚本指令**（约定见
+   `examples/lib/faux-server.ts` 顶部），「模型」负责的是调用顺序与取舍（查什么、采信哪几条、分几节），
+   报告正文由代码按 id 从语料取值。要让它真的写字：换真模型 + 把 `writeReport()` 里「按 id 取语料正文」
+   换成「取模型写的段落」（该文件头部写了改法）。
+2. **它是一个可改造的起点，不是推荐架构。** 「几个 agent、怎么分工、要不要护栏、审批门拦什么」
+   全是使用者代码，每一处设计决策旁边都有一行「要检验这条，改成 X 再跑」——具体到能照着改、改完重跑就能看结果。
+   例：把 `RESEARCH_LINES` 减到 1 条、把审批门的判据改成只拦 `rm_`、把写作员的 `permissions.only` 删掉。
+
 ## 目录说明
 
 | 路径 | 是什么 | 进 git 吗 |
 |---|---|---|
 | `demo/env.ts` | 幂等自建环境：写 `models.json`、起本机假 provider | 进 |
 | `demo/check.ts` | 这个自检 | 进 |
+| `demo/agent-team.ts` | 完整例子：多 agent 协作写报告（七面全出场 + 自证表） | 进 |
 | `demo/env/agent/` | 自检产物：`models.json`（假 provider，`apiKey` 是写死的 `"faux-key"`） | 不进（`.gitignore`） |
-| `demo/work/` | agent 的工作目录与产物落点 | 不进（`.gitignore`） |
+| `demo/work/` | agent 的工作目录与产物落点：`report.md` / `blackboard.jsonl` / `skills/` | 不进（`.gitignore`） |
 
 `demo/env/` 下还有两份 v1 遗留文件（`auth.json` 含**真实 API 密钥**、`models-store.json` 是旧结构缓存）。
 demo **不读**它们（自检用的 `agentDir` 是子目录 `demo/env/agent/`），它们也只是被 gitignore 排除，不会进仓库。
@@ -96,7 +178,7 @@ demo **不读**它们（自检用的 `agentDir` 是子目录 `demo/env/agent/`�
 
 ## 想用真模型
 
-自检的存在意义就是离线可复现，所以它钉死了假 provider（`demo/env.ts` 里 `PI_OFFLINE=1` + `modelNetwork:false`）。
+自检与 `agent-team` 的存在意义就是离线可复现，所以它们钉死了假 provider（`demo/env.ts` 里 `PI_OFFLINE=1` + `modelNetwork:false`）。
 想接真模型：改 `demo/env.ts` 的 `writeModelsJson` 调用与 `process.env.PI_OFFLINE` 那一行，
-再把 `demo/check.ts` 第 4 项里的 `model` 换成 `<provider>/<id>`。
+再把 `demo/check.ts` 第 4 项与 `demo/agent-team.ts` 里的 model ref 换成 `<provider>/<id>`（并想清楚报告正文由谁来写）。
 各面怎么用见 `examples/`（`01-first-agent.ts` 起，每个文件演示一件事）。
