@@ -46,7 +46,7 @@ npm test                        # 全部断言，本机假 provider，零 API �
 
 其余 `spec` 字段：`id`（不写则自动生成）、`cwd`、`agentDir`、`role`（追加到系统提示词尾部，不替换）。
 
-**记忆点**：库给机制，使用者给政策。`createAgent` 造出来的是一个**裸 agent**——它没有任何内置工具、没有花名册、没有委派能力。想组队、想加护栏、想画红线，都是你自己的工具实现里的几行代码（见 `examples/09-roster.ts` / `10-spawn.ts` / `11-redline.ts`）。
+**记忆点**：库给机制，使用者给政策。`createAgent` 造出来的是**不带任何库内置工具**的 agent——库不附带 `spawn_agent` 之类，没有花名册、没有委派能力。工具集只有两种来路：用 `permissions.only` 显式给，**或者干脆不写，就是 pi 的默认集**（`read` / `bash` / `edit` / `write`，实测）；要**零工具**必须显式写 `permissions.only: []`。想组队、想加护栏、想画红线，都是你自己的工具实现里的几行代码（见 `examples/09-roster.ts` / `10-spawn.ts` / `11-redline.ts`）。
 
 ---
 
@@ -132,7 +132,7 @@ io.prompt("…")
 
 - 加载失败**不静默**：`errors()` 里读得到（路径不存在、扩展自己抛错都在这里）。但运行期钩子抛错走的是另一条路（`console.error`），不在 `errors()` 里。
 - 内联工厂注册的工具名会**自动并进白名单**——不并的话，在白名单下会被 pi 静默硬过滤掉，表现为工具人间蒸发。
-- 有白名单时 `add` 要**两趟** `reload()`（第一趟之后才知道工厂注册了哪些名字），pi 的每次 reload 都会重跑全部扩展工厂并发 `session_shutdown` ⇒ **工厂副作用与生命周期事件会观察到双份**。无白名单时只有一趟。
+- 有白名单时 `add` 要**两趟** `reload()`（第一趟之后才知道工厂注册了哪些名字），pi 的每次 reload 都会重跑全部扩展工厂并发 `session_shutdown` ⇒ **工厂副作用与生命周期事件会观察到双份**。没有白名单、也没被 `deny` 过同名工具时只有一趟。
 
 → 片段：`extensions.add`。示例：`examples/06-resources.ts`。
 
@@ -197,7 +197,7 @@ io.prompt("…")
 
 模型目录默认允许联网刷新（`modelNetwork`，带新鲜度窗口的 overlay，缓存到 `<agentDir>/models-store.json`）：只刷新**有凭证的 provider**；关掉它仍然会从缓存恢复 overlay。`PI_OFFLINE=1` 关掉一切模型相关网络请求。
 
-→ 示例：`demo/check.ts` 第 3 项（「模型可读」那一步就走它）。设计理由见 [`FACTS.md`](FACTS.md) v2 段 #31。
+→ 示例：`demo/check.ts` 第 3 项（「模型可读」那一步就走它）。设计理由见 [`FACTS.md`](FACTS.md) #31（在 v1 §7 表内，该结论对 v2 仍适用）。
 
 ---
 

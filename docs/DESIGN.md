@@ -172,7 +172,7 @@ pi 的 `reload()` 是**重载**而不是增量：丢旧 runner（全部扩展工
 | `extensions.add` / `skills.add` | loader 的注入表 + reload |
 | `model.set` / `setThinking` | `session.setModel()` / `setThinkingLevel()`（不触发 reload） |
 
-`permissions.gate` / `context.override` / `tools.onResult` 是**专属槽位**（单槽位，后一次覆盖前一次）。槽位与 `on()` 的关系有两条硬规则：
+`permissions.gate` / `context.override` 是**专属槽位**（单槽位，后一次覆盖前一次）。**`tools.onResult` 不是槽位**：它是往 `tool_result` 事件上 `add` 一个监听器（`bridge.listeners` 的同一个 Set，和用户的 `on("tool_result")` 共用），**可多次注册、按注册顺序派发、不会互相覆盖**；代价是它**不排在监听表之前**（`gate` 的安全顺序只对 `gate` 成立），而且若两个 `onResult` 都返回非空对象，第二个会撞上规则 ② 的双变换守卫而**抛错**。槽位与 `on()` 的关系有两条硬规则：
 
 **① 槽位排在监听表之前生效。** 一条硬理由是安全顺序：`permissions.gate` 必须先跑，才能保证「门拦住之后，用户的 `on("tool_call")` 从不被调用」——否则被拦下的调用还是会出现在用户的监听器里，用户会以为它跑过了。
 

@@ -4,19 +4,21 @@
 
 基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，给设计者的代码一双手，去创建、配置、驱动、观测 agent。非常基础、非常底层的一层——不是 agent 框架的替代品。
 
-理想是一个 agent 身上的每个面都能被设计者的代码操控；现在只覆盖了一部分。完整的操控面清单与对外接口见 [`docs/DESIGN.md`](docs/DESIGN.md)。
+理想是一个 agent 身上的每个面都能被设计者的代码操控；v2 里**机制层已经补齐**（七个面，逐面见 [`docs/GUIDE.md`](docs/GUIDE.md)），**策略层刻意留空**。完整的操控面清单与对外接口见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
 ## 核心模型
 
-| 概念 | 含义 | 谁能定义 |
+下面三样是 **v1 当作「库的功能」的东西，v2 全部移出了库**——它们现在是**使用者代码**，写在哪、要不要做，都是你的决定：
+
+| 概念 | 含义 | v2 里由谁定义 |
 |---|---|---|
-| **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**（写代码的人） |
-| **分身（Instance）** | 某个成员的一个运行实例，同一成员可起多个 | 由 agent 在运行时启动 |
-| **花名册（members）** | 设计者声明的全部成员 | 设计者 |
+| **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**（写代码的人），就是你代码里的一个对象（`examples/09-roster.ts`） |
+| **分身（Instance）** | 某个成员的一个运行实例，同一成员可起多个 | 由**设计者的代码**在运行时调 `createAgent` 起（`examples/10-spawn.ts`） |
+| **花名册（members）** | 设计者声明的全部成员 | 设计者。v1 里它是 `createAgentHost({ members })` 的入参，**v2 已把那个函数删掉** |
 
-**红线**：agent 不能设计、不能配置 agent。它只能**从花名册里挑一个成员**、**告诉它要干什么**。连「收窄工具集」都不给。
+**红线同理**：v1 的「agent 不能设计、不能配置 agent」是焊在库里的；v2 把它降成一条**可被推翻的假设**，写在 `examples/11-redline.ts` 的使用者代码里。
 
-好处是双向的：agent 没有提权面（无法指定 `cwd` / `agentDir` / `extensions`，也就无法让子 agent 加载任意代码或换用贵模型）；而设计者的灵活性不受损——想加一种新 agent，就在花名册里加一个成员。
+好处仍然是双向的：agent 没有提权面（无法指定 `cwd` / `agentDir` / `extensions`，也就无法让子 agent 加载任意代码或换用贵模型）；而设计者的灵活性不受损——想加一种新 agent，就在花名册里加一个成员。
 
 ## 装
 
@@ -29,41 +31,10 @@ npm install
 
 ## 用
 
-```ts
-import { createAgentHost, createAgent } from "./src/index.ts";
+对外只有两个入口：`createAgent(spec, deps?)`（**唯一**的 agent 创建入口）与 `inspectEnv(spec?, deps?)`（只读的环境自检）。库**不附带任何内置工具**、没有花名册、没有委派能力——工具集要么用 `permissions.only` 显式给，**要么就是 pi 的默认集**（`read` / `bash` / `edit` / `write`）；要**零工具**必须显式写 `permissions.only: []`。
 
-// 1. 设计者声明花名册 —— agent 只能从这里挑人
-const host = createAgentHost({
-  members: {
-    researcher: {
-      description: "查资料并把结论落成事实清单",
-      role: "你是研究员。只给事实，不给建议。",
-      model: "opencode-go/space-bunny-free",
-      tools: ["read", "grep"],
-    },
-    writer: { description: "把事实清单写成稿子", role: "你是撰稿人。" },
-  },
-  maxAgents: 16,   // 全生命周期分身总数上限
-  maxDepth: 2,     // 分身层数上限，顶层为第 0 层
-  budgetTokens: 200_000,
-});
-
-// 2. 起顶层 agent，它自带 spawn_agent / send_message 两个工具
-const lead = await createAgent({
-  id: "lead",
-  role: "你是主持人。用 spawn_agent 挑选成员派活，用 send_message 追加消息。",
-  model: "opencode-go/space-bunny-free",
-}, { host });
-
-// 3. 交办，拿结果
-const { text, usage } = await lead.prompt("调研 X，然后让 writer 写一篇 800 字的稿子");
-console.log(text, usage);
-
-// 4. 宿主观测：库只发事件，监控策略由设计者写
-host.on("round_completed", ({ agent, result }) => console.log(agent.id, result.usage));
-
-host.dispose(); // 级联回收所有分身
-```
+最小可跑示例：[`examples/01-first-agent.ts`](examples/01-first-agent.ts)（起一个 agent、交办一件事、拿 `RunResult`）。`examples/` 里 `01`–`08` 一面一事，`09`–`11` 是上面三条假设的「可被推翻的写法」。
+逐面怎么用、每个取舍的代价，见 [`docs/GUIDE.md`](docs/GUIDE.md)。
 
 ### 环境：三样东西
 
@@ -76,84 +47,59 @@ my-pi/
   skills/                   技能
 ```
 
-```ts
-const spec = { agentDir: "D:/my-pi", cwd: "./work" };
-
-// 验证语句：先看清楚这套环境里实际生效了什么，再建 agent
-const env = await inspectEnv(spec);
-env.models;      // [{ provider: "opencode-go", total: 29, available: [...] }]  只有配好凭证的
-env.extensions;  // [{ path, scope, tools: [...] }]  tools = 它注册的工具名
-env.skills;      // [{ name, filePath, scope }]
-env.warnings;    // 目录不存在 / 没有 models.json / 扩展加载失败 / SYSTEM.md 会替换提示词…
-
-const agent = await createAgent(spec);
-```
+`inspectEnv(spec)` 把这套环境里**实际生效**的东西摊平给你看：`models`（只列配好凭证的 provider）/ `extensions`（路径、来源、它注册了哪些工具名）/ `skills` / `contextFiles`（跟着 `cwd` 走的上下文文件链）/ `warnings`（目录不存在、没有 `models.json`、扩展加载失败、`SYSTEM.md` 会整体替换提示词…）。
+跑法见 [`examples/06-resources.ts`](examples/06-resources.ts) 与 `demo/check.ts` 第 3 项。
 
 模型目录默认允许联网刷新（`modelNetwork`，pi.dev 的 overlay，缓存在 `<agentDir>/models-store.json`，4 小时新鲜度窗口）。`PI_OFFLINE=1` 关掉一切模型网络请求。
 
-设计者也可以不走工具，直接把一个 agent 的输出喂给另一个：
-
-```ts
-const a = await createAgent({ model: "..." }, { host });
-const b = await createAgent({ model: "..." }, { host });
-const r = await a.prompt("给我一份事实清单");
-await b.prompt(`基于这份清单写稿：\n${r.text}`);
-```
+设计者也可以不走工具，直接把一个 agent 的输出喂给另一个：`a.io.prompt(...)` 的 `text` 直接拼进 `b.io.prompt(...)`，或让两个 agent 通过共享的外部状态（黑板文件、数据库）交换——怎么做都是你的代码。例子见 [`demo/agent-team.ts`](demo/agent-team.ts)。
 
 ### API 速览
 
+对外只有两个函数：
+
 | | |
 |---|---|
-| `createAgent(spec, deps?)` | 唯一的 agent 创建入口 → `ControlledAgent` |
-| `inspectEnv(spec?, deps?)` | 环境自检（模型 / 插件 / 技能 / 警告），只读，不建 agent |
-| `createAgentHost({ members, maxAgents, maxDepth, budgetTokens, defaults, modelRuntime })` | 花名册 + 护栏 + 宿主事件 + 级联回收 → `AgentHost` |
-| `defineAgentTool(def)` | 工厂式工具，`execute(params, ctx)` 里的 `ctx.agent` / `ctx.host` 知道「是谁在调用我」 |
+| `createAgent(spec, deps?)` | **唯一**的 agent 创建入口 → `Agent`（七个面 + 句柄 + 观测） |
+| `inspectEnv(spec?, deps?)` | 环境自检（模型 / 扩展 / 技能 / 上下文文件 / 警告），只读，不建 agent |
 
-`spec` 字段：`description` / `cwd` / `agentDir` / `modelNetwork` / `catalogBaseUrl` / `role` / `skills` / `extensions` / `tools` / `excludeTools` / `customTools` / `model` / `thinking` / `onToolCall`。非空 `tools` 是白名单，`[]` 表示一个工具都不给；优先级为 `host.defaults` ← `members[x]` ← 顶层 spec，浅合并覆盖。
+`Agent` 上是**七个面**：`io`（投递 / `abort` / `waitIdle` / 结算 `RunResult`）、`context`（历史 / 逐轮覆盖 / 压缩）、`tools`（有哪些工具存在 / 工具结果拦截 `onResult`）、`permissions`（`only` / `allow` / `deny` + 审批门 `gate`）、`extensions`、`skills`、`model`。此外只有句柄（`id` / `usage` / `status` / `dispose`）、观测（`on` / `onAny`，直接镜像 pi 的 `ExtensionEvent`）与 raw 逃生口。逐面怎么用见 [`docs/GUIDE.md`](docs/GUIDE.md)。
 
-`ControlledAgent`：`prompt` / `send` / `steer` / `waitForIdle` / `abort` / `dispose` / `on`，以及 `status` / `isStreaming` / `usage` / `lastResult` / `session`（原始 SDK 对象的逃生口）/ `parentId` / `member`。
-
-库自带两个能力工具：`spawn_agent`（挑成员 + 派活 + 拿结果）、`send_message`（给已有分身追加消息，只能投给自己的后代）。
+`spec` 字段与运行期面一一对应（契约见 `src/agent/types.ts` 的 `AgentInit`）：`context.autoCompact` / `tools.custom` / `permissions.only` / `permissions.deny` / `permissions.gate` / `extensions` / `skills` / `model` / `thinking` / `modelNetwork` / `catalogBaseUrl`，外加 `id` / `cwd` / `agentDir` / `role`。**不写 `permissions.only` 就是 pi 的默认工具集**；白名单会自动并入你在同一 spec 里显式声明的工具名。
 
 ## 检测环境装好没有
 
 ```bash
-npm install        # 装依赖（Node ≥ 24）
-npm run demo:env   # 只准备 + 体检这套自建环境：不花模型钱，几秒出结果
-npm run demo       # 全流程：环境 → 真模型 → agent 集群 → 对账（约 $0.003）
+npm install                          # 装依赖（Node ≥ 24）
+node demo/check.ts                   # 七项安装自检：不需要 key，全程离线
+PI_OFFLINE=1 node demo/agent-team.ts # 多 agent 协作写一份报告（同一套离线环境）
 ```
 
-`demo/` 是一份**安装自检**：凭证 / 技能 / 插件全在 `demo/env/` 里，不读本机 pi 的设置 ——
+`demo/` 是一份**安装自检**：自带本机假 provider，不读本机 pi 的设置 ——
 所以**别人没装 pi 也能跑**，跑通就说明这个库在他那儿是好的。
 
 ### 运行结果的标准
 
-**`npm run demo:env`** —— 最后一行必须是：
+**`node demo/check.ts`** —— 七项全是「通过」，最后两行必须是：
 
 ```
-环境 OK：技能 / 插件 / 模型都从 demo/env/ 生效，本机 pi 没混进来。
+七项全通过 —— 本机可以开始研究 agent 课题了。
+下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。
 ```
 
-四项检查：技能来自 `demo/env` ｜ 本机 pi 的技能/插件一个都没混进来 ｜ 插件从 `demo/env/extensions/` 自动加载 ｜ `DEMO_MODEL` 指的模型现在可用。退出码 0。
+并且退出码是 0。七项分别验：
 
-**`npm run demo`** —— 四步里每一项检查都是 `✔`（实测 23 项；`·` 是依赖模型配合的软提示，不算失败），最后两行必须是：
-
-```
-结论：库装好了，这套自建环境也是通的。
-全程 xx.x 秒，xxxxx tokens ≈ $0.00xxxx（另有 N 项软提示）
-```
-
-并且退出码是 0。四步分别验：
-
-| 步骤 | 过了意味着 |
+| 项 | 过了意味着 |
 |---|---|
-| 1 自建环境 | 凭证 / 技能 / 插件 / 上下文文件都从 `demo/env/` 生效，本机 pi 没混进来 |
-| 2 真模型连通 | 真发了一次请求：读到文件，且技能暗号、工作目录守则暗号都回到话里 |
-| 3 agent 集群 | 主持人从花名册挑出 scout / checker / scribe，黑板写出三条要点，worker 用上了 `demo/env` 插件注册的 `env_probe`，报告真落盘 |
-| 4 对账 | 事件成对、`agent.usage` 与 `host.usage` 归属正确、护栏还在、级联回收干净 |
+| 1–2 环境 | Node 不用任何开关就能直接跑 `.ts`；钉住的 pi 版本可解析 |
+| 3 环境 | `agentDir` 真可写、`models.json` 真读得到模型（走库自己的 `inspectEnv`） |
+| 4–5 起 agent | 拿到 `agent.id` 与当前模型；一轮 `io.prompt` 的 `text` 非空、`error` 为空 |
+| 6 工具 | 一个工具的**执行体**真被模型调过（计数器 +1）——`tools.list()` 里有它**不**算数，那只说明声明在 |
+| 7 覆盖面 | 七个面各自至少一次读写，能读回状态的都读回校验 |
 
-挂了不会静默：行首是 `✘`，后面跟原因，退出码 1，并提示跑 `npm run demo:env` 单独体检环境。
-凭证找不到也不静默：`demo/env/auth.json` 优先 → 其次自动从 `~/.pi/agent/auth.json` 拷一份 → 都没有就报错并给出两条路（照 `auth.json.example` 手写，或设 `OPENCODE_API_KEY`）。细节见 [`demo/README.md`](demo/README.md)。
+挂了不会静默：行首是 `✘`，后面跟原始错误 + 三个最可能原因与怎么补，退出码 1。失败信息走 stderr、通过信息走 stdout。
+`demo/env/agent/` 与 `demo/work/` 都是**可再生的产物**，删掉重跑即可重建。
+每一项在检查什么、怎么读失败输出，见 [`demo/README.md`](demo/README.md)。
 
 改这个库的人另一个免费保险是 `npm test`：114 项测试走本机假 provider，零 API 成本，不碰真模型。
 
@@ -175,7 +121,7 @@ npm install
 ```bash
 npm test            # 114 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
-npm run demo        # 真模型端到端：自建环境 → 集群（要凭证、要花钱，约 $0.003）
+node demo/check.ts  # 七项安装自检，不需要 key，全程离线
 ```
 
 `npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），把 `AITEAM_AGENT_DIR` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
@@ -203,7 +149,7 @@ npm run demo        # 真模型端到端：自建环境 → 集群（要凭证�
 1. **L1 不做 SDK 已经做了的事。** 加功能前先确认 pi SDK 里没有等价物 —— `node_modules/@earendil-works/pi-coding-agent/docs/` 是第一手资料。
 2. **只说实测过的。** 任何「已实现 / 已修复」都要配一个能跑出结果的检查：`npm test` 里的一条断言、`examples/` 下某个文件的实际输出，或 `node demo/check.ts` 的一项。
 3. **类型不重定义。** `Skill` / `ToolDefinition` / `AgentSession` / `Message` / `Usage` / `ThinkingLevel` 一律从 pi 的包 import。
-4. **唯一创建入口。** 不加第二条造 agent 的路径（`host.createAgent()` 之类）；不给 agent 提权面（`spawn_agent` 永远不许加 `tools`）。
+4. **唯一创建入口。** 不加第二条造 agent 的路径（`host.createAgent()` 之类）；库不给 agent 附带任何提权工具——委派、收窄工具集都是使用者代码，见 `examples/10-spawn.ts` 与 `examples/11-redline.ts`。
 5. **接口变了就同步三份文档**：`DESIGN.md`（接口与现状）→ `FACTS.md`（带编号的决策与理由）→ `GUIDE.md`（怎么用）。
 
 ### 加一个测试
@@ -305,11 +251,12 @@ Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fi
 
 ## 现状
 
-库做过一轮能力与极限的实测审计（约 50 个探测脚本、600+ 条实测项、约 400 次真实模型调用）：
+**下面四条是 v1 时期一轮能力与极限审计的结论（约 50 个探测脚本、600+ 条实测项、约 400 次真实模型调用）。**
+机制层的坏的在 v2 已修；「配置层静默失效」是仍在根除的课题，v2 的对策是**不静默**：写错的模型名抛错、非法思考档抛错、加载不出技能的路径抛错、钩子异常转成带前缀的 `console.error`。
 
 - **机制层可靠**：钩子、工具通道、事件、`abort`、`dispose`、子进程并发，测下来基本没有坏的。
 - **配置层不可靠而且静默**：写错一个字段名就能把功能关掉、把工具集清空、把审批门废掉，全程零信号。
-- **归属层不可靠而且静默**：`RunResult` 不跟调用绑定，重叠投递下会把别人的答案给你——**包括 `spawn_agent`**。
+- **归属层不可靠而且静默**（**v2 已修**）：v1 的 `RunResult` 不跟调用绑定，重叠投递下会把别人的答案给你——**包括 `spawn_agent`**。v2 的 `RunResult` **与调用绑定**：`io.prompt` 起手时同步记下消息下标，各自持自己的区间，并发投递不会串台（`src/surfaces/io.ts`）。
 - **长跑状态层**：上下文超限会让分身永久静默返回空；预算对主要成本来源是盲的；回收不还配额。
 
 细节与复现脚本见 [`docs/research/`](docs/research/)。

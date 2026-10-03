@@ -129,7 +129,7 @@ export function createBridge(deps: {
    * 规则 4 是本库自己的取舍：桥接是 pi 的**单个**扩展，每个监听器拿到的都是原始事件，
    * 无法复刻 pi 跨扩展的链式传递（pi 里后一个 handler 能看到前一个处理后的结果）。
    * 若照搬 last-wins，先返回的那个监听器的工作会被后一个**静默覆盖** —— 正是 v2 要根除的失效模式。
-   * 所以同一事件只允许一个监听器返回变换结果；拦截走专属槽位（permissions.gate / tools.onResult / context.override）。
+   * 所以同一事件只允许一个监听器返回变换结果；拦截走专属槽位（permissions.gate / context.override）。
    *
    * 专属槽位（R26）**排在监听表之前**取用，并把 `hasResult` 预置成 true —— 也就是计入**同一个**守卫：
    * 设了 `context.override` 之后，用户再 `on("context", …)` 返回变换就会抛下面这个错，而不是静默只生效一个。

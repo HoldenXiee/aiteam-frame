@@ -155,7 +155,8 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
 
 export interface PermissionsDeps {
   session: AgentSession;
-  /** 审批门槽位（与 override / onResult 并列的专属槽位）+ 声明面重载 */
+  /** 审批门槽位（与 context.override 并列的专属槽位）+ 声明面重载。`onResult` **不是**槽位：它是在
+   *  `tool_result` 事件上注册的普通监听器（`bridge.listeners` 的同一个 Set），可多次注册、按注册顺序派发 */
   bridge: Pick<Bridge, "gate" | "reload">;
   /** 忙判据（R29）：与 bridge.reload / tools 面共用同一份定义 */
   isBusy: () => boolean;
