@@ -1,4 +1,4 @@
-// 用量累加。RunResult.usage 是「本次」，ControlledAgent.usage / AgentHost.usage 是「累计」。
+// 用量累加。RunResult.usage 是「本次」，Agent.usage 是「累计」。
 import type { Usage } from "./types.ts";
 
 export function emptyUsage(): Usage {

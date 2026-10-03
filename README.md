@@ -48,7 +48,7 @@ my-pi/
 ```
 
 `inspectEnv(spec)` 把这套环境里**实际生效**的东西摊平给你看：`models`（只列配好凭证的 provider）/ `extensions`（路径、来源、它注册了哪些工具名）/ `skills` / `contextFiles`（跟着 `cwd` 走的上下文文件链）/ `warnings`（目录不存在、没有 `models.json`、扩展加载失败、`SYSTEM.md` 会整体替换提示词…）。
-跑法见 [`examples/06-resources.ts`](examples/06-resources.ts) 与 `demo/check.ts` 第 3 项。
+跑法见 `demo/check.ts` 第 3 项。
 
 模型目录默认允许联网刷新（`modelNetwork`，pi.dev 的 overlay，缓存在 `<agentDir>/models-store.json`，4 小时新鲜度窗口）。`PI_OFFLINE=1` 关掉一切模型网络请求。
 
@@ -97,7 +97,7 @@ PI_OFFLINE=1 node demo/agent-team.ts # 多 agent 协作写一份报告（同一�
 | 6 工具 | 一个工具的**执行体**真被模型调过（计数器 +1）——`tools.list()` 里有它**不**算数，那只说明声明在 |
 | 7 覆盖面 | 七个面各自至少一次读写，能读回状态的都读回校验 |
 
-挂了不会静默：行首是 `✘`，后面跟原始错误 + 三个最可能原因与怎么补，退出码 1。失败信息走 stderr、通过信息走 stdout。
+挂了不会静默：该项行尾打 `… 失败`，下一段跟原始错误（含栈）+ 三个最可能原因与怎么补，退出码 1。失败信息走 stderr、通过信息走 stdout。
 `demo/env/agent/` 与 `demo/work/` 都是**可再生的产物**，删掉重跑即可重建。
 每一项在检查什么、怎么读失败输出，见 [`demo/README.md`](demo/README.md)。
 

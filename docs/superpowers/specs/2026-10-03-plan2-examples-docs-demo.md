@@ -2,7 +2,7 @@
 
 **状态**：已批准（2026-10-03）
 **日期**：2026-10-03
-**上游**：[v2 核心规格](2026-10-02-runtime-surfaces-design.md)（rev.8，R1–R48）、[v2 核心计划](../plans/2026-10-02-aiteam-v2-core.md)（已完成）
+**上游**：[v2 核心规格](2026-10-02-runtime-surfaces-design.md)（rev.7，R1–R48）、[v2 核心计划](../plans/2026-10-02-aiteam-v2-core.md)（已完成）
 
 ---
 

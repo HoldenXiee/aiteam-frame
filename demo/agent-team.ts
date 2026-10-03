@@ -471,7 +471,7 @@ async function main(): Promise<void> {
       // io 面：queue 把第二问排进队列（此刻空闲 ⇒ 它起一轮但不等；结果靠 waitIdle 收）
       // 要检验这条，改成 X 再跑：让 queue 落在**忙**的时刻 —— 先 `const flying = agent.io.prompt("[[sleep:300]] …")`
       //（不等它），紧接着 `await agent.io.queue(第二问)`，看第二问是并进当前这一次运行还是另起一轮；
-      // 两种情况下都得 waitIdle，否则 call 会掲「忙时不能改声明面」。
+      // 两种情况下都得 waitIdle，否则 call 会撞「忙时不能改声明面」。
       await agent.io.queue(
         `检索线 ${round} 第二问：按标签补一轮，然后把采信的记进黑板。\n` +
           `[[call:search_by_tag {"tag":"${line.tag}"}]] [[call:note {"ids":${JSON.stringify(line.ids)}}]]`,

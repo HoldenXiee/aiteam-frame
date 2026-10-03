@@ -172,7 +172,7 @@ export function createBridge(deps: {
         throw new Error(
           `事件「${name}」上已有监听器返回了变换结果；` +
             "桥接无法像 pi 跨扩展那样链式传递，所以同一事件只允许一个监听器返回变换结果。" +
-            "要拦截请用专属槽位（permissions.gate / tools.onResult / context.override）",
+            "要拦截请用专属槽位（permissions.gate / context.override）",
         );
       }
       result = returned;

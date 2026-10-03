@@ -115,7 +115,7 @@ console.log(`    真起了几个子 agent：${children.length}`);
 
 agent.dispose();
 for (const child of children) child.dispose();
-console.log("\n要检验这条假设：把上面 `红线段` 里那段 if 守卫（extras 检查）整段注释掉再跑。");
+console.log("\n要检验这条假设：把上面 `红线守卫` 那段 if（extras 检查）整段注释掉再跑。");
 console.log("第 [2] 步就会直接起子 agent，而 createAgent 里那两行故意留的洞（model / tools 透传）会把模型要的");
 console.log("配置当真 —— 你会看到子 agent 的实际请求变成 model=echo-alt、工具声明=[bash]（不是 read）。");
 console.log("那就是「agent 自己设计 agent」的后果：配置企图从『被明确拒绝』变成『真的生效』。");

@@ -1,8 +1,8 @@
 # aiteam v2 —— 运行期操控面设计规格
 
-- 状态：**待实现**（本文是 v2 的唯一宏观设计源）
+- 状态：**已实现**（本文是 v2 的**规格**；现行宏观设计源是 [`docs/DESIGN.md`](../../DESIGN.md)，由本文派生）
 - 日期：2026-10-02（rev.7：任务 6 — R41「显式声明一定生效」：创建期把 `tools.custom` 与 `spec.extensions` 显式声明的扩展工具并入白名单；环境自动发现的扩展不并入。`only` 的「精确」因此有了确定边界）
-- 关系：本规格是 v2 的宏观设计源。v1 的 [`docs/DESIGN.md`](../../DESIGN.md) 归档为历史与对照（`docs/archive/DESIGN-v1.md`），新 `docs/DESIGN.md` 由本规格派生
+- 关系：本规格是 v2 的规格来源（不是现行设计源）。v1 的 [`docs/DESIGN.md`](../../DESIGN.md) 归档为历史与对照（`docs/archive/DESIGN-v1.md`），现行 `docs/DESIGN.md` 由本规格派生
 - 路径：架构级（brainstorming → 本规格 → writing-plans）
 
 ---
@@ -159,8 +159,8 @@ tools.add / tools.remove / extensions.add / skills.add
 1. 同一事件上的多个 handler 按注册顺序执行；跨扩展的顺序 = 扩展工厂的注册顺序。
 2. **跨扩展**：返回变换结果时链式传递（后一个扩展看到前一个处理后的结果）；返回**假值**（`undefined` / `null` / `0` / `''`）**不覆盖**前一个的有效结果（pi 用真值判据 `if (handlerResult)`）；返回 `{block:true}` **短路**（后续 handler 与其他扩展都收不到）。
 3. **桥接内部**（库自己的派发器，它是 pi 的**单个**扩展，所以 pi 的跨扩展机制在这里不生效）：监听器按注册顺序执行、拿到的是**原始事件**（**不复刻**链式）；合并规则照搬 pi 的 **last-wins**——最后一个非空结果生效，判据是真值（与 pi 逐字一致）。
-4. 因为桥接无法复刻链式，**同一个事件上只允许一个监听器返回变换结果**：第二个非 `undefined` 的返回值**抛错**，不静默丢弃前一个监听器的结果（静默丢弃正是本项目要消灭的失效模式）。要拦截就走专属槽位（`permissions.gate` / `tools.onResult` / `context.override`）。
-5. **槽位与监听表的关系（R26）**：专属槽位（`gate` / `contextOverride` / `onResult`）**排在监听表之前**生效，且**槽位的结果计入同一个「已有非空结果」守卫**——所以「设了 `context.override`，又用 `on("context")` 返回变换」会**抛错**，而不是静默地只生效一个。槽位排前面还有一条硬理由：`permissions.gate` 必须抢在用户监听器之前，才能保证「拦住之后 `on("tool_call")` 不被调用」。
+4. 因为桥接无法复刻链式，**同一个事件上只允许一个监听器返回变换结果**：第二个非 `undefined` 的返回值**抛错**，不静默丢弃前一个监听器的结果（静默丢弃正是本项目要消灭的失效模式）。要拦截就走专属槽位（`permissions.gate` / `context.override`）。
+5. **槽位与监听表的关系（R26）**：专属槽位（`gate` / `contextOverride`）**排在监听表之前**生效，且**槽位的结果计入同一个「已有非空结果」守卫**——所以「设了 `context.override`，又用 `on("context")` 返回变换」会**抛错**，而不是静默地只生效一个。槽位排前面还有一条硬理由：`permissions.gate` 必须抢在用户监听器之前，才能保证「拦住之后 `on("tool_call")` 不被调用」。
 6. 库的桥接扩展是**第一个**注册的工厂，所以 `permissions.gate` 天然排在用户后加的扩展之前；`gate` 一旦拦住（`block` 短路），用户的 `on("tool_call")` **不会知道发生过这件事**——文档要明说。
 
 ---

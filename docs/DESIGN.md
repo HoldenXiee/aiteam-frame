@@ -3,7 +3,7 @@
 - 状态：**现行**（本文是唯一的宏观设计源）
 - 版本：**v2**。v1 归档在 [`archive/DESIGN-v1.md`](archive/DESIGN-v1.md)
 - 日期：2026-10-03
-- 来源：本文由 [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md)（文件头标 **rev.7**；R1–R48 裁决，其中一部分是执行期追加的、只存在于仓外账本）派生；裁决全文与「代价若错」见计划 1 账本与规格 §11
+- 来源：本文由 [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md)（文件头标 **rev.7**；规格里有全文的裁决是 R17 / R25 / R26 / R34 / R35 / R37 / R38 / R41 / R43，其余见仓外执行账本）派生；裁决全文与「代价若错」见计划 1 账本与规格 §11
 - 面向：**设计者**（写代码用这个库的人）。用法讲解见 [`GUIDE.md`](GUIDE.md)，已实测的 pi 事实见 [`FACTS.md`](FACTS.md)
 
 ---
@@ -182,7 +182,7 @@ pi 的 `reload()` 是**重载**而不是增量：丢旧 runner（全部扩展工
 
 **为什么桥接不能复刻 pi 的链式传递，于是选择抛错**：pi 里跨扩展返回变换结果时会**链式传递**（后一个扩展看到前一个处理后的结果）。但桥接是 pi 的**单个**扩展，pi 的跨扩展机制在它内部不生效——两个监听器都返回变换结果时，后者会覆盖前者，**前者做的活被静默丢弃**。本库的取舍是：宁可拒绝这种组合，也不静默丢一半。
 
-**R47：非对象的真值（number / string / boolean / bigint）直接抛错，不当变换结果**（R47 全文见执行账本，仓外）。 危险写法是 `agent.on("before_provider_request", (e) => arr.push(e))` —— 一行箭头函数想收集事件，实际返回的是数组长度。
+**R47：非对象的真值（number / string / boolean / bigint）直接抛错，不当变换结果**（全文与依据见 [`FACTS.md`](FACTS.md) v2 段 #25）。 危险写法是 `agent.on("before_provider_request", (e) => arr.push(e))` —— 一行箭头函数想收集事件，实际返回的是数组长度。
 
 `arr.push` 返回数字（真值）⇒ 被当成变换结果 ⇒ pi 的 `before_provider_request` 对任何非 undefined 返回**整体替换 payload** ⇒ 请求里 0 条消息 ⇒ pi 静默重试 ⇒ **空文本、耗时 14 秒、没有任何报错**（探针实测 14265ms、provider 被调 4 次，`FACTS.md` #25）。pi 全部 `handlerResult` 消费点都解构对象字段，**没有任何事件接受非对象变换结果**；pi 自己只对 `user_bash` 做形状校验、对 `before_provider_request` 不设防。所以这一层守卫由库补上，错误文案直接给出正确写法（写块体）。**真值判据本身没改**——改成「非 undefined」会与 pi 分叉。
 
@@ -313,8 +313,8 @@ L2  你的代码 —— 花名册、委派、护栏、红线等一切策略
 | 查某个行为「为什么是这样」 | [`docs/FACTS.md`](FACTS.md)（已实测核对的 pi 事实）→ 本文相关节 → [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md) |
 | 看 v1 长什么样 | [`docs/archive/DESIGN-v1.md`](archive/DESIGN-v1.md) |
 
-本文里凡是关于**库行为**的断言，仓内可查的出处是：[v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md) 的 §1 / §3 / §4 / §5 / §6 / §9、§11（R41 / R43 等在规格里有全文的裁决），以及 [`docs/FACTS.md`](FACTS.md) 的 v2 段实测事实 #1–#26。
+本文里凡是关于**库行为**的断言，仓内可查的出处是：[v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md) 的 §1 / §3 / §4 / §5 / §6 / §9、§11（R41 / R43 等在规格里有全文的裁决），以及 [`docs/FACTS.md`](FACTS.md) 的 v2 段实测事实 #1–#26，另加 v1 §7 表的 #30–#32（`modelNetwork` / `inspectEnv` / `PI_OFFLINE`，对 v2 仍适用）。
 
-**R 裁决的完整文本与「代价若错」记在执行账本里，它在仓外 `.superpowers/` 下、不入库**——本文提到的 R29 / R44 / R47 / R48 在仓内查不到全文，其行为以 `src/surfaces/` 的实现与 `test/` 的用例为准。**这里宁可承认「全文在仓外」，也不指向一份没有这些编号、或口径相反的文件；漂移的出处比没有出处更坏。**
+**R 裁决的完整文本与「代价若错」记在执行账本里，它在仓外 `.superpowers/` 下、不入库**——本文提到的 R29 / R44 / R48 在仓内查不到全文，其行为以 `src/surfaces/` 的实现与 `test/` 的用例为准。**这里宁可承认「全文在仓外」，也不指向一份没有这些编号、或口径相反的文件；漂移的出处比没有出处更坏。**
 
 **没有出处的断言不该出现在这里。**
