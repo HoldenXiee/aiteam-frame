@@ -110,7 +110,7 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
     [检索员-1] 采信：C1、C2
     [检索员-2] 第一问命中：C2、C3、C4、C5、C6
     [检索员-2] 采信：C3、C4、C5、C6
-    context 钩子实测（会话里的条数 → 经 override 真发出去的条数）：
+    context 钩子实测（pi 交给 override 的条数 → 它返回、真发出去的条数）：
       检索员-1  1 → 1
       检索员-1  3 → 3
       检索员-1  5 → 1  ← 裁掉了
@@ -127,14 +127,14 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
     审批门：看过 6 次调用，拦下 1 次
     被拦后模型读到的是：echo:写作员不许做这类会抹掉别人成果的操作；要清空黑板请改设计者代码，不要在会话里试
 [5] 汇总：报告由代码拼（黑板 + 语料），写到 demo/work/report.md
-    D:\space\aiteam\test\demo\work\report.md：93 行；采信语料 6 条；黑板流水 16 条
+    D:\space\aiteam\test\demo\work\report.md：91 行；采信语料 6 条；黑板流水 16 条
 [6] 自证：七个面各自被调用了几次（数据来自计数代理，不是手写的数字）
     io            9  █████████
     context       2  ██
     tools         1  █
     permissions   1  █
-    extensions    5  █████
-    skills        5  █████
+    extensions    1  █
+    skills        2  ██
     model         2  ██
     七面全部 ≥ 1 ✓
 

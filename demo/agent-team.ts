@@ -11,7 +11,8 @@
 // `[[call:…]]` 是给它的指令，它自己只会回 `echo:<原文截断>`，不会写字。所以：
 //   - 报告里的**每一句话都由本文件的代码拼出**（`writeReport()`：黑板 + 语料）；
 //   - 「模型」在这里负责的是**调用顺序与取舍**（查什么、采信哪几条、报告分几节），它们经工具参数
-//     落进黑板，再由代码兑现成文。想让它真的写字：换真模型（`demo/env.ts` 顶部两行 + 下面的 model
+//     落进黑板，再由代码兑现成文 —— 所以下面那些「取舍」是脚本转录的，不是模型判断的。
+//     想让它真的写字：换真模型（`demo/env.ts` 顶部两行 + 下面的 model
 //     ref），并把 `writeReport()` 里「按 id 取语料正文」换成「取模型写的段落」；
 //   - 每一步 prompt 里那些 `[[…]]` 是**假 provider 的脚本约定**，不是提示词写法示范。
 //
@@ -290,12 +291,16 @@ const tally: Record<SurfaceName, number> = {
 };
 
 /**
- * 自证表的唯一数据来源：给七个面各套一层计数代理，对它们的**任何方法调用**都记一笔。
+ * 自证表的唯一数据来源：给七个面各套一层计数代理，对它们的**写和方法调用**记一笔。
  *
  * 为什么用代理而不是在每个调用点旁边手写 `++`：手写的计数会跟调用点一起漂移（漏写一处就是一条
- * 假证据），代理漏不了 —— 把某次调用删掉，这一项立刻变 0，自证表就会红。
- * 读数（`io.pending` / `model.current`）不算「调用」，所以不进表；写与动作都算。
+ * 假证据），代理漏不了 —— 把某次写删掉，这一项立刻变 0，自证表就会红。
+ * 口径：**读数不算**。两类读数都得排除，否则「这一面出场过」会退化成「读到过它」：
+ *   - 属性读数（`io.pending` / `model.current`）本来就进不来（下面 `typeof value !== "function"` 拦掉）；
+ *   - 方法读数（`skills.list()` / `extensions.errors()`）是方法、会被计一笔，所以必须点名排除（`READS`）。
  */
+const READS = new Set(["list", "errors"]); // 两个面上现有的读数方法
+
 function watch(agent: Agent): Agent {
   for (const name of SURFACES) {
     const surface = agent[name] as unknown as object;
@@ -303,8 +308,9 @@ function watch(agent: Agent): Agent {
       get(target, prop) {
         const value = Reflect.get(target, prop) as unknown;
         if (typeof value !== "function") return value;
+        const reading = READS.has(String(prop)); // 读数：照原样转发，不计数
         return (...args: unknown[]) => {
-          tally[name] += 1;
+          if (!reading) tally[name] += 1;
           return (value as (...inner: unknown[]) => unknown).apply(target, args);
         };
       },
@@ -318,8 +324,10 @@ function watch(agent: Agent): Agent {
 
 /**
  * 「几个 agent」就是这个数组的长度。两条检索线 = 两个分身（同一个成员的实例）。
- * 要检验这条，改成 X 再跑：把这条数组减到 1 条（只留检索员-1）—— 报告里采信的语料会变少、
- * 后面「三、分工与装载」那一节会空掉；反过来加成 3 条（再写一条检索线），看报告是否更全。
+ * 要检验这条，改成 X 再跑：把这条数组减到 1 条（只留检索员-1）—— 采信语料缩到 C1、C2，
+ * 「三、分工与装载」那一节的三条会逐条印成「—— 采信：(没人采信)」（正文照印，因为正文是代码
+ * 按 id 从语料取的），账表里「大纲里引用了但没人采信的 id」会列出 C3、C4、C5、C6；
+ * 反过来加成 3 条（再写一条检索线），看报告是否更全。
  */
 interface ResearchLine {
   name: string;
@@ -337,14 +345,20 @@ const RESEARCH_LINES: ResearchLine[] = [
  * context 面的策略：只发「最后一条 user 之后的内容」。起点永远是 user，所以不会把 assistant 的
  * tool_call 与它的 tool 结果拆开（拆开会让下一轮带着孤儿 tool 结果出门）。
  * 要检验这条，改成 X 再跑：改成 `(messages) => messages.slice(-2)`（可能把 tool 结果和它的
- * tool_call 拆开），或直接不装 override（发送量变回全量）—— 判据是下面打印的那行「context 钩子实测」。
+ * tool_call 拆开），或直接不装 override —— 判据是下面那张「context 钩子实测」表：不装 override
+ * 它就是空的（表里的数字是在 override 回调里、由 pi 用真实那一批调出来的，不是我们自己另算一遍）。
  */
 function squeeze(messages: AgentMessage[]): AgentMessage[] {
   const lastUser = messages.map((message) => message.role).lastIndexOf("user");
   return lastUser <= 0 ? messages : messages.slice(lastUser);
 }
 
-/** 每个检索分身每轮真的发出去几条（context 钩子实测；不是我们自己的账，是 pi 那边发出来的形状） */
+/**
+ * 每个检索分身每轮：pi 交给 override 的条数（raw）→ override 返回、真发出去的条数（sent）。
+ * 记录写在 **override 回调内部**（见 startResearcher）。不能写在 `on("context")` 监听器里 —— 那是
+ * 循环论证：src/agent/bridge.ts 把**原始** event 交给监听器，override 的结果另走一条路回给 pi，
+ * 监听器看不到裁剪后的那批，于是「装了 override 是全量、没装也是全量」，零判别力。
+ */
 const contextSamples: { who: string; raw: number; sent: number }[] = [];
 
 interface Started {
@@ -372,11 +386,12 @@ async function startResearcher(line: ResearchLine): Promise<Started> {
       context: { autoCompact: false }, // 这个分身的上下文由 override 管，不要自动压缩掺一脚
     }),
   );
-  // context 面（运行期写）
-  agent.context.override(squeeze);
-  // 观测：不是七个面之一，但它是「override 真的生效了吗」的判据
-  agent.on("context", (event) => {
-    contextSamples.push({ who: line.name, raw: event.messages.length, sent: squeeze(event.messages).length });
+  // context 面（运行期写）+ 它的判据：记录写在回调内部，pi 用**真实那一批**调它。
+  // 不装 override ⇒ 这张表一条都没有（所以「去掉 override」这个实验才看得出来）。
+  agent.context.override((messages) => {
+    const out = squeeze(messages);
+    contextSamples.push({ who: line.name, raw: messages.length, sent: out.length });
+    return out;
   });
   // skills 面（运行期写）：上线前领一张检索规范。
   // 要检验这条，改成 X 再跑：把 `skills.add` 换成创建期的 `skills: [路径]` 声明 —— 效果一样；
@@ -469,10 +484,14 @@ async function main(): Promise<void> {
     }
     console.log(`    [${agent.id}] 采信：${line.ids.join("、")}`);
   }
-  console.log(`    context 钩子实测（会话里的条数 → 经 override 真发出去的条数）：`);
-  for (const sample of contextSamples) {
-    const trimmed = sample.raw > sample.sent ? "  ← 裁掉了" : "";
-    console.log(`      ${sample.who}  ${sample.raw} → ${sample.sent}${trimmed}`);
+  if (contextSamples.length) {
+    console.log(`    context 钩子实测（pi 交给 override 的条数 → 它返回、真发出去的条数）：`);
+    for (const sample of contextSamples) {
+      const trimmed = sample.raw > sample.sent ? "  ← 裁掉了" : "";
+      console.log(`      ${sample.who}  ${sample.raw} → ${sample.sent}${trimmed}`);
+    }
+  } else {
+    console.log(`    context 钩子实测：（空）—— 检索分身没装 override，没有一批被裁（这就是去掉它时的形状）`);
   }
 
   console.log("[4] 写作阶段：便宜的检索 → 强的写作");
@@ -480,7 +499,7 @@ async function main(): Promise<void> {
   await writer.model.set(FAUX_MODEL_ALT_REF); // model 面（运行期写）
   writer.model.setThinking("high");
   console.log(`    model 面：${modelBefore} → ${writer.model.current?.id}/${writer.model.thinking}`);
-  // 要检验这条，改成 X 再跑：把下面 setThinking 那行删掉 —— 报告「这次协作的账」里写作员的档位会回到
+  // 要检验这条，改成 X 再跑：把上面 setThinking 那行删掉 —— 报告「这次协作的账」里写作员的档位会回到
   // off（那一行是按实际状态读的），其余流程一模一样：档位影响的是模型怎么想，不是流程怎么走。
   const extBefore = writer.extensions.list().length;
   await writer.extensions.add(citeCheckExtension("写作员")); // extensions 面（运行期写）
@@ -510,7 +529,8 @@ async function main(): Promise<void> {
   const cite = await writer.io.prompt(
     '定稿前查一遍引用。\n[[tool:cite_check]] [[args:{"ids":["C1","C3","C9"]}]]',
   );
-  console.log(`    cite_check（运行期扩展注册的工具真跑了）：${oneLine(cite.text)}`);
+  const citeRan = entryOfKind("cite_check").length > 0; // 它真跑了才会在黑板上留下一笔（那一笔是工具自己写的）
+  console.log(`    cite_check（${citeRan ? "运行期扩展注册的工具真跑了" : "没跑起来 —— 运行期扩展没生效"}）：${oneLine(cite.text)}`);
   const attempt = await writer.io.prompt('黑板有点乱，试着清掉它。\n[[tool:clear_blackboard]] [[args:{"reason":"看不清了"}]]');
   const blocked = entryOfKind("gate").filter((entry) => entry.verdict === "拦下");
   console.log(`    审批门：看过 ${entryOfKind("gate").length} 次调用，拦下 ${blocked.length} 次`);
@@ -518,7 +538,7 @@ async function main(): Promise<void> {
 
   console.log("[5] 汇总：报告由代码拼（黑板 + 语料），写到 demo/work/report.md");
   const report = writeReport(tally);
-  console.log(`    ${reportPath}：${report.split("\n").length} 行；采信语料 ${new Set(notes().flatMap((n) => n.ids)).size} 条；黑板流水 ${entries.length} 条`);
+  console.log(`    ${reportPath}：${report.trimEnd().split("\n").length} 行；采信语料 ${new Set(notes().flatMap((n) => n.ids)).size} 条；黑板流水 ${entries.length} 条`);
 
   console.log("[6] 自证：七个面各自被调用了几次（数据来自计数代理，不是手写的数字）");
   const ok = selfCheck();
@@ -591,11 +611,10 @@ function writeReport(counts: Record<SurfaceName, number>): string {
     }
   }
 
-  out.push("## 附一：七面各被调用了几次（demo 自证）", "", "| 面 | 次数 |", "|---|---|");
+  out.push("## 附一：七面各被调用了几次（demo 自证；数据来自计数代理，不是手写的数字）", "", "| 面 | 次数 |", "|---|---|");
   for (const name of SURFACES) out.push(`| \`${name}\` | ${counts[name]} |`);
   out.push("", "## 附二：黑板流水（这次协作的每一笔）", "");
   for (const entry of entries) out.push(`- #${entry.seq} ${entry.who} · ${entry.kind} · ${JSON.stringify(rest(entry))}`);
-  out.push("");
 
   const text = `${out.join("\n")}\n`;
   writeFileSync(reportPath, text);
