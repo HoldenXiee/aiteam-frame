@@ -106,10 +106,17 @@ export function createIo(deps: IoDeps): IoSurface {
   }
 
   return {
+    // R48：与其余六个面统一——dispose 之后**一切**都不可再用（含读数与 raw 逃生口）。
+    // 原先只有 pending / isRunning / raw 三个漏了守卫，成了「七分之六遵守、一个面例外」的隐形不对称；
+    // 读数在 dispose 后不会炸（返回陈旧值），但「能用」本身就是误导：调用方无从判断读到的是不是死值。
+    // 唯一的例外是 waitIdle（已回收的 agent 永远「已静下来」，v1 决策 #21）——那是有注释的例外，
+    // 而这三个当时没有。
     get pending() {
+      deps.assertAlive();
       return session.pendingMessageCount;
     },
     get isRunning() {
+      deps.assertAlive();
       return isRunning();
     },
     prompt: (text, opts) => run(text, opts, nextRunId()),
@@ -150,6 +157,8 @@ export function createIo(deps: IoDeps): IoSurface {
       // session 静下来 ≠ 库这边的运行都已收尾（finally 里还要清 runId / 状态）；等它们真的结算完
       while (inFlight.size > 0) await Promise.all([...inFlight]);
     },
-    raw: session,
-  };
+    get raw() {
+      deps.assertAlive();
+      return session;
+    },  };
 }

@@ -187,3 +187,69 @@ test("R47 对照：块体写法（什么都不返回）不受影响", async () =
     a.dispose();
   }
 });
+
+// R48：dispose 之后**七个面一律不可再用**。
+// 原先只有 io / context / model 三个面有 dispose 用例，另四个面（tools / permissions /
+// extensions / skills）的实现里有 assertAlive 却没人钉；而 io 自己还漏了 pending / isRunning / raw
+// 三个成员——正是这类「七分之六遵守」的隐形不对称，只有把七个面放进**同一张表**里扫一遍才看得见。
+// 表驱动的意义：新增一个面成员时，忘记守卫会让它在这里红，而不是等使用者踩到。
+test("R48：dispose 之后七个面的每个成员都拒绝使用（唯一的例外是 io.waitIdle）", async () => {
+  const a = await makeAgent();
+  a.dispose();
+  const probes: Record<string, () => unknown> = {
+    "io.pending": () => a.io.pending,
+    "io.isRunning": () => a.io.isRunning,
+    "io.raw": () => a.io.raw,
+    "io.prompt": () => a.io.prompt("x"),
+    "io.queue": () => a.io.queue("x"),
+    "io.steer": () => a.io.steer("x"),
+    "io.abort": () => a.io.abort(),
+    "context.history": () => a.context.history,
+    "context.usage": () => a.context.usage,
+    "context.override": () => a.context.override(() => []),
+    "context.compact": () => a.context.compact(),
+    "context.raw": () => a.context.raw,
+    "tools.list": () => a.tools.list(),
+    "tools.add": () => a.tools.add({ name: "x", description: "x", parameters: {}, execute: async () => ({}) } as never),
+    "tools.remove": () => a.tools.remove("x"),
+    "tools.onResult": () => a.tools.onResult(() => undefined),
+    "tools.raw": () => a.tools.raw,
+    "permissions.gate": () => a.permissions.gate(async () => undefined),
+    "permissions.only": () => a.permissions.only(["read"]),
+    "permissions.allow": () => a.permissions.allow(["read"]),
+    "permissions.deny": () => a.permissions.deny(["read"]),
+    "extensions.list": () => a.extensions.list(),
+    "extensions.errors": () => a.extensions.errors(),
+    "extensions.add": () => a.extensions.add({ path: "x", factory: () => {} } as never),
+    "extensions.remove": () => a.extensions.remove("x"),
+    "extensions.raw": () => a.extensions.raw,
+    "skills.list": () => a.skills.list(),
+    "skills.add": () => a.skills.add("/nope"),
+    "skills.remove": () => a.skills.remove("/nope"),
+    "skills.raw": () => a.skills.raw,
+    "model.current": () => a.model.current,
+    "model.thinking": () => a.model.thinking,
+    "model.available": () => a.model.available,
+    "model.set": () => a.model.set("faux/echo"),
+    "model.setThinking": () => a.model.setThinking("off"),
+    "model.raw": () => a.model.raw,
+    "agent.on": () => a.on("turn_start", () => {}),
+  };
+  // 表里刻意**没有** permissions.raw 与 agent.session：契约里根本没有这两个成员
+  // （`PermissionsSurface` 只有 gate/allow/deny/only；`Agent` 只有 session，且它是构造期就定下的引用，
+  //  不是面成员）。第一次跑这张表时它们报「仍可用」——那是我的用例把契约记错了，
+  //  **不是**实现漏了守卫。这条也说明表驱动扫描的价值：它把「我以为的成员」和「契约里的成员」对齐。
+  const leaked: string[] = [];
+  for (const [label, probe] of Object.entries(probes)) {
+    try {
+      await probe();
+      leaked.push(label);      // 没抛 = 这个成员在 dispose 后还能用
+    } catch {
+      /* 预期：拒绝 */
+    }
+  }
+  assert.deepEqual(leaked, [], `dispose 之后仍然可用的成员（应当都拒绝）：${JSON.stringify(leaked)}`);
+  // 有注释的那个例外：已回收的 agent 永远「已静下来」，不抛、直接 resolve（v1 决策 #21）
+  await a.io.waitIdle();
+});
+
