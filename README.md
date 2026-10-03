@@ -6,6 +6,9 @@
 
 理想是一个 agent 身上的每个面都能被设计者的代码操控；v2 里**机制层已经补齐**（七个面，逐面见 [`docs/GUIDE.md`](docs/GUIDE.md)），**策略层刻意留空**。完整的操控面清单与对外接口见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
+> **第一次接手这个项目？** 读 [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md)——30 分钟跑起来、看懂、开始研究。
+> **只想验证这台机器能不能跑？** `npm install && node demo/check.ts`（一条命令，不需要 key）。
+
 ## 核心模型
 
 下面三样是 **v1 当作「库的功能」的东西，v2 全部移出了库**——它们现在是**使用者代码**，写在哪、要不要做，都是你的决定：
@@ -77,6 +80,22 @@ PI_OFFLINE=1 node demo/agent-team.ts # 多 agent 协作写一份报告（同一�
 
 `demo/` 是一份**安装自检**：自带本机假 provider，不读本机 pi 的设置 ——
 所以**别人没装 pi 也能跑**，跑通就说明这个库在他那儿是好的。
+
+### 换成真模型（可选，默认免费档）
+
+两种模式**同一个 demo、同一套流程**，差别只在 provider：
+
+```bash
+AITEAM_DEMO_REAL=1 node demo/check.ts        # 安装自检走真模型
+AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
+```
+
+- 默认模型是 **`opencode-go/space-bunny-free`（免费档）**；换别的：`AITEAM_DEMO_MODEL=provider/id`。
+- **凭证不会被复制**：真模式直接把 `agentDir` 指向宿主的 `~/.pi/agent`，密钥始终留在你自己那里。
+- 提示词会有两套说法（假 provider 靠 `[[tool:…]]` 脚本指令、真模型说人话）——那是**唯一**的分叉点，
+  流程完全一致，所以「换真模型」检验的是模型，不是被改写的流程。
+- **真模型下有两处实测差异**（见 [`demo/README.md`](demo/README.md)）：审批门可能一次都没机会拦
+  （模型读了 `role` 里的边界就自己拒绝了——软约束先于硬约束生效）；模型可能自行增删小节。
 
 ### 运行结果的标准
 
@@ -284,6 +303,7 @@ docs/           设计文档 + 用法讲解
 ## 文档
 
 - [`AGENTS.md`](AGENTS.md) —— 项目是什么（快速全貌）
+- [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) —— **使用指导**：第一次接手的人从哪开始（环境、自检、示例、改哪儿、三条纪律）
 - [`docs/GUIDE.md`](docs/GUIDE.md) —— **用法讲解**：先跑起来、创建、结算、七个面、观测、要求空闲的动作、环境自检、raw 逃生口（代码引用 `examples/lib/snippets.ts` 的同源片段）
 - [`docs/DESIGN.md`](docs/DESIGN.md) —— 宏观设计（唯一设计源）：操控面理想与现状、对外接口、能力边界
 - [`docs/FACTS.md`](docs/FACTS.md) —— 已实测核对的实现决策

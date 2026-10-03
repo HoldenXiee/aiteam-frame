@@ -156,8 +156,8 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
 1. **报告里的每一句话都是代码拼的，不是「模型」写的。** 假 provider 只会回 `echo:<原文截断>`，所以
    `agent-team.ts` 里那些 `[[tool:…]]` / `[[call:…]]` 是**给假 provider 的脚本指令**（约定见
    `examples/lib/faux-server.ts` 顶部），「模型」负责的是调用顺序与取舍（查什么、采信哪几条、分几节），
-   报告正文由代码按 id 从语料取值。要让它真的写字：换真模型 + 把 `writeReport()` 里「按 id 取语料正文」
-   换成「取模型写的段落」（该文件头部写了改法）。
+   报告正文由代码按 id 从语料取值。要让它真的写字：`AITEAM_DEMO_REAL=1` + 把 `writeReport()` 里「按 id 取语料正文」
+   换成「取模型写的段落」（见下面「换成真模型」一节与 `agent-team.ts` 头部的改法）。
 2. **它是一个可改造的起点，不是推荐架构。** 「几个 agent、怎么分工、要不要护栏、审批门拦什么」
    全是使用者代码，每一处设计决策旁边都有一行「要检验这条，改成 X 再跑」——具体到能照着改、改完重跑就能看结果。
    例：把 `RESEARCH_LINES` 减到 1 条、把审批门的判据改成只拦 `rm_`、把写作员的 `permissions.only` 删掉。
@@ -176,9 +176,46 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
 demo **不读**它们（自检用的 `agentDir` 是子目录 `demo/env/agent/`），它们也只是被 gitignore 排除，不会进仓库。
 要清理请自行删除，别把它们的内容贴进任何地方。
 
-## 想用真模型
+## 换成真模型（一个环境变量）
 
-自检与 `agent-team` 的存在意义就是离线可复现，所以它们钉死了假 provider（`demo/env.ts` 里 `PI_OFFLINE=1` + `modelNetwork:false`）。
-想接真模型：改 `demo/env.ts` 的 `writeModelsJson` 调用与 `process.env.PI_OFFLINE` 那一行，
-再把 `demo/check.ts` 第 4 项与 `demo/agent-team.ts` 里的 model ref 换成 `<provider>/<id>`（并想清楚报告正文由谁来写）。
+**两种模式跑的是同一份 demo、同一套流程**，差别只在 provider：
+
+```bash
+AITEAM_DEMO_REAL=1 node demo/check.ts        # 安装自检走真模型
+AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
+```
+
+| 环境变量 | 作用 | 默认 |
+|---|---|---|
+| `AITEAM_DEMO_REAL=1` | 切到真模型（宿主 `~/.pi/agent` 的凭证） | 关（用本机假 provider） |
+| `AITEAM_DEMO_MODEL` | 真模型用哪个 | `opencode-go/space-bunny-free`（免费档） |
+| `PI_AGENT_DIR` | 真模式下换 agentDir | `~/.pi/agent` |
+
+**凭证不会被复制**：真模式直接把 `agentDir` 指向宿主的 `~/.pi/agent`，密钥始终留在你自己那里，demo 不写任何本地凭证文件。
+
+### 提示词的两套说法
+
+假 provider **只会照脚本回话**，所以要靠 `[[tool:…]]` / `[[call:…]]` 指令告诉它调哪个工具；真模型得说人话。
+这个分叉点在 `demo/agent-team.ts` 的 `ask(fauxText, realText)` 一处收口——**流程（谁先跑、哪一步升档、门拦什么）两边完全一样**，
+所以「换真模型」检验的是**模型**，不是被改写的流程。
+
+### ⚠️ 真模型下两处实测差异（不是 bug，是真发现）
+
+**1. 审批门可能一次都没机会拦。** 真模型读了 `role` 里的边界（「不动黑板」），**自己在会话里就拒绝了**，
+压根没调 `clear_blackboard`——于是「拦下 0 次」不是门坏了，而是**护栏顺序**这件事变得可观察了：
+
+- `role` 里的边界是**软约束**（靠模型配合）；
+- `permissions.gate` 是**硬约束**（靠代码，模型不配合也拦得住）。
+
+想看到门真的拦下：把 `role` 里的「不动黑板」删掉再跑。`agent-team.ts` 在真模式遇到「拦下 0 次」时会打印这条提示。
+
+**2. 模型可能自行增删小节。** 你要求三节，它可能给你五节——真模型比假 provider 灵活。
+`draft_section` 是**留痕**，所以提示词在真模式下说死「每一节都要调一次工具」（否则它直接在回复里写，黑板没留痕、大纲一行是空的——实测踩到过）。
+
+### 报告正文由谁来写
+
+假 provider 不会写字，所以 `writeReport()` 是**按 id 从语料取值**拼出报告正文的。
+真模型会写字，但 `writeReport()` 仍走同一条路（保证两种模式产物可比）——想让它用模型写的段落，
+改 `writeReport()` 里那一段（该文件头部写了改法）。
+
 各面怎么用见 `examples/`（`01-first-agent.ts` 起，每个文件演示一件事）。

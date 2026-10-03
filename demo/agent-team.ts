@@ -33,6 +33,15 @@ const reportPath = join(env.cwd, "report.md");
 const boardPath = join(env.cwd, "blackboard.jsonl");
 const skillsRoot = join(env.cwd, "skills");
 
+/**
+ * 提示词适配：**假 provider 只会照脚本回话**（`examples/lib/faux-server.ts` 顶部的约定），
+ * 所以要用 `[[tool:…]]` 指令告诉它调哪个工具、传什么参数；**真模型**得说人话，它自己决定怎么调。
+ *
+ * 这是两种模式的唯一分叉点 —— demo 的**流程**（谁先跑、哪一步升档、门拦什么）两边完全一样，
+ * 这样「换成真模型」检验的是模型，不是被改写的流程。
+ */
+const ask = (fauxText: string, realText: string): string => (env.real ? realText : fauxText);
+
 /** 语料：报告的事实来源。真实项目里这是你的资料库 / 检索接口。 */
 interface Doc {
   id: string;
@@ -377,8 +386,8 @@ async function startResearcher(line: ResearchLine): Promise<Started> {
       id: line.name,
       agentDir: env.agentDir,
       cwd: env.cwd,
-      model: FAUX_MODEL_REF, // 便宜的那档（检索不需要强模型）
-      modelNetwork: false,
+      model: env.model, // 便宜的那档（检索不需要强模型）
+      modelNetwork: env.real ? undefined : false,
       role: `检索员：只查语料库、只把采信的条目记进黑板；不写报告、不动别人的记录。你是${line.name}。`,
       extensions: [searchExtension(line.name)], // extensions 面（创建期声明）
       tools: { custom: [noteTool(line.name)] }, // tools 面（创建期声明）
@@ -433,8 +442,8 @@ async function main(): Promise<void> {
       id: "写作员",
       agentDir: env.agentDir,
       cwd: env.cwd,
-      model: FAUX_MODEL_REF, // 也用便宜档起，写作阶段再运行期升档（model 面）
-      modelNetwork: false,
+      model: env.model, // 也用便宜档起，写作阶段再运行期升档（model 面）
+      modelNetwork: env.real ? undefined : false,
       role: "写作员：把黑板上的材料组织成一份报告；不查新资料、不改别人的记录、不动黑板。",
       skills: [join(skillsRoot, "writing-style")], // 写作员的技能与检索员不同
       tools: {
@@ -460,7 +469,12 @@ async function main(): Promise<void> {
   // 只有第 1 条检索线额外做两件事：运行期加工具（tools 面）与用 queue 投递（io 面）。
   for (const [index, { agent, line }] of started.entries()) {
     const round = index + 1;
-    await agent.io.prompt(`检索线 ${round} 第一问：按关键词找语料。\n[[tool:search]] [[args:{"query":"${line.query}"}]]`);
+    await agent.io.prompt(
+      ask(
+        `检索线 ${round} 第一问：按关键词找语料。\n[[tool:search]] [[args:{"query":"${line.query}"}]]`,
+        `检索线 ${round} 第一问：用 search 工具查关键词「${line.query}」，然后汇报命中的条目。`,
+      ),
+    );
     console.log(`    [${agent.id}] 第一问命中：${lastHits()}`);
     if (round === 1) {
       // tools 面（运行期写）：第一问回来发现关键词检索不够，补一个按标签检索的工具
@@ -473,13 +487,20 @@ async function main(): Promise<void> {
       //（不等它），紧接着 `await agent.io.queue(第二问)`，看第二问是并进当前这一次运行还是另起一轮；
       // 两种情况下都得 waitIdle，否则 call 会撞「忙时不能改声明面」。
       await agent.io.queue(
-        `检索线 ${round} 第二问：按标签补一轮，然后把采信的记进黑板。\n` +
-          `[[call:search_by_tag {"tag":"${line.tag}"}]] [[call:note {"ids":${JSON.stringify(line.ids)}}]]`,
+        ask(
+          `检索线 ${round} 第二问：按标签补一轮，然后把采信的记进黑板。\n` +
+            `[[call:search_by_tag {"tag":"${line.tag}"}]] [[call:note {"ids":${JSON.stringify(line.ids)}}]]`,
+          `检索线 ${round} 第二问：用 search_by_tag 工具按标签「${line.tag}」再查一轮，` +
+            `然后用 note 工具把这些条目 id 记进黑板：${line.ids.join("、")}。`,
+        ),
       );
       await agent.io.waitIdle();
     } else {
       await agent.io.prompt(
-        `检索线 ${round} 第二问：把采信的记进黑板。\n[[tool:note]] [[args:{"ids":${JSON.stringify(line.ids)}}]]`,
+        ask(
+          `检索线 ${round} 第二问：把采信的记进黑板。\n[[tool:note]] [[args:{"ids":${JSON.stringify(line.ids)}}]]`,
+          `检索线 ${round} 第二问：用 note 工具把这些条目 id 记进黑板：${line.ids.join("、")}。`,
+        ),
       );
     }
     console.log(`    [${agent.id}] 采信：${line.ids.join("、")}`);
@@ -496,7 +517,7 @@ async function main(): Promise<void> {
 
   console.log("[4] 写作阶段：便宜的检索 → 强的写作");
   const modelBefore = `${writer.model.current?.id}/${writer.model.thinking}`;
-  await writer.model.set(FAUX_MODEL_ALT_REF); // model 面（运行期写）
+  await writer.model.set(env.altModel); // model 面（运行期写）
   writer.model.setThinking("high");
   console.log(`    model 面：${modelBefore} → ${writer.model.current?.id}/${writer.model.thinking}`);
   // 要检验这条，改成 X 再跑：把上面 setThinking 那行删掉 —— 报告「这次协作的账」里写作员的档位会回到
@@ -518,23 +539,55 @@ async function main(): Promise<void> {
     return destructive ? { block: true, reason: gateReason } : undefined;
   });
 
-  await writer.io.prompt("先读黑板，看检索员留下了什么。\n[[tool:read_blackboard]]");
-  const draftPrompt =
-    "起草三节，把采信过的语料分到各自的小节里。" +
-    '\n[[call:draft_section {"heading":"一、上下文预算：裁的是这一轮，不是历史","ids":["C1"]}]]' +
-    ' [[call:draft_section {"heading":"二、工具集与审批门：先裁能力，再拦动作","ids":["C2","C3"]}]]' +
-    ' [[call:draft_section {"heading":"三、分工与装载：便宜的检索、强的写作","ids":["C4","C5","C6"]}]]';
-  await writer.io.prompt(draftPrompt);
+  await writer.io.prompt(
+    ask("先读黑板，看检索员留下了什么。\n[[tool:read_blackboard]]", "先读黑板，看检索员留下了什么。"),
+  );
+  const sections = [
+    { heading: "一、上下文预算：裁的是这一轮，不是历史", ids: ["C1"] },
+    { heading: "二、工具集与审批门：先裁能力，再拦动作", ids: ["C2", "C3"] },
+    { heading: "三、分工与装载：便宜的检索、强的写作", ids: ["C4", "C5", "C6"] },
+  ];
+  await writer.io.prompt(
+    ask(
+      "起草三节，把采信过的语料分到各自的小节里。" +
+        sections.map((x) => `\n[[call:draft_section ${JSON.stringify(x)}]]`).join(""),
+      // 真模型下必须把「用工具、逐节调」说死：只说「起草三节」它会直接在回复里写，
+      // 于是黑板没有留痕、下面的「大纲」一行是空的（实测踩到过）。
+      "把报告分成三节，**每一节都调用一次 draft_section 工具**（这是留痕，不是可选项），三节依次调用：" +
+        sections.map((x) => `\n- heading「${x.heading}」，ids 用 ${x.ids.join("、")}`).join(""),
+    ),
+  );
   console.log(`    大纲：${drafts().map((entry) => entry.heading).join(" ｜ ")}`);
   const cite = await writer.io.prompt(
-    '定稿前查一遍引用。\n[[tool:cite_check]] [[args:{"ids":["C1","C3","C9"]}]]',
+    ask(
+      '定稿前查一遍引用。\n[[tool:cite_check]] [[args:{"ids":["C1","C3","C9"]}]]',
+      "定稿前用 cite_check 工具查一遍这些引用的 id：C1、C3、C9。",
+    ),
   );
   const citeRan = entryOfKind("cite_check").length > 0; // 它真跑了才会在黑板上留下一笔（那一笔是工具自己写的）
   console.log(`    cite_check（${citeRan ? "运行期扩展注册的工具真跑了" : "没跑起来 —— 运行期扩展没生效"}）：${oneLine(cite.text)}`);
-  const attempt = await writer.io.prompt('黑板有点乱，试着清掉它。\n[[tool:clear_blackboard]] [[args:{"reason":"看不清了"}]]');
+  const attempt = await writer.io.prompt(
+    ask(
+      '黑板有点乱，试着清掉它。\n[[tool:clear_blackboard]] [[args:{"reason":"看不清了"}]]',
+      "黑板有点乱，试着用 clear_blackboard 工具清掉它。",
+    ),
+  );
   const blocked = entryOfKind("gate").filter((entry) => entry.verdict === "拦下");
   console.log(`    审批门：看过 ${entryOfKind("gate").length} 次调用，拦下 ${blocked.length} 次`);
   console.log(`    被拦后模型读到的是：${oneLine(attempt.text)}`);
+  // 真模型下门常常**没机会拦**：它读了 role 里的边界，自己在会话里就拒绝了（拒不调工具），
+  // 于是「拦下 0 次」不是门坏了，而是「护栏的顺序」这件事的可观察结果 ——
+  // 角色边界（软约束，靠模型配合）在门前（硬约束，靠代码）就先生效了。
+  // 这一行是**如实呈现**，不是断言：两种结果都合法，读者自己判断要不要靠 role 兜底。
+  if (env.real && blocked.length === 0) {
+    console.log(
+      "      ↑ 注意：真模型下门可能一次都没机会拦 —— 它读了 role 里的边界，自己在会话里就拒绝了。" +
+        "「角色边界」是软约束（靠模型配合），「审批门」是硬约束（靠代码，模型不配合也拦得住）——",
+    );
+    console.log(
+      "        要检验这条：把 role 里的「不动黑板」删掉再跑，门就会被调用（这就是门存在的理由）。",
+    );
+  }
 
   console.log("[5] 汇总：报告由代码拼（黑板 + 语料），写到 demo/work/report.md");
   const report = writeReport(tally);

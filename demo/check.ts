@@ -147,6 +147,24 @@ async function main(): Promise<void> {
         if (readBack !== "ok") throw new Error(`写进 ${probePath} 又读回来不是 ok：${JSON.stringify(readBack)}`);
         // 模型可读：走库自己的 inspectEnv（与 createAgent 同一套 loader / ModelRuntime）
         const report = await inspectEnv({ agentDir: env.agentDir, cwd: env.cwd, modelNetwork: false });
+        if (env.real) {
+          // 真模型模式：不假设 provider 叫什么，直接找 env.model 那一项
+          const [provider, id] = env.model.split("/");
+          const group = report.models.find((g) => g.provider === provider);
+          if (!group || !group.available.includes(id!)) {
+            throw new Error(
+              `读不到 ${env.model}：providers=${report.models.map((g) => `${g.provider}(${g.available.length})`).join("、")}` +
+                ` warnings=${report.warnings.join("；") || "无"}`,
+            );
+          }
+          return {
+            detail: `agentDir 可写；宿主凭证下读到 ${env.model}`,
+            evidence: [
+              `agentDir=${env.agentDir}（宿主默认，凭证未复制）`,
+              `${provider}: ${group.available.length} 个可用，含 ${id}`,
+            ],
+          };
+        }
         const group = report.models.find((g) => g.provider === FAUX_PROVIDER);
         if (!group || !group.available.includes(FAUX_MODEL_ID)) {
           throw new Error(
@@ -175,8 +193,8 @@ async function main(): Promise<void> {
           id: "demo-check",
           agentDir: env.agentDir,
           cwd: env.cwd,
-          model: FAUX_MODEL_REF,
-          modelNetwork: false, // 离线是默认，不是运气
+          model: env.model,
+          modelNetwork: env.real ? undefined : false, // 假模式离线是默认；真模式才需要联网
           context: { autoCompact: false },
           tools: { custom: [probeTool] },
         });
@@ -184,7 +202,11 @@ async function main(): Promise<void> {
         return {
           // tools.list() 只列**运行期 add** 的工具；创建期 tools.custom 走 pi 的 customTools，不在里面
           detail: `id=${me.id}，model=${me.model.current?.id}/${me.model.thinking}`,
-          evidence: [`agentDir=${env.agentDir}`, `cwd=${env.cwd}`, `假 provider=${env.baseUrl}`],
+          evidence: [
+            `agentDir=${env.agentDir}`,
+            `cwd=${env.cwd}`,
+            env.real ? `真模型（凭证来自宿主 ~/.pi）` : `假 provider=${env.baseUrl}`,
+          ],
         };
       },
       hints: [
@@ -197,7 +219,7 @@ async function main(): Promise<void> {
       name: "一轮 io.prompt 拿到非空文本",
       run: async () => {
         const me = requireAgent();
-        const result = await me.io.prompt("自检第 5 项：请回一句话");
+        const result = await me.io.prompt("自检第 5 项：请回一句话（任意内容即可）");
         if (result.error) throw new Error(`这一轮报错（pi 接受后失败不 reject，只写进 result.error）：${result.error}`);
         if (!result.text.trim()) throw new Error(`RunResult.text 是空的：${JSON.stringify(result.text)}`);
         return {
@@ -215,8 +237,13 @@ async function main(): Promise<void> {
       name: "工具真被模型执行",
       run: async () => {
         const me = requireAgent();
+        const env = await ensureEnv();
         const before = probeCalls;
-        const result = await me.io.prompt('[[tool:demo_probe]] [[args:{"text":"自检工具链"}]]');
+        // 假 provider 靠提示词里的指令脚本调工具；真模型要自然语言（它会自己决定调）
+        const ask = env.real
+          ? "请调用 demo_probe 工具，把 text 参数设为「自检工具链」，然后告诉我它回了什么。"
+          : '[[tool:demo_probe]] [[args:{"text":"自检工具链"}]]';
+        const result = await me.io.prompt(ask);
         if (result.error) throw new Error(`这一轮报错：${result.error}`);
         const ran = probeCalls - before;
         if (ran < 1) {
@@ -235,9 +262,9 @@ async function main(): Promise<void> {
         };
       },
       hints: [
-        '假 provider 的脚本约定没生效：提示里的 `[[tool:demo_probe]] [[args:{"text":"..."}]]` 被改动过 ⇒ 原样恢复（约定见 examples/lib/faux-server.ts 顶部）',
-        "工具没进模型声明（白名单挡了 / `tools.custom` 没生效）⇒ 看这一项上面打印的「pi 注册表里有它的定义」那一行",
-        "工具名对不上（代码里叫 demo_probe，检查里写成别的）⇒ 让两处同名",
+        "模型没选择调用工具（真模型下可能只是不肯调）⇒ 重跑一次；仍不动就换 AITEAM_DEMO_MODEL 指向更擅长工具调用的模型",
+        '（仅假模式）脚本约定没生效：提示里的 `[[tool:demo_probe]] [[args:{"text":"..."}]]` 被改动过 ⇒ 原样恢复（约定见 examples/lib/faux-server.ts 顶部）',
+        "工具没进模型声明（白名单挡了 / `tools.custom` 没生效 / 名字对不上）⇒ 看上面打印的「pi 注册表里有它的定义」那一行",
       ],
     },
     {
@@ -290,13 +317,21 @@ async function main(): Promise<void> {
         // model：读 current / thinking / available，写 set + setThinking（读回），再还原
         const modelBefore = `${me.model.current?.id}/${me.model.thinking}`;
         const availableCount = me.model.available.length;
-        await me.model.set(FAUX_MODEL_ALT_REF); // 换到 reasoning:true 的那个模型
-        me.model.setThinking("high"); // 只有 echo-alt 有这个合法档
-        if (me.model.thinking !== "high") throw new Error(`setThinking("high") 之后读回来是 ${me.model.thinking}`);
-        await me.model.set(FAUX_MODEL_REF);
-        me.model.setThinking("off");
+        // 档位必须从**这个模型实际支持的**里面挑，不能写死。
+        // 实测差异：假模型 echo 只支持 off，而 space-bunny-free 支持 low/medium/high/xhigh/max —— **没有 off**。
+        // （写死 "off" 会让真模式的自检失败，而且失败在「库的 setThinking 太严」这个错误结论上。）
+        const levels = me.model.raw.session.getAvailableThinkingLevels();
+        const pickLevel = levels.includes("high") ? "high" : levels[levels.length - 1]!;
+        await me.model.set(env.altModel); // 假模式换到 reasoning:true 的那个；真模式是同一个
+        me.model.setThinking(pickLevel);
+        if (me.model.thinking !== pickLevel) {
+          throw new Error(`setThinking("${pickLevel}") 之后读回来是 ${me.model.thinking}（可用：${levels.join("、")}）`);
+        }
+        await me.model.set(env.model);
+        const backLevel = me.model.raw.session.getAvailableThinkingLevels()[0]!;
+        me.model.setThinking(backLevel);
         surfaces.push(
-          `model（读 current=${modelBefore}、thinking、available=${availableCount} 个；写 set=echo-alt + setThinking=high，再还原为 ${me.model.current?.id}/${me.model.thinking}）`,
+          `model（读 current=${modelBefore}、thinking、available=${availableCount} 个；写 set=${env.altModel.split("/")[1]} + setThinking=${pickLevel}，再还原为 ${me.model.current?.id}/${me.model.thinking}）`,
         );
 
         // extensions：读 list + errors，写 add 一个内联扩展（再读回来确认多了一个）
@@ -374,8 +409,8 @@ async function main(): Promise<void> {
         return { detail: `${surfaces.length} 个面各至少一次读写`, evidence: surfaces };
       },
       hints: [
-        "`compact` 抛的是 busy 而不是「Nothing to compact」⇒ 有别的轮次在飞：先 `await io.waitIdle()` 再做（queue/steer 之后别漏等）",
-        "`only` / `allow` / `deny` 抛 busy ⇒ 同上；它们要碰工具声明面（reload），必须在空闲时调用",
+        "思考档不被支持 ⇒ 这一项现在会自动挑该模型支持的档；仍失败就打印可用档位与模型 id 对照着看",
+        "`compact` / `only` / `allow` / `deny` 抛 busy ⇒ 有别的轮次在飞：先 `await io.waitIdle()` 再做（queue/steer 之后别漏等）",
         "某个面的方法签名对不上（pi 版本变了）⇒ 装回 0.99.1，并对照 examples/01-08 里同一个面的写法",
       ],
     },
