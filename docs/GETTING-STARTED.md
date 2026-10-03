@@ -72,7 +72,8 @@ AITEAM_DEMO_REAL=1 node demo/check.ts     # 用宿主 ~/.pi/agent 的真实凭�
 
 默认用 `opencode-go/space-bunny-free`（免费）。想换别的：`AITEAM_DEMO_MODEL=provider/id`。
 
-**凭证不会被复制**：真模式直接把 `agentDir` 指向你宿主的 `~/.pi/agent`，密钥始终留在你自己那里。
+**demo 用它自己的 key**（`demo/env/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
+之所以强调这点：最初真模式直接指宿主目录，而 pi 的 auth 存储是**读-改-写整个 `auth.json`**，实测把宿主另外两个 provider 的凭证抹掉了。改过两次才对，细节见 `demo/README.md`。
 
 ---
 

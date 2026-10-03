@@ -91,7 +91,7 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 ```
 
 - 默认模型是 **`opencode-go/space-bunny-free`（免费档）**；换别的：`AITEAM_DEMO_MODEL=provider/id`。
-- **凭证不会被复制**：真模式直接把 `agentDir` 指向宿主的 `~/.pi/agent`，密钥始终留在你自己那里。
+- **demo 用它自己的 key**（`demo/env/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**——宿主凭证跑完逐字节不变（实测）。换 key：写进 `demo/env/auth.json` 或 `AITEAM_DEMO_AUTH=/path/to/auth.json`。
 - 提示词会有两套说法（假 provider 靠 `[[tool:…]]` 脚本指令、真模型说人话）——那是**唯一**的分叉点，
   流程完全一致，所以「换真模型」检验的是模型，不是被改写的流程。
 - **真模型下有两处实测差异**（见 [`demo/README.md`](demo/README.md)）：审批门可能一次都没机会拦

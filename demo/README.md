@@ -170,6 +170,8 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
 | `demo/check.ts` | 这个自检 | 进 |
 | `demo/agent-team.ts` | 完整例子：多 agent 协作写报告（七面全出场 + 自证表） | 进 |
 | `demo/env/agent/` | 自检产物：`models.json`（假 provider，`apiKey` 是写死的 `"faux-key"`） | 不进（`.gitignore`） |
+| `demo/env/real-agent/` | 真模式的 agentDir（凭证**副本**，pi 会对它读改写，所以不能是原件） | 不进（`.gitignore`） |
+| `demo/env/auth.json` | **demo 自己的**凭证（与宿主无关）。没有它 `AITEAM_DEMO_REAL=1` 会明确报错 | 不进（`.gitignore`） |
 | `demo/work/` | agent 的工作目录与产物落点：`report.md` / `blackboard.jsonl` / `skills/` | 不进（`.gitignore`） |
 
 `demo/env/` 下还有两份 v1 遗留文件（`auth.json` 含**真实 API 密钥**、`models-store.json` 是旧结构缓存）。
@@ -189,9 +191,21 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 |---|---|---|
 | `AITEAM_DEMO_REAL=1` | 切到真模型（宿主 `~/.pi/agent` 的凭证） | 关（用本机假 provider） |
 | `AITEAM_DEMO_MODEL` | 真模型用哪个 | `opencode-go/space-bunny-free`（免费档） |
-| `PI_AGENT_DIR` | 真模式下换 agentDir | `~/.pi/agent` |
+| `AITEAM_DEMO_AUTH` | 真模式用哪份凭证 | `demo/env/auth.json`（demo 自己的，gitignored） |
 
-**凭证不会被复制**：真模式直接把 `agentDir` 指向宿主的 `~/.pi/agent`，密钥始终留在你自己那里，demo 不写任何本地凭证文件。
+**demo 用它自己的 key**（`demo/env/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
+
+> ⚠️ 这一条反着改过两次，每次都是真事故：
+> 1. 最初真模式直接指宿主目录（理由「不复制密钥」）⇒ **pi 的 auth 存储是读-改-写整个 `auth.json`**
+>    （`auth-storage.js` 的 `withLock` 会把 `fn(current)` 出的完整 `next` 整文件写回，
+>    且 `ensureFileExists()` 在每次 withLock 里都先建文件）。实测跑一次，宿主从
+>    `{opencode-go, openrouter, opencode}` 被重写成只剩 `{opencode-go}`——**另外两个 provider 的凭证被抹掉**。
+> 2. 改成「复制宿主凭证」⇒ 不再破坏宿主了，但仍**不符合 demo 的定位**：
+>    跑 demo 会烧**你自己的**额度、用**你本机 pi 的账号**，与 demo 要演示的东西无关。
+>
+> 现在：真模式用 `demo/env/auth.json`（demo 自己的免费账号），宿主目录**一个字节都不碰**。
+> 想换成自己的 key：写进 `demo/env/auth.json`，或 `AITEAM_DEMO_AUTH=/path/to/auth.json`。
+> **别指向宿主**——见上面第 1 条。
 
 ### 提示词的两套说法
 
