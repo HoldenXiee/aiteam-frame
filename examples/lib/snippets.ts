@@ -161,13 +161,16 @@ export async function toolsAdd(agent: Agent): Promise<string[]> {
 /**
  * 「工具真的进了给模型的声明」怎么看 —— 先起、后加、再看下一轮。
  *
- * 这个顺序**不是讲究，是必要条件**：faux 走的 `openai-completions` 的 `compat` 里
- * `supportsMidConvoToolAdditions` 默认是 **false**，于是 pi 的 `resolveTranscriptTools` 走
- * 「发当前累积的全集」那一支（`getCurrentTools`：遍历**所有** system 消息的 `toolsAdded` 累加）。
- * 而建会话那次请求的 system 消息里**本来就带着**创建期的工具声明（`toolsAdded`）—— 所以创建期
- * 工具是**每一轮都在**的，不会掉。真正会掉的是同名的**重声明**：涨到某个点时 pi 走不进
- * `anchorsAdditions` 分支（`hasNonAdditiveToolChanges` 判同名字出现过就返真），请求里就只剩初始
- * `toolsAdded`、运行期加的统统消失。别把工具换名重加 —— 那个坑只在重声明时出现。
+ * 这个顺序**是必要条件，不是绕开某个坑**：faux 走的 `openai-completions` 默认
+ * `supportsMidConvoToolAdditions: false`，于是 pi 的 `resolveTranscriptTools` 恒走
+ * 「发当前累积的全集」那一支（`requestTools = getCurrentTools(messages)`：按序应用每条
+ * system 消息的 `toolsAdded` / `toolsRemoved`）。创建期工具在**建会话那条 system 消息**里
+ * 就声明过，所以每一轮都在全集里，不会掉；运行期 `add` 的工具也会被 loader 的
+ * `declareToolChanges`（每次请求前重算 `getToolStateChanges` 差异）补进声明——同名重声明
+ * 也一样（实测：重声明前后各发一轮，线上声明都是
+ * `["read","bash","edit","write","probe_echo"]`，没有消失）。
+ * 所以「先起、后加、再看下一轮」是唯一能证明 add 真上了线的看法：创建期的工具不加也在，
+ * 看到它说明不了 add 做了什么。
  */
 // #snippet tools.addThenInspect
 export async function toolsAddThenInspect(agent: Agent, sentTools: () => string[]): Promise<string[]> {

@@ -122,7 +122,8 @@ function respond(res: ServerResponse, payload: any, lastUser: string): void {
         ? [{ name: single, args: toolArgs }]
         : [];
   const huge = Number(pick(lastUser, /\[\[huge:(\d+)\]\]/) ?? 0);
-  // 工具结果回来后，就当作「模型读到了工具输出」—— 回显**本条回复里所有**工具结果的内容
+  // 工具结果回来后，就当作「模型读到了工具输出」—— 回显**本条回复里所有**工具结果的内容，
+  // 这样主持人汇总、转发类形态的文本流向才能被观察到
   const trailingResults: string[] = [];
   for (let i = messages.length - 1; i >= 0 && messages[i]?.role === "tool"; i--) {
     trailingResults.unshift(textOfContent(messages[i].content));
