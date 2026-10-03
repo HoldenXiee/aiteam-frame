@@ -20,10 +20,12 @@ import type { Agent, AgentTool } from "../src/index.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, FAUX_PROVIDER } from "../examples/lib/faux-models.ts";
 import { ensureEnv } from "./env.ts";
 
-/** 本仓库钉住的 pi 版本（package.json 的 `^0.99.1`）；示例与文档都按它写 */
+/**
+ * 期望的 pi 版本：这里用**精确等值**（===）比较。期望值来自本仓 `package-lock.json` 钉住的
+ * 0.99.1（package.json 声明的是 `^0.99.1`，将来合法升级会让这一项红）——
+ * **升级 pi 时同步改这一个常量**（就一行）。
+ */
 const PI_VERSION = "0.99.1";
-/** 原生执行 .ts 默认开启的最低 Node（v22.18+ 与 v23.6+） */
-const MIN_NODE = { major: 22, minor: 18 };
 
 interface StepResult {
   /** 拼进「通过（…）」里的证据，一句话 */
@@ -95,11 +97,16 @@ async function main(): Promise<void> {
       run: () => {
         const version = process.versions.node;
         const [major, minor] = version.split(".").map(Number);
-        if (major < MIN_NODE.major || (major === MIN_NODE.major && minor < MIN_NODE.minor)) {
+        // 免开关原生执行 .ts 的最低版本：v22.18+、v23.6+（v24+ 都行）。v23.0–23.5 与 v22.6–22.17
+        // 一样没默认开剥类型 —— 判据必须把这两个区间的低 minor 也挡掉，不能只判 major。
+        if (major < 22 || (major === 22 && minor < 18) || (major === 23 && minor < 6)) {
           throw new Error(`Node v${version} 太旧：免开关原生执行 .ts 需要 v22.18+ / v23.6+`);
         }
         // 这条 if 能执行到，本身就是「.ts 被 node 原生执行了」的证据
-        return { detail: `v${version}` };
+        return {
+          detail: `v${version}`,
+          evidence: [`node=${process.execPath}`],
+        };
       },
       hints: [
         "`node --version` 低于 v22.18（或 v23 系列低于 v23.6）⇒ 去 https://nodejs.org 装新的 LTS，重开终端再跑",
@@ -117,12 +124,15 @@ async function main(): Promise<void> {
         if (version !== PI_VERSION) {
           throw new Error(`装的是 ${version ?? "(package.json 里读不到 version)"}，本仓库钉的是 ${PI_VERSION}（读自 ${pkgPath}）`);
         }
-        return { detail: version };
+        return {
+          detail: version,
+          evidence: [`入口=${entry}`],
+        };
       },
       hints: [
         "依赖还没装 ⇒ 在仓库根目录跑 `npm install`（按 package-lock.json 会装回 0.99.1）",
         "装的是别的版本（`npm ls @earendil-works/pi-coding-agent`）⇒ `npm install @earendil-works/pi-coding-agent@0.99.1`",
-        "node_modules 是别的 Node / 别的包管理器装出来的 ⇒ 删掉 node_modules 再 `npm install`，不要混用 npm 与 pnpm",
+        "你是**故意**升级了 pi（package.json / lock 都跟着变了）⇒ 这一项是精确等值：改 `demo/check.ts` 顶部 `PI_VERSION` 常量（就一行）",
       ],
     },
     {
@@ -260,7 +270,9 @@ async function main(): Promise<void> {
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (!message.includes("Nothing to compact")) throw err; // 别的错误照抛
-          // 会话太小、没东西可压 —— pi 的预期行为，按通过算，但要说出来
+          // 会话太小、没东西可压 —— pi 的预期行为，按通过算，但要说出来。
+          // 注意：这里验的是 compact 在**太小的会话上**的正常路径，「真把历史压短」没被验到
+          // （examples/03 用 `[[huge:200000]]` 撑大历史验那条）。自检不塞 200KB 假文本是刻意的。
           compactNote = `compact：会话太小、无需压缩（${message}）—— 正常路径`;
         }
         surfaces.push(
@@ -322,9 +334,12 @@ async function main(): Promise<void> {
         }
         surfaces.push(`skills（读 list=${skillsBefore} 个；写 add=${skillName}（真 SKILL.md）→ ${me.skills.list().length} 个）`);
 
-        // permissions：写 gate（并让它真被调用一次）+ only / allow / deny 各一次，都用 tools.list() 读回。
-        // 读回用 demo_probe_extra：**只有运行期 add 的工具才在 tools.list() 里**（创建期 tools.custom 走
-        // pi 的 customTools，不在那张表上），所以要有一个能读回状态的工具。
+        // permissions：写 gate（并让它真被调用一次）+ only / allow / deny 各一次。
+        // deny / allow 用 tools.list() 读回 demo_probe_extra：**只有运行期 add 的工具才在 tools.list() 里**
+        // （创建期 tools.custom 走 pi 的 customTools，不在那张表上），所以要有一个能读回状态的工具。
+        // only 那档**不能**这么读回：demo_probe_extra 是上面 tools.add 显式激活的（add 本身就把它并进
+        // 活跃集），only 就算是彻底的 no-op 它也照样 active —— 那条断言恒绿、不判别。only 是「精确就是
+        // 这些」的那一档（白名单硬过滤），验的是**别的工具消失了**：reload 后活跃集应当只剩点名的那几个。
         me.permissions.gate(async (call) => {
           gateCalls += 1;
           void call;
@@ -332,8 +347,11 @@ async function main(): Promise<void> {
         });
         const isExtraActive = () => me.tools.list().some((t) => t.name === "demo_probe_extra" && t.active);
         await me.permissions.only(["demo_probe_extra"]);
-        if (!isExtraActive()) {
-          throw new Error(`only(["demo_probe_extra"]) 之后它不是 active：${JSON.stringify(me.tools.list())}`);
+        const onlyActive = [...me.io.raw.getActiveToolNames()].sort();
+        if (onlyActive.length !== 1 || onlyActive[0] !== "demo_probe_extra") {
+          throw new Error(
+            `only(["demo_probe_extra"]) 之后活跃集应只剩 demo_probe_extra，实际 ${JSON.stringify(onlyActive)}`,
+          );
         }
         await me.permissions.deny(["demo_probe_extra"]);
         if (isExtraActive()) {
@@ -344,11 +362,14 @@ async function main(): Promise<void> {
           throw new Error(`allow(["demo_probe_extra"]) 之后它仍不是 active：${JSON.stringify(me.tools.list())}`);
         }
         const gateBefore = gateCalls;
-        await me.io.prompt("[[tool:demo_probe_extra]]");
+        const gateResult = await me.io.prompt("[[tool:demo_probe_extra]]");
+        if (gateResult.error) throw new Error(`审批门那一轮报错：${gateResult.error}`);
         if (gateCalls <= gateBefore) {
           throw new Error(`审批门一次都没被调用（${gateBefore} → ${gateCalls}）：gate 装上 ≠ 生效`);
         }
-        surfaces.push(`permissions（写 gate 且真被调用 ${gateCalls} 次；写 only/deny/allow 各一次，都用 tools.list() 读回）`);
+        surfaces.push(
+          `permissions（写 gate 且真被调用 ${gateCalls} 次；only 后活跃集只剩它，deny/allow 用 tools.list() 读回）`,
+        );
 
         return { detail: `${surfaces.length} 个面各至少一次读写`, evidence: surfaces };
       },
@@ -369,14 +390,15 @@ async function main(): Promise<void> {
       console.log(`${label} … 通过（${result.detail}）`);
       for (const line of result.evidence ?? []) console.log(`        ${line}`);
     } catch (err) {
-      // 失败必须可诊断：哪一步 + 原始错误（含栈）+ 最可能的三个原因与怎么补
-      console.log(`${label} … 失败`);
-      console.log(`    原始错误：${err instanceof Error ? err.message : String(err)}`);
+      // 失败必须可诊断：哪一步 + 原始错误（含栈）+ 最可能的三个原因与怎么补。
+      // 失败信息走 **stderr**（通过信息走 stdout）：自检要能写进 CI / 脚本，按流分流而不是混在一起。
+      console.error(`${label} … 失败`);
+      console.error(`    原始错误：${err instanceof Error ? err.message : String(err)}`);
       if (err instanceof Error && err.stack) {
-        for (const line of err.stack.split("\n").slice(1, 9)) console.log(`      ${line.trim()}`);
+        for (const line of err.stack.split("\n").slice(1, 9)) console.error(`      ${line.trim()}`);
       }
-      console.log("    最可能的三个原因与怎么补：");
-      step.hints.forEach((hint, i) => console.log(`      ${i + 1}. ${hint}`));
+      console.error("    最可能的三个原因与怎么补：");
+      step.hints.forEach((hint, i) => console.error(`      ${i + 1}. ${hint}`));
       // 退出码 1，但**不用 process.exit()**：Windows 上它在 libuv 收句柄时会触发断言
       // （Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)），把退出码变成 127（实测）。
       // 设 exitCode 后正常返回，让事件循环自己排空 —— 假服务是 unref 的，没有活句柄会拖住进程。

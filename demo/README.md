@@ -14,13 +14,15 @@ node demo/check.ts
 ```text
 $ PI_OFFLINE=1 node demo/check.ts
 [1/7] Node 与原生 .ts               … 通过（v24.18.0）
+        node=D:\Develop\nodejs\node.exe
 [2/7] pi-coding-agent 可解析        … 通过（0.99.1）
+        入口=D:\space\aiteam\test\node_modules\@earendil-works\pi-coding-agent\dist\index.js
 [3/7] agentDir 可写、模型可读       … 通过（agentDir 可写；读到 2 个模型）
         D:\space\aiteam\test\demo\env\agent\models.json → faux: echo、echo-alt（离线，modelNetwork:false）
 [4/7] createAgent 能起 agent        … 通过（id=demo-check，model=echo/off）
         agentDir=D:\space\aiteam\test\demo\env\agent
         cwd=D:\space\aiteam\test\demo\work
-        假 provider=http://127.0.0.1:54691/v1
+        假 provider=http://127.0.0.1:30096/v1
 [5/7] 一轮 io.prompt 拿到非空文本   … 通过（拿到 18 字符）
         模型说：echo:自检第 5 项：请回一句话
 [6/7] 工具真被模型执行              … 通过（demo_probe 的执行体真跑了 1 次）
@@ -33,13 +35,14 @@ $ PI_OFFLINE=1 node demo/check.ts
         model（读 current=echo/off、thinking、available=2 个；写 set=echo-alt + setThinking=high，再还原为 echo/off）
         extensions（读 list=1 个 + errors=0；写 add → 2 个）
         skills（读 list=0 个；写 add=demo-check-skill（真 SKILL.md）→ 1 个）
-        permissions（写 gate 且真被调用 1 次；写 only/deny/allow 各一次，都用 tools.list() 读回）
+        permissions（写 gate 且真被调用 1 次；only 后活跃集只剩它，deny/allow 用 tools.list() 读回）
 
 七项全通过 —— 本机可以开始研究 agent 课题了。
 下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。
 ```
 
-端口、路径、`history=8`、字符数这些每次跑都会略不同，其余一致。`PI_OFFLINE=1` 可以加也可以不加：demo 自己就管离线（见 `demo/env.ts` 的注释）。
+端口、路径、`history=8`、字符数、`node=` 与 `入口=` 这些每次跑都会略不同，其余一致。
+`PI_OFFLINE=1` 可以加也可以不加：demo 自己就管离线（见 `demo/env.ts` 的注释）。
 
 ## 每项在检查什么
 
@@ -59,8 +62,8 @@ $ PI_OFFLINE=1 node demo/check.ts
 
 ```text
 [5/7] 一轮 io.prompt 拿到非空文本   … 失败
-    原始错误：RunResult.text 是空的：""          ← 原始错误（含栈，便于贴给维护者）
-      at Object.run (file:///.../demo/check.ts:193:35)
+    原始错误：RunResult.text 是空的："echo:自检第 5 项：请回一句话"          ← 原始错误（含栈，便于贴给维护者）
+      at Object.run (file:///.../demo/check.ts:202:25)
       ...
     最可能的三个原因与怎么补：                     ← 三个原因，每条都带动作
       1. 假 provider 没起来或端口被占 ⇒ 重跑一次；连续失败就查本机回环 …
@@ -70,6 +73,7 @@ $ PI_OFFLINE=1 node demo/check.ts
 
 读法：看 `[i/7]` 是哪一项 → 看原始错误 → 按三个原因里最像的那条动手。
 退出码是 **1**；全通过才是 **0**（适合写进 CI / 脚本）。
+失败信息走 **stderr**、通过信息走 stdout —— 脚本里用 `2>&1` 一起抓，或只把 stderr 当告警。
 
 最常见的两类失败：
 

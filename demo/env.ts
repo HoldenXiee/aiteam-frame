@@ -10,6 +10,9 @@
 //
 // `PI_OFFLINE=1` 在 import 时就钉死（与 harness 同一手）：demo 不联网是硬保证，不是运气。
 // 想指向真模型的人把这一行与下面的 writeModelsJson 换掉即可（README 有写）。
+// 注：ESM 会把 import 提升到这行**之前**执行，所以它实际发生在 faux-models / faux-server 求值之后。
+// 今天无害（pi 惰性读环境变量 + demo/check.ts 里所有调用都显式传 modelNetwork:false，双保险），
+// 但别指望它挡得住「模块加载期就联网」的行为。
 process.env.PI_OFFLINE = "1";
 
 import { mkdirSync } from "node:fs";
