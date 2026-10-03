@@ -1,6 +1,6 @@
 # demo —— 安装自检
 
-给**没装过 pi、但想研究 agent 课题的人**：先跑这条命令。退出码 0 + 七项全「通过」= 这台机器可以开始研究了。
+给**没装过 pi、但想研究 agent 课题的人**：先跑这条命令。退出码 0 + 八项全「通过」= 这台机器可以开始研究了。
 
 ```bash
 node demo/check.ts
@@ -37,7 +37,7 @@ $ PI_OFFLINE=1 node demo/check.ts
         skills（读 list=0 个；写 add=demo-check-skill（真 SKILL.md）→ 1 个）
         permissions（写 gate 且真被调用 1 次；only 后活跃集只剩它，deny/allow 用 tools.list() 读回）
 
-七项全通过 —— 本机可以开始研究 agent 课题了。
+八项全通过 —— 本机可以开始研究 agent 课题了。
 下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。
 ```
 
@@ -55,6 +55,21 @@ $ PI_OFFLINE=1 node demo/check.ts
 | 5 | 一轮 `io.prompt` 拿到非空文本 | `RunResult.text` 非空且 `result.error` 为空 |
 | 6 | **一个工具真被模型调用** | 工具**执行体**里的闭包计数器 +1（`tools.list()` 里有它**不**算数：那只说明声明在） |
 | 7 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
+
+### 第 7 项为什么单列：隔离要「两边都成立」才叫隔离
+
+`agentDir` 只要没被填过东西，`skills.list()` / `extensions.list()` 返回空**说明不了任何事**——
+空可能是因为隔离做对了，也可能是因为这条发现路径压根没被走到。
+所以 demo 往自己的 agentDir 里 seed 了一份技能（`demo-skill`）和一份扩展（`demo-ext.ts`），判据变成：
+
+1. **看得到自己的** ⇒ 自动发现这条路是通的；
+2. **看不到宿主 `~/.pi/agent` 里的任何一份** ⇒ 隔离真的生效。
+
+> 这一条最初写成「与 `env.agentDir` 比对」，被 mutation 打回来了：
+> 如果 agentDir **就是**宿主目录（= 用了电脑的设置），那宿主的一切都算「自己的」，这一项会**通过**。
+> 改成「与**宿主目录**比对」，并加一条硬断言「agentDir 不许落在宿主目录里」。
+
+**这一项不跑模型**，纯粹查环境里有什么——便宜、确定、不需要 provider。
 
 ## 失败了怎么办
 
@@ -169,9 +184,13 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
 | `demo/env.ts` | 幂等自建环境：写 `models.json`、起本机假 provider | 进 |
 | `demo/check.ts` | 这个自检 | 进 |
 | `demo/agent-team.ts` | 完整例子：多 agent 协作写报告（七面全出场 + 自证表） | 进 |
-| `demo/env/agent/` | 自检产物：`models.json`（假 provider，`apiKey` 是写死的 `"faux-key"`） | 不进（`.gitignore`） |
-| `demo/env/real-agent/` | 真模式的 agentDir（凭证**副本**，pi 会对它读改写，所以不能是原件） | 不进（`.gitignore`） |
-| `demo/env/auth.json` | **demo 自己的**凭证（与宿主无关）。没有它 `AITEAM_DEMO_REAL=1` 会明确报错 | 不进（`.gitignore`） |
+| `demo/env/auth.json` | **配置源**：demo 自己的凭证（与宿主无关）。没有它 `AITEAM_DEMO_REAL=1` 会明确报错 | 不进（`.gitignore`） |
+| `demo/env/models-store.json` | **配置源**：模型目录缓存（可选） | 不进（`.gitignore`） |
+| `demo/run/faux/` | **产物**：假模式的 agentDir（`models.json` + 自己 seed 的 `skills/`、`extensions/`） | 不进（`.gitignore`） |
+| `demo/run/real/` | **产物**：真模式的 agentDir（凭证**副本**，pi 会对它读改写，所以不能是原件） | 不进（`.gitignore`） |
+
+**配置源与产物分两层**：`demo/env/` 放你给的（不常变，脚本只读），`demo/run/` 是脚本生成的（**整个可以随时删**）。
+必须分，是因为 pi 会在任何 agentDir 里自己造 `auth.json` / `models-store.json`——放同一层时，空壳产物会和你的配置源混在一起，分不清哪个能删。
 | `demo/work/` | agent 的工作目录与产物落点：`report.md` / `blackboard.jsonl` / `skills/` | 不进（`.gitignore`） |
 
 `demo/env/` 下还有两份 v1 遗留文件（`auth.json` 含**真实 API 密钥**、`models-store.json` 是旧结构缓存）。

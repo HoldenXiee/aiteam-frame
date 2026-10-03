@@ -39,13 +39,13 @@ npm install        # 需要 Node ≥ 24（原生跑 .ts，无需构建）
 ## 2. 第一件事：跑安装自检
 
 ```bash
-node demo/check.ts        # 七项，不需要 API key，全程离线，零成本
+node demo/check.ts        # 八项，不需要 API key，全程离线，零成本
 ```
 
 预期结尾：
 
 ```
-七项全通过 —— 本机可以开始研究 agent 课题了。
+八项全通过 —— 本机可以开始研究 agent 课题了。
 退出码=0
 ```
 

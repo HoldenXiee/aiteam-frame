@@ -1,6 +1,6 @@
 // 安装自检：一条命令回答「这台机器现在可以开始研究 agent 课题了吗」。
 //
-// 跑法：node demo/check.ts        成功 = 七项全「通过」+ 退出码 0
+// 跑法：node demo/check.ts        成功 = 八项全「通过」+ 退出码 0
 //       PI_OFFLINE=1 node demo/check.ts   等价（demo 本来就离线，见 env.ts）
 //
 // 设计原则：**失败必须可诊断**。哪一步、原始错误、最可能的三个原因与怎么补 —— 缺一不可。
@@ -11,6 +11,7 @@
 //   后者只说明声明存在，工具没被调用时它照样是 active，不判别。
 //   第 7 项七个面每一项都**真的调用过**（并尽可能读回写进去的值），不是「读一个属性」凑数。
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -19,6 +20,7 @@ import { createAgent, inspectEnv } from "../src/index.ts";
 import type { Agent, AgentTool } from "../src/index.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, FAUX_PROVIDER } from "../examples/lib/faux-models.ts";
 import { ensureEnv } from "./env.ts";
+import { under } from "../src/agent/loader.ts";
 
 /**
  * 期望的 pi 版本：这里用**精确等值**（===）比较。期望值来自本仓 `package-lock.json` 钉住的
@@ -41,6 +43,14 @@ interface Step {
   hints: [string, string, string];
 }
 
+
+/** 把绝对路径缩成相对 agentDir 的短样子，方便读 */
+function shortPath(p: string, base: string): string {
+  const a = p.replace(/\\/g, "/");
+  const b = base.replace(/\\/g, "/");
+  return a.startsWith(b) ? `.${a.slice(b.length)}` : a;
+}
+
 // ─────────────── 打印小工具 ───────────────
 
 /** 中文按两个字符宽度算，好让「…」对齐（brief 里的格式） */
@@ -57,7 +67,7 @@ function oneLine(text: string, max = 72): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
-// ─────────────── 七项自检 ───────────────
+// ─────────────── 八项自检 ───────────────
 
 async function main(): Promise<void> {
   // 跨项共享的状态：agent 本体 + 两个「执行体真跑过」的闭包计数器
@@ -268,6 +278,81 @@ async function main(): Promise<void> {
       ],
     },
     {
+      // 这一项**不跑模型**：纯粹查「环境里到底有什么」，所以它便宜、确定、不需要 provider。
+      // 存在理由：agentDir 只要没被填过东西，skills/extensions 返回空**说明不了任何事** ——
+      // 空可能是隔离做对了，也可能是这条发现路径压根没被走到。所以判据要**两边都成立**：
+      //   ① 看得到**自己的**（env.ts 里 seedOwnResources 放进去的那份）⇒ 自动发现这条路是通的；
+      //   ② 看不到**宿主的** ⇒ 隔离真的生效。
+      // 宿主 ~/.pi/agent 里通常有技能与插件，只满足①不满足②就是「用了电脑的设置」。
+      name: "环境隔离：只认自己的技能与插件",
+      run: async () => {
+        const env = await ensureEnv();
+        // 宿主目录（用来算「哪些是别人的」）；demo 自己从没读过它，这里也只是列举，不建 agent
+        const hostAgentDir = process.env.PI_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+        // 最直白的一条：demo 的 agentDir 不许是宿主 pi 目录本身
+        if (
+          env.agentDir === hostAgentDir ||
+          under(hostAgentDir, env.agentDir) ||   // dir 在宿主里面（含相等）
+          under(env.agentDir, hostAgentDir)      // 宿主在 dir 里面（更离谱）
+        ) {
+          throw new Error(
+            `demo 的 agentDir 就是宿主 pi 目录（${env.agentDir}）—— 那等于「用了电脑的设置」，不是自己一套环境`,
+          );
+        }
+        const report = await inspectEnv({ agentDir: env.agentDir, cwd: env.cwd, modelNetwork: false });
+
+        // 判据是「与**宿主目录**比对」，不是「与 agentDir 比对」——
+        // 后者有个致命盲区：agentDir 如果**就是**宿主目录（= 用了电脑的设置），
+        // 那宿主的一切都算「自己的」，这一项会**通过**。实测踩到过（mutation M2）。
+        // 所以这里比的是「有没有读到 hostAgentDir 底下的东西」——那才是「别人的」的定义。
+        const inHost = (p: string): boolean => under(p, hostAgentDir);
+        const ownSkills = report.skills.filter((sk) => !inHost(sk.filePath));
+        const alienSkills = report.skills.filter((sk) => inHost(sk.filePath));
+        const ownExts = report.extensions.filter((e) => !inHost(e.path));
+        const alienExts = report.extensions.filter((e) => inHost(e.path));
+
+        // ① 自己的那份必须看得到 —— 否则「空」是假阴性
+        if (!ownSkills.some((sk) => sk.name === "demo-skill" && under(sk.filePath, env.agentDir))) {
+          throw new Error(
+            `看不到 demo 自己的技能 demo-skill：report.skills=${JSON.stringify(report.skills.map((x) => x.name))}` +
+              `（agentDir=${env.agentDir}）`,
+          );
+        }
+        if (!ownExts.some((e) => e.path.includes("demo-ext") && under(e.path, env.agentDir))) {
+          throw new Error(
+            `看不到 demo 自己的扩展 demo-ext：report.extensions=${JSON.stringify(report.extensions.map((e) => e.path))}` +
+              `（agentDir=${env.agentDir}）`,
+          );
+        }
+        // ② 别人的那份一个都不能有 —— 这才是「隔离」
+        if (alienSkills.length || alienExts.length) {
+          throw new Error(
+            `环境里混进了不属于 demo 目录的技能/扩展：` +
+              `skills=[${alienSkills.map((x) => `${x.name}@${x.filePath}`).join("、")}] ` +
+              `extensions=[${alienExts.map((x) => x.path).join("、")}]`,
+          );
+        }
+        // ③ 而且它注册的工具也必须只是自己那个（walker 的报错是「工具名对不上」，这里一次抓全）
+        const envToolNames = report.extensions.flatMap((e) => e.tools ?? []);
+        if (!envToolNames.includes("demo_env_tool")) {
+          throw new Error(`demo 自己的扩展没注册出工具 demo_env_tool：${JSON.stringify(envToolNames)}`);
+        }
+        return {
+          detail: `只看得到自己的 ${ownSkills.length} 个技能、${ownExts.length} 个扩展`,
+          evidence: [
+            `自己的：skills=[${ownSkills.map((x) => x.name).join("、")}] extensions=[${ownExts.map((x) => shortPath(x.path, env.agentDir)).join("、")}]`,
+            `宿主的（一个都没读进来）：skills=[${alienSkills.length}] extensions=[${alienExts.length}] —— 对照目录 ${hostAgentDir}`,
+            `自己的扩展注册的工具：${envToolNames.join("、") || "（无）"}`,
+          ],
+        };
+      },
+      hints: [
+        "看不到自己的技能/扩展 ⇒ demo/run/ 被手工清过或写失败：删掉 demo/run/ 再重跑（ensureEnv 会重建并 seed）",
+        "混进了宿主的技能/扩展 ⇒ agentDir 指错了（检查 demo/env.ts 的 runDir()，或有没有别的环境变量把它带偏）",
+        "技能报 ENOENT ⇒ pi 要求 filePath 指向真文件：确认 demo/run/*/skills/demo-skill/SKILL.md 真在磁盘上",
+      ],
+    },
+    {
       name: "七面各至少一次读写",
       run: async () => {
         const me = requireAgent();
@@ -445,7 +530,7 @@ async function main(): Promise<void> {
 
   agent?.dispose();
   console.log("");
-  console.log("七项全通过 —— 本机可以开始研究 agent 课题了。");
+  console.log("八项全通过 —— 本机可以开始研究 agent 课题了。");
   console.log("下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。");
 }
 

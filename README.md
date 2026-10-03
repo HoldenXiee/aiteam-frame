@@ -74,7 +74,7 @@ my-pi/
 
 ```bash
 npm install                          # 装依赖（Node ≥ 24）
-node demo/check.ts                   # 七项安装自检：不需要 key，全程离线
+node demo/check.ts                   # 八项安装自检：不需要 key，全程离线
 PI_OFFLINE=1 node demo/agent-team.ts # 多 agent 协作写一份报告（同一套离线环境）
 ```
 
@@ -99,14 +99,14 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 
 ### 运行结果的标准
 
-**`node demo/check.ts`** —— 七项全是「通过」，最后两行必须是：
+**`node demo/check.ts`** —— 八项全是「通过」，最后两行必须是：
 
 ```
-七项全通过 —— 本机可以开始研究 agent 课题了。
+八项全通过 —— 本机可以开始研究 agent 课题了。
 下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。
 ```
 
-并且退出码是 0。七项分别验：
+并且退出码是 0。八项分别验：
 
 | 项 | 过了意味着 |
 |---|---|
@@ -114,7 +114,8 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 | 3 环境 | `agentDir` 真可写、`models.json` 真读得到模型（走库自己的 `inspectEnv`） |
 | 4–5 起 agent | 拿到 `agent.id` 与当前模型；一轮 `io.prompt` 的 `text` 非空、`error` 为空 |
 | 6 工具 | 一个工具的**执行体**真被模型调过（计数器 +1）——`tools.list()` 里有它**不**算数，那只说明声明在 |
-| 7 覆盖面 | 七个面各自至少一次读写，能读回状态的都读回校验 |
+| 7 环境隔离 | **只看得到 demo 自己的技能与插件**（不用跑模型）：既看得到自己那份（证明自动发现这条路是通的），又看不到宿主 `~/.pi/agent` 里的任何一份（证明隔离真的生效）——只有一条成立都说明不了问题 |
+| 8 覆盖面 | 七个面各自至少一次读写，能读回状态的都读回校验 |
 
 挂了不会静默：该项行尾打 `… 失败`，下一段跟原始错误（含栈）+ 三个最可能原因与怎么补，退出码 1。失败信息走 stderr、通过信息走 stdout。
 `demo/env/agent/` 与 `demo/work/` 都是**可再生的产物**，删掉重跑即可重建。
@@ -140,7 +141,7 @@ npm install
 ```bash
 npm test            # 114 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
-node demo/check.ts  # 七项安装自检，不需要 key，全程离线
+node demo/check.ts  # 八项安装自检，不需要 key，全程离线
 ```
 
 `npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），把 `AITEAM_AGENT_DIR` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
@@ -194,7 +195,7 @@ test("role 追加在 <tools> 之后，不替换默认提示词", async () => {
 
 ```bash
 node examples/03-context.ts   # 一个面一个文件；输出里自带判别力，跑一遍就知道它说的是不是真的
-node demo/check.ts            # 七项安装自检，不需要 key
+node demo/check.ts            # 八项安装自检，不需要 key
 npm test                      # 全部断言，本机假 provider，零 API 成本
 ```
 
@@ -296,7 +297,7 @@ src/agent/      单 agent 的创建与接线
 src/surfaces/   七个面：io / context / tools（含 permissions）/ resources（extensions + skills）/ model
 test/           node:test，全部走本机假 provider，零 API 成本
 examples/       能 node 直接跑的示例 + 离线基建（examples/lib/）
-demo/           安装自检 demo：demo/check.ts 七项自检 + demo/agent-team.ts 多 agent 协作
+demo/           安装自检 demo：demo/check.ts 八项自检 + demo/agent-team.ts 多 agent 协作
 docs/           设计文档 + 用法讲解
 ```
 

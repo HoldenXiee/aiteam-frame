@@ -1,4 +1,9 @@
 node_modules/
 *.log
+
+# demo 的**配置源**：你自己的凭证与模型目录缓存（gitignored，不进仓库）
 demo/env/*
+
+# demo 的**运行时产物**：脚本生成，可整个删掉重建
+demo/run/
 demo/work/*
