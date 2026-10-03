@@ -8,8 +8,10 @@
 // 期望看到：一次真实运行里 onAny 收到的事件名序列（含 agent_start / agent_settled），
 // 以及 `on("message_end")` 按名收窄后收集到的 message.role 序列。
 //
-// 若要用真模型，改这两行：`makeOfflineAgent()` → `makeOfflineAgent({ model: "<provider>/<id>", modelNetwork: true })`
-// （默认 ref 在 examples/lib/harness.ts；运行期换模型走 `agent.model.set(...)`，见 07-model.ts）。
+// 若要用真模型：光换 model ref 不够 —— 临时 agentDir 里只有假 provider 的 models.json，
+// 换没有声明的模型会被 aiteam 当错误抛（不是警告）。请把 makeOfflineAgent 的 agentDir 和
+// model 都换成你自己的（真 key 在 ~/.pi/），并去掉 examples/lib/harness.ts 里钉死的
+// PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { makeOfflineAgent } from "./lib/harness.ts";
 
 const agent = await makeOfflineAgent();
@@ -40,5 +42,8 @@ console.log(`    —— 共 ${types.length} 个；收得到生命周期两端：
 console.log("[3] 退订：off() 之后不再收新事件（长寿命 agent 上忘了退订，监听器会一轮轮攒下去）");
 offOn();
 offAny();
+const before = types.length; // 退订后再跑一轮：两个计数器都不该再涨 —— 这条宣称就是这么变成可证伪的
+await agent.io.prompt("再说一句");
+console.log(`    onAny 计数 ${before} → ${types.length}（没涨 = 退订真的生效了）`);
 agent.dispose();
 console.log("    已退订并 dispose；脚本正常结束，退出码 0");

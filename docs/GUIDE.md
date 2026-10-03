@@ -1,446 +1,232 @@
 # aiteam 用法讲解
 
-面向**设计者**（写代码的人）：本文讲这个库怎么用。
-配合 [`demo/`](../demo/) 读效果最好：那是一份能跑的**安装自检**（自建环境 + 一个 agent 集群）。
-本文里标注「导览实测（日志第 N 章）」的片段，来自早期那份全操控面导览的真实运行输出 ——
-那份导览已经删掉了，片段作为「这个行为当时确实测到过」的证据保留。
+面向**设计者**（写代码的人）：这个库怎么用。宏观设计（为什么是这样）见 [`DESIGN.md`](DESIGN.md)，已实测核对的实现决策见 [`FACTS.md`](FACTS.md)。
+
+> **本文不贴代码。** 每个面的正确用法是 [`examples/lib/snippets.ts`](../examples/lib/snippets.ts) 里的**真函数**——它们会被 `tsc` 检查，库 API 一变就编译不过。所以本文只给指针：
+>
+> - 「片段 `io.prompt`」= `examples/lib/snippets.ts` 里那个片段；
+> - 「`examples/03-context.ts`」= 一个能 `node` 直接跑的示例（每个面的最小用法，一事一文件）。
+>
+> 手抄的代码会漂移，而**漂移的文档比没有文档更坏**。
 
 ---
 
-## 1. 心智模型：三个概念
-
-| 概念 | 含义 | 谁能定义 |
-|---|---|---|
-| **成员（Member）** | 一种预定义好的 agent 类型：职责、模型、技能、插件、工具集 | **只有你**（写代码的人） |
-| **分身（Instance）** | 某个成员的一个运行实例，同一成员可有多个 | agent 在运行时通过 `spawn_agent` 启动 |
-| **花名册（members）** | 你声明的全部成员 | 你 |
-
-**红线：agent 不能设计、不能配置 agent。** 它只能从花名册里挑人、告诉它干什么。
-所以 `spawn_agent` 没有 `tools` 参数，也不接受任何配置覆盖 —— 想加一种新 agent，就在花名册里加一个成员。
-
----
-
-## 2. 三分钟上手
-
-```ts
-import { createAgent, createAgentHost } from "../src/index.ts";
-
-const host = createAgentHost({
-  members: {
-    reviewer: {
-      description: "审查员：专挑风险、成本与遗漏",   // 会出现在 spawn_agent 的工具描述里
-      role: "你是审查员，只说风险，不说好话。",       // → 追加系统提示词
-      model: "opencode-go/deepseek-v4.1-flash",
-      tools: ["read"],                              // 白名单
-    },
-    writer: { description: "撰稿人", role: "你写稿。", model: "opencode-go/qwen3.8-flash" },
-  },
-  maxAgents: 16,
-  maxDepth: 2,
-  budgetTokens: 200_000,
-});
-
-// 顶层 agent（主持人）
-const lead = await createAgent(
-  { role: "用 spawn_agent 挑成员派活。", model: "opencode-go/deepseek-v4.1-flash", tools: ["spawn_agent", "send_message"] },
-  { host },
-);
-
-const result = await lead.prompt("审查 src/index.ts 的风险，然后让 writer 写 300 字简报");
-console.log(result.text, result.usage);
-
-host.dispose();   // 级联回收所有分身
-```
-
-三件事记住就够用：**你在花名册里声明能力；`createAgent` 起一个分身；`prompt` 交办拿结果。**
-
----
-
-## 3. 环境：agentDir 里只放三样东西
-
-`agentDir` 决定这个 agent 能用什么。默认是环境变量 `AITEAM_AGENT_DIR` 或本机 pi 目录（`~/.pi/agent`）；换成你自己的目录就完全脱离本机 pi 设置。
-
-```
-my-pi/
-  models.json + auth.json   模型 api（其实只要 auth.json 也行，见下）
-  extensions/               插件
-  skills/                   技能
-```
-
-**没有 models.json 也能用**：pi 内置了 42 个 provider 的模型目录，`auth.json` 或环境变量凭证就够跑。
-[`demo/env/`](../demo/env/) 就是这么干的，`npm run demo:env` 的实测输出：
-
-```
-自建环境体检 —— D:\space\aiteam\test\demo\env（本机 pi：C:\Users\Holder\.pi\agent，不参与）
-  凭证：D:\space\aiteam\test\demo\env\auth.json（demo 自己带一份，本机 pi 不参与）
-  技能：cluster-check(user)
-  插件：D:\space\aiteam\test\demo\env\extensions\env-probe.ts[tools=env_probe]
-  上下文文件：D:\space\aiteam\test\AGENTS.md、D:\space\aiteam\test\demo\work\AGENTS.md
-  可用模型：opencode-go 29 个
-  警告：没有 models.json（只用环境变量凭证时可忽略）
-```
-
-### 建 agent 之前先验证环境
-
-```ts
-import { inspectEnv } from "../src/index.ts";
-
-const env = await inspectEnv({ agentDir: "D:/my-pi", cwd: "./work" });
-env.models;       // [{ provider: "opencode-go", total: 29, available: [...] }]  只列配好凭证的
-env.extensions;   // [{ path, scope, tools: ["某个工具名"] }]
-env.skills;       // [{ name, filePath, scope }]
-env.contextFiles; // 跟着 cwd 走的 AGENTS.md 链
-env.warnings;     // 目录不存在 / 没有 models.json / 扩展加载失败 / SYSTEM.md 会替换提示词…
-```
-
-它只读、不建 agent、不写盘。**为什么需要它**：`agentDir` 与 `cwd` 里的东西是 SDK 自动发现的，会静默生效（尤其：自动发现的扩展工具**不受** `tools` 白名单管辖），而 `SYSTEM.md` 存在时会整体替换系统提示词。`inspectEnv` 把这些变成可读文本。
-
-### 模型目录会自己更新
-
-`modelNetwork` 默认开：库会去 `pi.dev` 拉一份 provider 的模型目录 overlay（带 ETag，4 小时新鲜度窗口），缓存到 `<agentDir>/models-store.json`。所以上游加了新模型，不用等 SDK 发版。
-
-- 只刷新**有凭证的 provider**（没凭证的压根不去拉）。
-- `modelNetwork: false` 时**仍然**会从缓存恢复 overlay —— 跟 CLI pi 共用 `agentDir` 就白拿它拉过的更新。
-- `PI_OFFLINE=1` 关掉一切模型相关网络请求；`catalogBaseUrl` 可指镜像。
-
----
-
-## 4. 逐个操控面
-
-### 4.1 身份与归属
-
-```ts
-agent.id          // 自动生成（a1、a2…）或你在 spec 里指定
-agent.parentId    // 谁起的它；顶层为 undefined
-agent.member      // 由哪个成员创建；顶层为 undefined
-agent.status      // idle | running | aborted | error | disposed
-agent.isStreaming // 直接用 SDK 的值
-```
-
-### 4.2 工具集
-
-```ts
-tools: ["read", "write"]        // 白名单；[] 表示一个工具都不给；不写 = 不动白名单
-excludeTools: ["write"]         // 从最终集合里剔除
-customTools: [myToolFactory]    // 你自己的工具
-```
-
-三条必须知道的规则：
-
-1. **白名单非空时会强制并入 `customTools` 和你在 `extensions` 里声明的扩展工具名。** 想关掉某个 customTool，只能用 `excludeTools`。
-2. **环境里自动发现的扩展工具不受白名单管辖** —— 用 `inspectEnv().extensions[].tools` 看它们是谁。
-3. `tools` 写错一个字符不会报错，会静默塌成"没有工具"。
-
-### 4.3 自定义工具：能看见"是谁在调用我"
-
-```ts
-import { defineAgentTool } from "../src/index.ts";
-import { Type } from "typebox";
-
-const reportSelf = defineAgentTool({
-  name: "report_self",
-  label: "Report Self",
-  description: "上报调用者的身份与宿主状态",
-  parameters: Type.Object({}),
-  execute: async (_params, ctx) => {
-    const text = JSON.stringify({
-      id: ctx.agent.id,                 // 谁在调用
-      member: ctx.agent.member,
-      status: ctx.agent.status,
-      alive: ctx.host?.list().map((a) => a.id) ?? [],   // 宿主里还有谁
-    });
-    return { content: [{ type: "text" as const, text }], details: {} };
-  },
-});
-
-const agent = await createAgent({ ...spec, tools: ["report_self"], customTools: [reportSelf] }, { host });
-```
-
-`ctx.agent` 是**惰性**的：工厂在 `createAgent` 期间被调用一次（模型得先看到 `name`/`parameters`），只有 `execute` 时才取得到持有它的那个 agent。这不是优化 —— SDK 传给工具 `execute` 的上下文里**没有**当前 agent 引用。
-
-导览实测（日志第 3 章）：
-
-```
-回复：{"id":"toolsmith","member":"(顶层)","status":"running","tokens":0,"alive":["toolsmith"]} 2026-10-01T13:52:37.199Z
-```
-
-（`status` 是 `running`、`tokens: 0` 是正常的：工具在轮次内执行，用量要等这轮结束才结算。）
-
-### 4.4 插件（扩展）：路径或内联工厂
-
-```ts
-const inlinePlugin = (pi) => {
-  pi.registerTool({ name: "utc_now", /* … */ });
-  pi.on("tool_call", (event) => console.log("有工具要被调用了", event.toolName));
-};
-
-await createAgent({ ...spec, extensions: [inlinePlugin] });       // 内联工厂，不落盘
-await createAgent({ ...spec, extensions: ["./my-plugin.ts"] });   // 文件路径
-```
-
-扩展提供了工具、钩子、命令、flag。注意：**扩展加载失败是静默的**（agent 照跑），原因只在 `loader.getExtensions().errors` 里 —— 用 `inspectEnv().warnings` 看。
-
-### 4.5 审批门：拦截工具调用
-
-```ts
-onToolCall: async ({ name, input }) => {
-  if (name !== "write") return undefined;                   // 放行
-  const path = normPath(String(input.path), cwd);            // ← 一定要归一化再比
-  return path.startsWith(workDir) ? undefined : { block: true, reason: "只允许写工作目录" };
-}
-```
-
-导览实测（日志第 4 章）：
-
-```
-审批门收到的输入：{"path":"C:/windows-temp-outside.txt","content":"越界"} | {"content":"合规","path":"D:\\…\\run-output\\gate…"}
-审批门决策：write(拦截)、write(放行)
-回复：第一次(越界)被拒：只允许写 demo/run-output/ 目录内的文件；第二次(合规)写入成功。
-```
-
-两个坑：**路径必须 resolve 后比**（模型爱给相对路径，我第一次没归一化就把两次写都拦了）；门内的 `throw` 等于无条件拦截且异常文本会进上下文。
-
-### 4.6 技能
-
-```ts
-skills: [
-  "by-name",                       // 名字：在 agentDir/skills 或 <cwd>/.pi/skills 下解析
-  "D:/my-pi/skills/foo",           // 目录
-  "D:/my-pi/skills/foo/SKILL.md",  // 文件
-  skillObject,                     // Skill 对象（必须指向真实存在的文件）
-]
-```
-
-名字解析失败**抛错**，不静默降级。技能会进系统提示词的 `<skills>` 段 —— 但前提是这次给的工具里有 `read` 或 `bash`。
-
-### 4.7 角色与提示词
-
-```ts
-role: "你是审查员，只说风险。"   // → appendSystemPrompt
-```
-
-保留 pi 的默认提示词（含 `<tools>` 段），角色说明追加在其后。**库不提供整体替换入口**。
-
-⚠️ 环境里若存在 `SYSTEM.md`（`<agentDir>/SYSTEM.md` 或 `<cwd>/.pi/SYSTEM.md`），它会**整体替换** `preamble` —— `<tools>` / `<rules>` / `<docs>` 三段一起消失。`inspectEnv` 会把这件事写进 warnings。
-
-### 4.8 模型与思考档
-
-```ts
-model: "opencode-go/deepseek-v4.1-flash"          // "provider/id:thinking"
-model: "opencode-go/deepseek-v4.1-flash:high"
-thinking: "high"                                   // 也可以单独指定
-```
-
-模型不存在会**抛错**（SDK 原本只给 warning，库把它转成异常，避免拼写错误变成静默怪行为）。没有 temperature / top_p / seed 入口。
-
-### 4.9 输入流向
-
-```ts
-const r  = await agent.prompt("交办");            // 顶层交办，等它跑完，拿 RunResult
-const s  = await agent.send("追加一条");           // 投递：忙时排队，永不抛错，不 await 结果
-await agent.steer("停，改做这个");                 // 运行中插话，立刻改向
-await agent.waitForIdle();                        // 等它静下来
-```
-
-导览实测（日志第 5 章）：
-
-```
-第一次 prompt：收到
-send 返回：ran / queued                     ← 空闲时 ran；紧接着第二次投递因目标正忙 → queued
-waitForIdle 后 lastResult：乙
-· steer 是否真的打断了这一轮 → 已打断
-```
-
-要点：
-- `send` **故意不 await**。await 了就变成同步 `ask`，会把死锁引进来。要结果就 `send` → `waitForIdle()` → 读 `agent.lastResult`。
-- `send` 忙时排队（`mode: "interrupt"` 则立刻改向），**永不抛错**。
-- 空闲时调用 `steer` 不会丢弃消息，而是**停放**到下一次 `prompt` 时顶替那轮的返回文本 —— 别在空闲时用 steer。
-
-### 4.10 输出
-
-```ts
-interface RunResult { text: string; usage: Usage; error?: string }
-```
-
-`prompt` 返回本次结果，同时写进 `agent.lastResult`。**`error` 必须看**：pi 的 `prompt()` 在接受之后失败是通过事件流报告的，不 reject —— 不看 `error` 会把失败当成功。
-
-`agent.session` 是逃生口（原始 SDK 对象），消息历史从 `agent.session.messages` 拿。
-
-### 4.11 事件：7 个归一化 + 3 个宿主
-
-```ts
-agent.on("text",       ({ delta }) => process.stdout.write(delta));
-agent.on("thinking",   ({ delta }) => {});
-agent.on("tool_start", ({ toolName, callId }) => {});
-agent.on("tool_end",   ({ toolName, callId, isError }) => {});
-agent.on("turn",       ({ message, usage }) => {});          // 每一轮
-agent.on("error",      ({ message }) => {});
-agent.on("done",       ({ usage }) => {});                   // 本次运行结束
-
-host.on("agent_created",   ({ agent, member, parent }) => {});
-host.on("agent_disposed",  ({ agent }) => {});
-host.on("round_completed", ({ agent, result }) => {});       // 最常用：按轮计费/督导
-```
-
-导览实测（日志第 4 章）：
-
-```
-事件计数：text=51 thinking=19 tool_start=2 tool_end=2 turn=3 error=0 done=1
-```
-
-库只发事件、**不内置任何监控策略** —— 轮次上限、成本报警、进度上报都由你写。
-
-### 4.12 用量与归属
-
-| 读哪里 | 含义 |
-|---|---|
-| `RunResult.usage` | **本次**运行的用量 |
-| `agent.usage` | 这个分身**全生命周期**累计（不含子分身） |
-| `host.usage` | 整个宿主（含所有后代） |
-
-导览实测（日志第 9 章）：
-
-```
-r1=1886 r2=1897 r3=4035｜agent.usage=7818
-✔ agent.usage = 它自己各次 RunResult 之和（不含子分身）
-✔ host.usage 把这棵树上所有分身的用量加在一起 → 宿主 9723 vs 顶层 7818
-```
-
-记住了：**子分身的钱不算在父分身头上，但一定算在宿主头上。**
-
-### 4.13 花名册与多 agent
-
-顶层 agent 只有拿到 `spawn_agent` / `send_message`（写进 `tools`）才会组队：
-
-```ts
-const lead = await createAgent(
-  { role: "你是主持人。", tools: ["spawn_agent", "send_message"], model: "…" },
-  { host },
-);
-await lead.prompt("用 spawn_agent 让 scout 把要点写进 D:/out/board.md");
-```
-
-导览实测（日志第 7 章）：
-
-```
-· 分身就位 lead lead
-· 分身就位 scout a1
-· scout(a1) 跑完一轮 +8500 tokens
-✔ spawn_agent 真的起了 scout 分身 → lead:lead scout:a1 checker:a2
-✔ send_message 追加的那一轮确实跑了（分身被复用，不是新建的） → 1 → 2
-✔ host.dispose() 级联回收
-```
-
-规则：
-- `spawn_agent` 的 `member` 是**花名册成员名的字面量联合**，描述里动态列出全部成员 —— 模型无法请求不存在的成员。
-- 分身跑完后**保留**在宿主里可寻址（后续 `send_message(id)` 复用同一个上下文）。
-- `send_message` 只准投给**自己的后代分身**。这条既防跨分支干扰，也免费消灭了发送环。
-- **共享上下文不用框架支持**：全队 `MemberSpec.cwd` 指向同一个目录，读写同一个文件就是黑板。
-
-### 4.14 生命周期
-
-```ts
-await agent.abort();   // 中止当前轮：status → "aborted"，之后这个分身还能继续用
-agent.dispose();       // 回收（正在跑就先 abort，等 settle 再真回收）
-host.dispose();        // 级联回收所有分身
-```
-
-导览实测（日志第 6 章）：
-
-```
-abort 后 status=aborted，本轮文本长度=0
-✔ 被 abort 的分身还能继续用
-```
-
-已 `dispose` 的分身再 `prompt` / `send` 会抛错（`waitForIdle` 例外，直接返回）。
-
-### 4.15 护栏
-
-```ts
-createAgentHost({ maxAgents: 16, maxDepth: 2, budgetTokens: 200_000 });
-```
-
-| 护栏 | 口径 | 触发时 |
-|---|---|---|
-| `maxAgents` | **终身累计**，回收不返还 | `createAgent` 抛错；agent 手里是文本 |
-| `maxDepth` | 顶层为 0，深度由 `parent` 链推出（不作为参数传入，防伪造） | 同上 |
-| `budgetTokens` | 全宿主累计 | 同上 |
-
-导览实测（日志第 8 章）：
-
-```
-✔ 预算耗尽在创建时就被拦住 → 宿主预算已耗尽（budgetTokens=0，已用 0）
-✔ 超过 maxAgents 被拦住   → 宿主已达到 maxAgents=1 的分身上限，不能再创建
-✔ 超过 maxDepth 被拦住    → 分身深度 1 超过 maxDepth=0，不能再往下一层
-· agent 侧收到的是文本而不是异常 → 分身起不来，被护栏挡了：…（模型有机会换策略）
-```
-
-设计取向：**设计者踩到护栏是异常（抛错），agent 踩到护栏是文本**（让它自己换策略）。
-
----
-
-## 5. 已知边界（都是实测结论，不是猜测）
-
-| 边界 | 后果 | 规避 |
-|---|---|---|
-| `settings.json` 不被读（`SettingsManager.inMemory({})`） | compaction 不可配；`pi install` 装的扩展包不生效 | 扩展用 `extensions` 显式声明 |
-| 白名单非空 ⇒ customTools 强制生效 | 关不掉，只能 `excludeTools` | — |
-| 环境自动发现的扩展不受白名单管 | 工具的"意外来源" | `inspectEnv().extensions[].tools` |
-| `SYSTEM.md` 整体替换提示词 | `<tools>`/`<rules>` 消失 | 用 `role` 追加；`inspectEnv` 会警告 |
-| 并发投递时结果会串台 | `RunResult` 排干的是共享消息池 | 用 `prompt`，或 `send` + `waitForIdle` 后读 `lastResult` |
-| 预算只挡"轮前" | 单轮不封顶；忙时 `followUp`/`steer` 绕过 | 用 `host.on("round_completed")` 自己督导 |
-| 上下文超限 | 该分身**永久静默返回空**（`text:""`, `usage:0`） | 长任务多起分身，别让单个分身无限长跑 |
-| 被 `abort` 的轮次 | 留着 user 消息永久占上下文；usage 记 0 但真实计费 | 别频繁 abort |
-| 忙时 `prompt()` 抛错且不发事件 | 得自己 catch | 团队场景一律用 `send` |
-| `tools` 写错一字符 | 静默变成"没有工具" | `inspectEnv` 对不了这个，写白名单时小心 |
-
-不承诺：**pi 没有内置沙箱**，`tools` 白名单只是工具集裁剪，不是安全边界。
-
----
-
-## 6. 三个常用配方
-
-**扇出择优**（同一任务给多个成员，你来选）：
-
-```ts
-const a = await createAgent({ ...spec, model: "opencode-go/mimo-v2.6-flash" }, { host });
-const b = await createAgent({ ...spec, model: "opencode-go/qwen3.8-flash" }, { host });
-const [ra, rb] = await Promise.all([a.prompt(task), b.prompt(task)]);
-console.log(pick(ra.text, rb.text));
-```
-
-**反思-修订循环**（写手 + 审阅者，全程复用同一对分身）：
-
-```ts
-let draft = (await writer.prompt("写初稿")).text;
-for (let i = 0; i < 3; i++) {
-  const review = await reviewer.prompt(`审这份稿：\n${draft}`);
-  if (review.text.includes("通过")) break;
-  draft = (await writer.prompt(`按意见改：\n${review.text}`)).text;
-}
-```
-
-**监督者 + 工人池**（主持人自己组队，你用事件督导成本）：
-
-```ts
-host.on("round_completed", ({ agent, result }) => {
-  if (host.usage.totalTokens > 150_000) agent.dispose();   // 超支就掐
-});
-await lead.prompt("用 spawn_agent 让 reviewer 审完 src/index.ts，再把结论交给 writer");
-```
-
----
-
-## 7. 跑起来
+## 0. 先跑起来
 
 ```bash
-npm test              # 14 个测试文件，本机假 provider，零 API 成本
-npm run demo:env      # 只准备 + 体检 demo/env 那套自建环境（不花钱）
-npm run demo          # 端到端：自建环境 → 真模型 → agent 集群 → 对账
+node demo/check.ts              # 安装自检：七项，不需要 key，全程离线
+node examples/01-first-agent.ts # 最小示例：起一个 agent、交办一件事、拿结果
+npm test                        # 全部断言，本机假 provider，零 API 成本
 ```
 
-`demo/` 的凭证 / 技能 / 插件都在 `demo/env/` 里，**不读本机 pi 的设置**，所以别人没装 pi 也能跑。
-产物都在 `demo/work/`：`blackboard.md`（侦察员写、核对员读的黑板）、`report.md`（书记员写的结论）、`facts.txt`。
-它默认用 `opencode-go/deepseek-v4.1-flash`，一次全程约 4 万 tokens ≈ **$0.003**。换模型：`DEMO_MODEL=... npm run demo`。
+`examples/` 里 `01`–`08` 一面一事（最小用法），`09`–`11` 是 v1 三条假设的「可被推翻的写法」。`demo/` 是安装自检 + 一个多 agent 协作的完整例子，细节见 [`demo/README.md`](../demo/README.md)。
 
-每一步都会打印 `✔`（硬检查，失败即退出码 1）或 `·`（依赖模型配合的软提示）。
+---
+
+## 1. 创建：一个入口，七个面
+
+对外只有两个函数（[`src/index.ts`](../src/index.ts) 是唯一出口，不做逻辑）：
+
+| | |
+|---|---|
+| `createAgent(spec, deps?)` | **唯一**的 agent 创建入口 → 一个 `Agent`（七个面 + 句柄 + 观测） |
+| `inspectEnv(spec?, deps?)` | 环境自检，只读：这套环境里实际生效了什么。见 §6 |
+
+**创建期 spec 与运行期面是一一对应的**——字段名就是那个面的原语名（契约在 [`src/agent/types.ts`](../src/agent/types.ts) 的 `AgentInit`）：
+
+| 面 | 创建期 `spec` | 运行期（`agent.<面>`） |
+|---|---|---|
+| `io` | ——（创建时不必配） | `prompt` / `queue` / `steer` / `abort` / `waitIdle` + 读数 `pending` / `isRunning` |
+| `context` | `context.autoCompact` | `history` / `usage` / `autoCompact` / `override` / `compact` |
+| `tools` | `tools.custom` | `list` / `add` / `remove` / `onResult` |
+| `permissions` | `permissions.only` / `deny` / `gate` | `only` / `allow` / `deny` / `gate`（**没有**创建期 `allow`） |
+| `extensions` | `extensions`（路径或内联工厂） | `add` / `remove` / `list` / `errors` |
+| `skills` | `skills`（路径或 `Skill` 对象） | `add` / `remove` / `list` |
+| `model` | `model` / `thinking` / `modelNetwork` / `catalogBaseUrl` | `set` / `setThinking` + 读数 `current` / `thinking` / `available` |
+
+其余 `spec` 字段：`id`（不写则自动生成）、`cwd`、`agentDir`、`role`（追加到系统提示词尾部，不替换）。
+
+**记忆点**：库给机制，使用者给政策。`createAgent` 造出来的是一个**裸 agent**——它没有任何内置工具、没有花名册、没有委派能力。想组队、想加护栏、想画红线，都是你自己的工具实现里的几行代码（见 `examples/09-roster.ts` / `10-spawn.ts` / `11-redline.ts`）。
+
+---
+
+## 2. 结算：`RunResult` 是**一次运行**的归属单位
+
+```text
+io.prompt("…")
+  → 起点 agent_start
+  → 终点 agent_settled
+  → RunResult = { runId, text, usage, error?, messages }
+```
+
+一次「运行」= `agent_start` → `agent_settled`，`RunResult` 就是**这一次运行**的产出：
+
+- `runId`（库生成的关联键，钩子里通过 `ctx.runId` 读）——做 trace 与结果归因时靠它对得上；
+- `usage` 是**本次运行**的用量；`agent.usage` 是**全生命周期累计**，两者语义不同，别混；
+- `error?` **必须显式看**：pi 对「接受之后失败」不 reject，只把错误写进消息，光读 `text` 会把一轮失败读成「空回复」；
+- `messages` 是本次运行覆盖的**消息区间**（对象引用，不复制），**不含 `system`**。
+
+`prompt` 的区间是**同步**定下的（起手即记下消息下标），所以并发投递各自持自己的区间、不会串台。`queue` 不给 `RunResult`（只回一个「已排队」的事实），这一轮的结果要看事件，或等 `waitIdle()` 后自行读。
+
+→ 片段：`io.prompt`、`io.queue`。示例：`examples/01-first-agent.ts`。
+
+---
+
+## 3. 七个面
+
+### 3.1 `io` —— 驱动与结算
+
+**能做什么**：`prompt`（交办并拿 `RunResult`）、`queue`（忙时排队、**永不因忙抛错**）、`steer`（运行中改向）、`abort`、`waitIdle`；读数 `pending` / `isRunning`。
+
+**关键取舍**：
+
+- `prompt` 撞上「正忙」**抛错**，因为一次交办不该被静默丢掉——该走 `queue`。
+- `queue` 忙时并进**当前这次运行**（结算区间里包含它，不谎报「另起一轮」）；闲时起一轮但**不 await**（await 了它就变成同步 ask），所以紧跟一句 `waitIdle()` 是最常见的写法。这一条路的失败没有 promise 可接，会以 `[aiteam]` 前缀打到 `console.error`——**要拿结果就用 `prompt`**。
+- `waitIdle` 不只是「pi 静下来」，还会等库这边在飞运行的收尾（清 `runId`、归状态）。
+
+→ 片段：`io.prompt`、`io.queue`、`io.waitIdle`。示例：`examples/01-first-agent.ts`。
+
+### 3.2 `context` —— 历史 / 本轮覆盖 / 压缩
+
+**能做什么**：`history`（只读快照）、`usage`（上下文占用）、`autoCompact`（自动压缩开关，可读写）、`override`（改**这一轮发给模型的内容**）、`compact`（压缩）。
+
+**关键取舍**：
+
+- `history` 与 `RunResult.messages` 同一视角：**不含 `system`**（system 是会话级的，每轮由 pi 重建）。要看会话原样走 `context.raw.session.messages`。
+- `override` **不动历史**，逐轮生效（设一次，之后每轮都裁），传进来的是**副本**，随手 slice / filter 不会写坏会话。要裁就按**整轮**裁：只删 `toolResult` 却留下带工具调用的 assistant，pi 会把工具结果补回来。
+- `compact` **要求空闲**（见 §5）：pi 的压缩首行就是 `abort()`，运行中调用会静默打断在飞那轮。
+
+→ 片段：`context.history`、`context.override`、`context.compact`。示例：`examples/03-context.ts`。
+
+### 3.3 `tools` —— 有哪些工具存在
+
+**能做什么**：`list()`（名字 + active）、`add(tool)`、`remove(name)`、`onResult(fn)`（在 `tool_result` 事件上装监听，返回退订函数）。
+
+**关键取舍**：
+
+- `add` 碰**声明面**，要走 pi 的 `reload()`，**要求空闲**；脏活它替你做了：白名单自动补名、同名 `deny` 自动解除、reload 后显式激活。所以加完**不用**再去动 `permissions`。
+- 判定「工具真的上了线」有两条判据，缺一不可：`list()` 里 `active`，且**模型下一轮实际收到的声明里有它**。顺序必须「先起、后加、再看下一轮」——创建期给的工具不加也在，看到它说明不了 `add` 做了什么。
+- 工具需要 agent 句柄时用**工厂式**（`(ctx) => defineTool(...)`）：工厂在声明时被调一次，`ctx.agent` 就是本 agent，要用的能力在那一刻取好存进闭包。
+
+→ 片段：`tools.add`、`tools.addThenInspect`、`tools.addFactory`。示例：`examples/04-tools.ts`。
+
+### 3.4 `permissions` —— 哪些允许被调用
+
+**能做什么**：`gate(fn)`（审批门）、`only(names)`（精确）、`allow(names)`（并集）、`deny(names)`（差集）。
+
+**关键取舍**：
+
+- `tools` 管「**有哪些工具存在**」，`permissions` 管「**哪些允许被调用**」——裁剪只归 `permissions`。
+- `gate` 是**同步单槽位**：后设的覆盖先设的，**没有读回来的机会**，所以判定逻辑一次写清。返回 `{block: true, reason}` 挡下这次调用，`reason` 会作为工具结果回到模型面前——写清「为什么」远比单纯拒绝有用，门排在 `on("tool_call")` 之前，所以被拦下的调用不会出现在你的监听器里。
+- 三档语义**同名不同义**是陷阱：创建期只有 `only`（精确）与 `deny`，**运行期的 `allow` 才是并集**。三档都 async、**都要求空闲**。
+- 「精确」的边界：你在同一个 spec 里**显式声明**的工具（`tools.custom` 的名字、`extensions` 里显式声明的扩展所注册的工具名）**自动并入**白名单；环境自动发现的扩展不并入。这是刻意的——写了两行声明却有一行静默无效，比多一个字段糟糕。
+- **这个面没有 `raw`**：它底下是 `tool_call` 钩子加两张私有过滤集合，pi 没有公开对象可指。
+
+→ 片段：`permissions.gate`、`permissions.only`。示例：`examples/05-permissions.ts`。
+
+### 3.5 `extensions` —— 插件
+
+**能做什么**：`add(工厂 | 路径)`、`remove(path)`、`list()`、`errors()`。
+
+**关键取舍**：
+
+- 加载失败**不静默**：`errors()` 里读得到（路径不存在、扩展自己抛错都在这里）。但运行期钩子抛错走的是另一条路（`console.error`），不在 `errors()` 里。
+- 内联工厂注册的工具名会**自动并进白名单**——不并的话，在白名单下会被 pi 静默硬过滤掉，表现为工具人间蒸发。
+- 有白名单时 `add` 要**两趟** `reload()`（第一趟之后才知道工厂注册了哪些名字），pi 的每次 reload 都会重跑全部扩展工厂并发 `session_shutdown` ⇒ **工厂副作用与生命周期事件会观察到双份**。无白名单时只有一趟。
+
+→ 片段：`extensions.add`。示例：`examples/06-resources.ts`。
+
+### 3.6 `skills` —— 技能
+
+**能做什么**：`add(路径 | Skill 对象)`、`remove(path)`、`list()`。
+
+**关键取舍**：
+
+- **只接受路径**（技能目录或 `SKILL.md`）或 `Skill` 对象：技能是被环境发现的，按名字注册没有意义，会直接抛错（避免「写了却什么都没发生」）。
+- 路径加载不出任何技能会**抛错并把注入撤掉**，不静默降级。
+- 技能要求空闲（同 `extensions`）。
+
+→ 片段：`skills.add`。示例：`examples/06-resources.ts`。
+
+### 3.7 `model` —— 模型与思考档
+
+**能做什么**：`set(ref)`、`setThinking(level)`；读数 `current`（pi 的 `Model` 对象）、`thinking`、`available`（**可用模型列表**，不是档位）。
+
+**关键取舍**：
+
+- `ref` 是 `provider/id`，可带思考档后缀 `provider/id:high`（后缀会一并兑现）。**模型名错了抛错**，不会静默用回原模型——拼写错误变成静默怪行为比报错昂贵得多。
+- `set` 与 `setThinking` **不打断在飞那轮**，改动从**下一次请求**起生效（同轮的后半段可能已经是新模型）。`setThinking` 是**同步**的（不碰声明面、不 reload）。
+- 与 pi 的差别：`setThinking` 遇非法档位**抛错**，pi 是静默钳到最近的档（`very-high` → `off`）。
+
+→ 片段：`model.set`、`model.setThinking`。示例：`examples/07-model.ts`。
+
+---
+
+## 4. 观测：`on` / `onAny` 直接是 pi 的事件
+
+- `agent.on(event, handler)` —— **按名收窄**：handler 的事件参数类型随事件名收窄，不用自己 cast。
+- `agent.onAny(handler)` —— **全量**：拿到的是判别的联合，先看 `event.type` 再取字段。trace / 日志要这个形状。
+- 两者都**直接镜像 pi 的 `ExtensionEvent`**（没有归一化层），都返回**退订函数**，第二个参数是 `ctx`（pi 的 `ExtensionContext` 原样透传，外加 `agent` 与当前 `runId`）。
+- **handler 必须写成块体**：`(e) => arr.push(e)` 返回的是数组长度（真值），会被当成变换结果，库直接抛错。收集信息请写 `{ arr.push(e); }`。
+- 同一个事件上**只允许一个监听器返回变换结果**：设了 `context.override` 之后再 `on("context", …)` 返回变换会**抛错**，而不是静默只生效一个。理由与代价见 [`DESIGN.md`](DESIGN.md) §3.2。
+
+→ 片段：`events.on`、`events.onAny`。示例：`examples/02-events.ts`。
+
+---
+
+## 5. 哪些动作要求空闲
+
+忙判据只有一处：`io.isRunning || session.pendingMessageCount > 0`。凡是**碰声明面**的操作（改变「有哪些工具 / 扩展 / 技能存在、允许哪些」）都要走一次 pi 的 `reload()`，而**不空闲时 reload 会静默不生效**——在飞那轮照常跑完，改动毫无痕迹。库因此让这些操作**忙时抛错**，并要求你先 `io.waitIdle()`。
+
+| 要求空闲 | 不要求 |
+|---|---|
+| `context.compact` | `io.prompt` / `queue` / `steer` / `abort` / `waitIdle` |
+| `tools.add` / `tools.remove` | `context.override` / `autoCompact` / `tools.onResult` / `permissions.gate` |
+| `permissions.only` / `allow` / `deny` | `model.set` / `model.setThinking`（改动从下一次请求起生效） |
+| `extensions.add` / `remove`、`skills.add` / `remove` | |
+
+`agent.dispose()` 之后，七个面的**一切**（含读数与全部 `raw`）都抛错——只有 `io.waitIdle()` 例外，直接 resolve（已回收的 agent 永远「已静下来」）。
+
+---
+
+## 6. 环境自检：`inspectEnv`
+
+只读、不建 agent、不写盘。它回答一个问题：**「为什么我一个模型都没有？」**
+
+`agentDir` 与 `cwd` 里的东西是 SDK 自动发现的，会静默生效；环境报告把它们摊平：`models`（只列配好凭证的 provider）、`extensions`（路径、来源、它注册了哪些工具名）、`skills`、`contextFiles`（跟着 `cwd` 走的上下文文件链）、`warnings`（目录不存在 / 没有 `models.json` / 扩展加载失败 / `SYSTEM.md` 会整体替换系统提示词…）。
+
+模型目录默认允许联网刷新（`modelNetwork`，带新鲜度窗口的 overlay，缓存到 `<agentDir>/models-store.json`）：只刷新**有凭证的 provider**；关掉它仍然会从缓存恢复 overlay。`PI_OFFLINE=1` 关掉一切模型相关网络请求。
+
+→ 示例：`demo/check.ts` 第 3 项（「模型可读」那一步就走它）。设计理由见 [`FACTS.md`](FACTS.md) v2 段 #31。
+
+---
+
+## 7. raw：逃生口
+
+除 `permissions` 外，每个面都有一个 raw 出口，指向底层的 pi 对象。**全权、无护栏**：库的忙判据、结算、白名单自动并入、上下文视角，在这一层都不存在。想绕开库的判断（比如运行中硬压缩）就去 raw；不想自己承担代价，用一等接口。
+
+| 面的 raw | 是什么 | 什么时候用 |
+|---|---|---|
+| `io.raw` | pi 的 `AgentSession` 本体（消息含 `system`） | 要会话原样 / 库没有的 pi 能力 |
+| `context.raw` | `{ session, sessionManager }` | 要会话文件、会话 id，或真直通的 `compact()` |
+| `tools.raw` | `{ getToolDefinition(name) }` | 要参数的**实际** schema / description（`list()` 只给名字 + active） |
+| `extensions.raw` | `{ loader, session }` | `loader` 看到的是**真实加载结果**，含环境自动发现、不归库管的那些 |
+| `skills.raw` | `loader` 本身 | 技能只有「被环境发现」一种来路，没有额外包装 |
+| `model.raw` | `{ session, modelRuntime }` | `session` 是会话当前模型与档；`modelRuntime` 是宿主级目录 + 凭证 |
+
+→ 片段：`raw.io`、`raw.context`、`raw.tools`、`raw.extensions`、`raw.skills`、`raw.model`。示例：`examples/08-raw-escape.ts`。
+
+---
+
+## 8. 库不做的事
+
+**不做**配置 DSL、TUI、沙箱（pi 没有，本库也不承诺）、集群持久化与恢复、agent 寻址 / 全局注册表、以及**任何轮次 / 预算 / 深度的强制护栏**。要护栏，在自己的工具实现里加 `if`；要观测，用 `RunResult.usage` 累加 + 事件。
+
+**不承诺**：pi 没有内置沙箱，`permissions.only` 只是工具集裁剪，扩展与 `bash` 可以绕过它。本库提供的是**能力裁剪 + 拦截**，不是权限系统，更不是安全边界。
+
+---
+
+## 附：配置 agent 时用什么模型
+
+本仓约定：给示例 / demo / 集群配 agent 时默认用 **`(opencode-go) space-bunny-free`**。
+`examples/` 与 `test/` 里的 `faux/*`（`faux/echo`、`faux/echo-alt`）是**本机假 provider**——离线、零成本、有判别力的测试基建，不要换成真模型。

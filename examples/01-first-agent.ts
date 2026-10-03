@@ -4,9 +4,10 @@
 // 期望看到：agent 的回答（RunResult.text）、本次运行的用量（RunResult.usage）、
 // 以及库层面的累计用量与状态。全程离线，零 API 成本。
 //
-// 若要用真模型，改这两行：把下面的 `makeOfflineAgent()` 换成
-// `makeOfflineAgent({ model: "<provider>/<id>", modelNetwork: true })` ——
-// makeOfflineAgent 的默认 ref 在 examples/lib/harness.ts；运行期换模型走 `agent.model.set(...)`（见 07-model.ts）。
+// 若要用真模型：光换 model ref 不够 —— 临时 agentDir 里只有假 provider 的 models.json，
+// 换没有声明的模型会被 aiteam 当错误抛（不是警告）。请把 makeOfflineAgent 的 agentDir 和
+// model 都换成你自己的（真 key 在 ~/.pi/），并去掉 examples/lib/harness.ts 里钉死的
+// PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { makeOfflineAgent } from "./lib/harness.ts";
 
 const agent = await makeOfflineAgent();

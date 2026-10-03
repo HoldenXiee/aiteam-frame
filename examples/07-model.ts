@@ -9,8 +9,10 @@
 // 期望看到：current.id 从 echo 换成 echo-alt；thinking 从 off 换成 high；available 的长度；
 // 以及一次非法档位（very-high）的报错信息。
 //
-// 若要用真模型，改这两行：`makeOfflineAgent()` → `makeOfflineAgent({ model: "<provider>/<id>", modelNetwork: true })`；
-// 运行期换模型就是下面的 `agent.model.set("provider/id")`（可带思考档后缀 "provider/id:high"，后缀会一并兑现）。
+// 若要用真模型：光换 model ref 不够 —— 临时 agentDir 里只有假 provider 的 models.json，
+// 换没有声明的模型会被 aiteam 当错误抛（不是警告）。请把 makeOfflineAgent 的 agentDir 和
+// model 都换成你自己的（真 key 在 ~/.pi/），并去掉 examples/lib/harness.ts 里钉死的
+// PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import type { ThinkingLevel } from "../src/index.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF, makeOfflineAgent } from "./lib/harness.ts";
 
@@ -23,7 +25,7 @@ console.log(`    available = ${agent.model.available.length} 个（${agent.model
 console.log("[2] 换到支持思考档的模型（faux/echo-alt，reasoning:true 的那个）");
 await agent.model.set(FAUX_MODEL_ALT_REF);
 console.log(`    current.id = ${agent.model.current?.id}  thinking = ${agent.model.thinking}`);
-console.log(`    available = ${agent.model.available.length} 个（可用档来自当前模型：上面已经能读到 high）`);
+console.log(`    available = ${agent.model.available.length} 个**模型**（${agent.model.available.map((m) => m.id).join(", ")}）—— 思考档不在这个列表里：它由当前模型决定，上面那行 thinking 此刻仍是 off，high 要到下一步 setThinking 才设得上`);
 
 console.log("[3] 换思考档 high（setThinking 是同步的，下一次请求生效）");
 agent.model.setThinking("high");

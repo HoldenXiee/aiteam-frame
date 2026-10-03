@@ -12,65 +12,68 @@
 
 ## 一句话
 
-**aiteam 是一个 Agent 操控库**——基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，给设计者的代码一双手，去创建、配置、驱动、观测 agent。非常基础、非常底层。
+**aiteam 是一个 Agent 操控库**——基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，给设计者的代码一双手，在运行期**读、改、拦截**一个 agent 的七个面。非常基础、非常底层。
+
+**库不含任何策略。** 花名册、委派、护栏、红线都是**使用者代码**——想让 agent 拥有哪种集群形态，那是你的代码的事，不是库的字段。
 
 ## 三个概念
 
 | 概念 | 含义 | 谁能定义 |
 |---|---|---|
-| **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**（写代码的人） |
-| **分身（Instance）** | 某个成员的一个运行实例。同一成员可有多个分身 | 由 agent 在运行时启动 |
-| **花名册（members）** | 设计者声明的全部成员 | 设计者 |
+| **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**。v2 里它已经**不是库的功能**，就是你代码里的一个对象（见 `examples/09-roster.ts`） |
+| **分身（Instance）** | 一个 `createAgent` 出来的运行实例；同一成员可有多个分身 | 由**设计者的代码**在运行时调 `createAgent` 起（见 `examples/10-spawn.ts`） |
+| **花名册（members）** | 设计者声明的全部成员 | 设计者。v1 里它是 `createAgentHost({ members })` 的入参，**v2 已把它移出库** |
 
-## 红线
-
-**agent 不能设计、不能配置 agent。** 它只能**从花名册里挑一个成员**、**告诉它要干什么**。`spawn_agent` 工具没有 `tools` 参数，也不接受任何配置覆盖。
+**红线同理**：v1 里「agent 不能设计、不能配置 agent」是焊在库里的；v2 把它降成一条**可被推翻的假设**，
+写在 `examples/11-redline.ts` 的使用者代码里——注释掉那段检查，模型带的配置就真的会被接进子 agent。
+三个文件的头部都逐字标着「⚠️ 这是一个【假设】，不是推荐做法」。
 
 ## 库有什么
 
-```ts
-createAgent(spec, deps?)      // 唯一的 agent 创建入口 → ControlledAgent
-createAgentHost({ members })  // 花名册 + 三道护栏 + 宿主事件 → AgentHost
-inspectEnv(spec?)             // 环境自检：有哪些模型 / 插件 / 技能（只读）
-defineAgentTool(def)          // 工厂式工具地基，工具能拿到 ctx.agent / ctx.host
-```
+对外只有两个函数（`src/index.ts` 是唯一入口，不做逻辑）：
 
-创建出来的 agent 上可操控的面：
+- `createAgent(spec, deps?)` → `Agent` —— **唯一**的 agent 创建入口
+- `inspectEnv(spec?, deps?)` → `EnvReport` —— 环境自检：这套环境里实际生效了什么（模型 / 扩展 / 技能 / 警告），只读
 
-- **上下文** —— 读消息历史（`agent.session` 逃生口）
-- **输入流向** —— `prompt` / `send`（忙时排队、永不抛错）/ `steer` / `waitForIdle`
-- **输出流向** —— `RunResult { text, usage, error? }` + `agent.lastResult`
-- **生命周期** —— `abort` / `dispose`；`host.dispose()` 级联回收
-- **工具集** —— `tools` 白名单 / `excludeTools` / `customTools` / `onToolCall` 审批门
-- **模型与思考档** —— `model`（`"provider/id:thinking"`）/ `thinking`
-- **技能与插件** —— `skills` / `extensions`
-- **角色** —— `role` → `appendSystemPrompt`
-- **护栏** —— `maxDepth` / `maxAgents` / `budgetTokens`
-- **观测** —— 7 个归一化事件（`text` / `thinking` / `tool_start` / `tool_end` / `turn` / `error` / `done`）+ 3 个宿主事件（`agent_created` / `agent_disposed` / `round_completed`）
-- **用量** —— `agent.usage` 累计 / `RunResult.usage` 本次 / `host.usage` 全宿主
+`Agent` 上是**七个面**：
 
-自带两个能力工具（由 `spec.tools` 里的名字控制启用）：`spawn_agent`（挑成员 + 派活 + 拿结果）、`send_message`（给**自己的后代**分身追加消息）。
+| 面 | 管什么 |
+|---|---|
+| `agent.io` | 投递（`prompt` / `queue` / `steer`）、`abort`、`waitIdle`、**结算**（`RunResult`） |
+| `agent.context` | 读历史、改**这一轮发给模型的内容**、压缩、自动压缩开关 |
+| `agent.tools` | 有哪些工具存在（`list` / `add` / `remove`）、工具结果拦截（`onResult`） |
+| `agent.permissions` | 哪些工具**允许被调用**（`only` / `allow` / `deny`）、审批门（`gate`） |
+| `agent.extensions` | 运行期加载 / 卸载插件，加载错误可读（`errors()`） |
+| `agent.skills` | 运行期按路径注入技能、列出当前技能 |
+| `agent.model` | 换模型 / 换思考档，读当前与可用 |
+
+除七个面之外，只剩三样句柄与观测：
+
+- **句柄** —— `agent.id`（trace 的关联键）/ `agent.usage`（**全生命周期**累计；本次运行看 `RunResult.usage`）/ `agent.status`（`idle` | `running` | `disposed`）/ `agent.dispose()`
+- **观测** —— `agent.on(event, handler)`（**按名收窄** handler 的参数类型）与 `agent.onAny(handler)`（全量，适合 trace / 日志）。两者都**直接镜像 pi 的 `ExtensionEvent`**、返回退订函数；v1 那层「七个归一化事件」已删除
+- **raw 出口** —— 除 `permissions` 外每个面都有 `agent.<面>.raw`，指向对应的 pi 对象。**全权、无护栏**：库的忙判据与结算在这一层不存在
+
+**哪些动作要求空闲**：`tools.add/remove`、`permissions.only/allow/deny`、`extensions.add/remove`、`skills.add/remove`、`context.compact` —— 忙时**抛错**，先 `io.waitIdle()`。它们要碰「声明面」，得走 pi 的 `reload()`，而**不空闲时 reload 会静默不生效**。`model.set` / `setThinking` 不打断在飞那轮，改动从下一次请求起生效。`dispose()` 之后七面的一切都拒绝（`io.waitIdle` 例外，直接 resolve）。
 
 ## 现状
 
-**理想是一个 agent 身上的每个面都能被设计者的代码操控；现在只覆盖了一部分。**
+**机制层是完整的七面；策略层刻意留空。** 「库负责的机制 vs 使用者负责的政策」分工表、「哪些动作要求空闲」的表、
+结算（一次运行 = `agent_start` → `agent_settled`）为什么这么切、明确不做的七件事，见 [`docs/DESIGN.md`](docs/DESIGN.md)（**唯一设计源**，v1 原文在 `docs/archive/`）。
+怎么用见 [`docs/GUIDE.md`](docs/GUIDE.md)（代码引用 `examples/lib/snippets.ts` 的同源片段）；已实测核对的实现决策见 [`docs/FACTS.md`](docs/FACTS.md)。
 
-各个操控面的完整对照（理想 / 现状）、对外接口、能力边界、集群形态清单，见 [`docs/DESIGN.md`](docs/DESIGN.md)。
-
-库的能力与极限做过一轮实测审计（约 600 条实测项）：机制层可靠；配置层与结果归属层存在**静默**失效。细节见 [`docs/research/`](docs/research/)。
-
-**不承诺**：pi 没有内置沙箱，`tools` 白名单只是工具集裁剪，不是安全边界。
+**不承诺**：pi 没有内置沙箱，`permissions.only` 只是工具集裁剪，扩展与 `bash` 可以绕过它。本库提供的是**能力裁剪 + 拦截**，不是权限系统，更不是安全边界。
 
 ## 仓库地图
 
 ```
-src/agent/       create-agent.ts / host.ts / loader.ts / events.ts / usage.ts / types.ts
-src/tools/       define-agent-tool.ts / spawn-agent.ts / send-message.ts
+src/index.ts     唯一导出入口（不做逻辑）：createAgent / inspectEnv + 全部对外类型
+src/agent/       create-agent.ts（唯一的创建路径）· bridge.ts（面 = pi 钩子的分组封装）· env.ts（inspectEnv）· loader.ts（skills / extensions / role 的注入与解析）· types.ts（对外类型）· usage.ts（用量累计）
+src/surfaces/    七个面：io.ts · context.ts · tools.ts（tools + permissions）· resources.ts（extensions + skills）· model.ts
 test/            node:test，本机假 provider，零 API 成本
-audit/           能力与极限审计的探测脚本与发现（证据链）
-demo/            安装自检 demo：自建环境（demo/env）+ 一个 agent 集群，跑通即说明库装好了
+examples/        11 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码）；离线基建在 examples/lib/
+demo/            安装自检：demo/check.ts（七项，不需要 key）+ demo/agent-team.ts（多 agent 协作写报告）
 docs/DESIGN.md   宏观设计（唯一设计源）
-docs/GUIDE.md    用法讲解（面向设计者怎么用）
-docs/FACTS.md    已实测核对的实现决策
-docs/research/   能力与极限审计的最终报告 · 研究问题清单
+docs/GUIDE.md    用法讲解（面向设计者；代码引用 examples/lib/snippets.ts 的同源片段）
+docs/FACTS.md    已实测核对的实现决策（v1 段 + v2 段）
+docs/research/   研究问题清单 · v1 能力与极限审计报告
 ```

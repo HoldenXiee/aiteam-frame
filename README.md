@@ -38,7 +38,7 @@ const host = createAgentHost({
     researcher: {
       description: "查资料并把结论落成事实清单",
       role: "你是研究员。只给事实，不给建议。",
-      model: "anthropic/claude-haiku-4-5",
+      model: "opencode-go/space-bunny-free",
       tools: ["read", "grep"],
     },
     writer: { description: "把事实清单写成稿子", role: "你是撰稿人。" },
@@ -52,7 +52,7 @@ const host = createAgentHost({
 const lead = await createAgent({
   id: "lead",
   role: "你是主持人。用 spawn_agent 挑选成员派活，用 send_message 追加消息。",
-  model: "anthropic/claude-opus-4-5:high",
+  model: "opencode-go/space-bunny-free",
 }, { host });
 
 // 3. 交办，拿结果
@@ -155,7 +155,7 @@ npm run demo       # 全流程：环境 → 真模型 → agent 集群 → 对�
 挂了不会静默：行首是 `✘`，后面跟原因，退出码 1，并提示跑 `npm run demo:env` 单独体检环境。
 凭证找不到也不静默：`demo/env/auth.json` 优先 → 其次自动从 `~/.pi/agent/auth.json` 拷一份 → 都没有就报错并给出两条路（照 `auth.json.example` 手写，或设 `OPENCODE_API_KEY`）。细节见 [`demo/README.md`](demo/README.md)。
 
-改这个库的人另一个免费保险是 `npm test`：76 项测试走本机假 provider，零 API 成本，不碰真模型。
+改这个库的人另一个免费保险是 `npm test`：114 项测试走本机假 provider，零 API 成本，不碰真模型。
 
 **想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解每个操控面。
 
@@ -173,7 +173,7 @@ npm install
 ### 三条命令
 
 ```bash
-npm test            # 76 项测试，本机假 provider，零 API 成本 —— 改完先跑它
+npm test            # 114 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
 npm run demo        # 真模型端到端：自建环境 → 集群（要凭证、要花钱，约 $0.003）
 ```
@@ -184,13 +184,13 @@ npm run demo        # 真模型端到端：自建环境 → 集群（要凭证�
 
 | 你要改的东西 | 落点 |
 |---|---|
-| 创建 / 生命周期 / 事件 / 用量接线 | `src/agent/create-agent.ts` |
-| 花名册、三道护栏、宿主事件、级联回收 | `src/agent/host.ts` |
+| 创建 / 生命周期 / 句柄接线 | `src/agent/create-agent.ts` |
+| 面 = pi 钩子的分组封装（`on` / `onAny` / 槽位 / 忙判据） | `src/agent/bridge.ts` |
+| 七个面各自的行为 | `src/surfaces/io.ts` · `src/surfaces/context.ts` · `src/surfaces/tools.ts` · `src/surfaces/resources.ts` · `src/surfaces/model.ts` |
 | skills / extensions / role 的注入与解析 | `src/agent/loader.ts` |
 | 环境自检 `inspectEnv` | `src/agent/env.ts` |
-| pi 的 20+ 事件 → 7 个归一化事件（纯映射） | `src/agent/events.ts` |
+| 用量累计 | `src/agent/usage.ts` |
 | 对外类型（无运行时逻辑） | `src/agent/types.ts` |
-| 库自带的两个能力工具 | `src/tools/` |
 | 对外导出（唯一入口，不做逻辑） | `src/index.ts` |
 | 设计 / 实测事实 / 用法 | `docs/DESIGN.md` / `docs/FACTS.md` / `docs/GUIDE.md` |
 
@@ -201,7 +201,7 @@ npm run demo        # 真模型端到端：自建环境 → 集群（要凭证�
 这几条是这个库可信度的来源，不是风格偏好：
 
 1. **L1 不做 SDK 已经做了的事。** 加功能前先确认 pi SDK 里没有等价物 —— `node_modules/@earendil-works/pi-coding-agent/docs/` 是第一手资料。
-2. **只说实测过的。** 任何「已实现 / 已修复」都要配一个能跑出结果的检查（`npm test` 里的一条断言，或 `audit/` 下的一个探针）。
+2. **只说实测过的。** 任何「已实现 / 已修复」都要配一个能跑出结果的检查：`npm test` 里的一条断言、`examples/` 下某个文件的实际输出，或 `node demo/check.ts` 的一项。
 3. **类型不重定义。** `Skill` / `ToolDefinition` / `AgentSession` / `Message` / `Usage` / `ThinkingLevel` 一律从 pi 的包 import。
 4. **唯一创建入口。** 不加第二条造 agent 的路径（`host.createAgent()` 之类）；不给 agent 提权面（`spawn_agent` 永远不许加 `tools`）。
 5. **接口变了就同步三份文档**：`DESIGN.md`（接口与现状）→ `FACTS.md`（带编号的决策与理由）→ `GUIDE.md`（怎么用）。
@@ -220,21 +220,25 @@ test("role 追加在 <tools> 之后，不替换默认提示词", async () => {
 });
 ```
 
-`test/helpers.ts` 里有现成的 ground truth：`seenTools()`（模型**实际**收到的工具名）、`captureSystemPrompt()`（**实际**发出的 system）、`runTool()`（直接执行库自带工具，不进 LLM）、`faux.calls`（假服务收到的一切）。
+`test/helpers.ts` 里有现成的 ground truth：`sentTools()`（模型**实际**收到的工具名）、`sentMessages()`（**实际**发出的消息条数）、`echoTool()`（现成的回显工具）、`captureSystemPrompt()`（**实际**发出的 system）、`faux.calls`（假服务收到的一切）。
 
 ### 不花钱验证一个能力
 
-不确定 SDK 的某个行为时**不要猜**，写一个一次性探针：
+不确定 SDK 的某个行为时**不要猜**，写一个一次性探针 —— 探针基建现在是 `examples/lib/`
+（本机假 provider（HTTP + SSE）+ 临时 agentDir / cwd）与它的离线 harness，起一个文件就能跑：
 
 ```bash
-node audit/你的脚本.ts        # audit/ 下全是这种脚本，_faux.ts 提供假环境基建
+node examples/03-context.ts   # 一个面一个文件；输出里自带判别力，跑一遍就知道它说的是不是真的
+node demo/check.ts            # 七项安装自检，不需要 key
+npm test                      # 全部断言，本机假 provider，零 API 成本
 ```
 
-真模型实验先跑 1 次记下实际 token 与花费，再决定样本量；费用从 `agent.usage.cost.total` 累加。真模型跑出来的结论写进 `audit/**/FINDINGS.md`，被验证的决策写进 `docs/FACTS.md`。
+探针跑出来的结论：被验证的**决策**写进 `docs/FACTS.md`（带编号与出处），**用法**写进 `docs/GUIDE.md`。
+真模型实验先跑 1 次记下实际 token 与花费，再决定样本量；费用从 `agent.usage.cost.total` 累加。
 
 ### 提交
 
-Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fix:` / `docs:` / `audit:` / `chore:`。
+Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fix:` / `docs:` / `chore:`。
 `demo/work/` 是 demo 跑出来的产物（黑板 / 报告 / 临时文件），已经在 `.gitignore` 里，不要提交。
 
 ## 研究课题与研究方向
@@ -315,24 +319,25 @@ Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fi
 ## 目录
 
 ```
-src/agent/     单 agent 操控 + 花名册 + 事件 + 用量
-  create-agent.ts   spec → ControlledAgent
-  host.ts           花名册、三道护栏、宿主事件、级联回收
+src/index.ts    唯一导出入口（不做逻辑）：createAgent / inspectEnv + 对外类型
+src/agent/      单 agent 的创建与接线
+  create-agent.ts   唯一的创建路径 → Agent（七面 + 句柄 + 观测）
+  bridge.ts         面 = pi 钩子的分组封装；忙判据；R47 形状守卫
   loader.ts         skills / extensions / role 的配置收敛
   env.ts            inspectEnv：环境自检（模型/插件/技能），只读
-  events.ts         pi 的 20+ 事件 → 7 个归一化事件
+  usage.ts          用量累计（本次 vs 全生命周期）
   types.ts          全部对外类型（无运行时逻辑）
-src/tools/     自定义工具：define-agent-tool / spawn-agent / send-message
-test/          node:test，全部走本机假 provider，零 API 成本
-audit/         能力与极限审计的探测脚本与发现（证据链）
-demo/          安装自检 demo：自建环境（demo/env）+ 一个 agent 集群（要凭证、要花钱）
-docs/          设计文档 + 用法讲解
+src/surfaces/   七个面：io / context / tools（含 permissions）/ resources（extensions + skills）/ model
+test/           node:test，全部走本机假 provider，零 API 成本
+examples/       能 node 直接跑的示例 + 离线基建（examples/lib/）
+demo/           安装自检 demo：demo/check.ts 七项自检 + demo/agent-team.ts 多 agent 协作
+docs/           设计文档 + 用法讲解
 ```
 
 ## 文档
 
 - [`AGENTS.md`](AGENTS.md) —— 项目是什么（快速全貌）
-- [`docs/GUIDE.md`](docs/GUIDE.md) —— **用法讲解**：上手、逐个操控面、已知边界、常用配方
+- [`docs/GUIDE.md`](docs/GUIDE.md) —— **用法讲解**：先跑起来、创建、结算、七个面、观测、要求空闲的动作、环境自检、raw 逃生口（代码引用 `examples/lib/snippets.ts` 的同源片段）
 - [`docs/DESIGN.md`](docs/DESIGN.md) —— 宏观设计（唯一设计源）：操控面理想与现状、对外接口、能力边界
 - [`docs/FACTS.md`](docs/FACTS.md) —— 已实测核对的实现决策
 - [`docs/research/`](docs/research/) —— 能力与极限审计报告 · [研究问题清单（26 条 / 7 家族）](docs/research/2026-10-01-research-questions.md)
