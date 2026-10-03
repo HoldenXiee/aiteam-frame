@@ -1,320 +1,314 @@
-# aiteam —— Agent 操控库设计
+# aiteam —— Agent 操控库，v2
 
-- 状态：现行（本文是**唯一**的宏观设计源）
-- 日期：2026-10-01
+- 状态：**现行**（本文是唯一的宏观设计源）
+- 版本：**v2**。v1 归档在 [`archive/DESIGN-v1.md`](archive/DESIGN-v1.md)
+- 日期：2026-10-03
+- 来源：本文由 [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md)（rev.8，R1–R48）派生；裁决全文与「代价若错」见计划 1 账本与规格 §11
+- 面向：**设计者**（写代码用这个库的人）。用法讲解见 [`GUIDE.md`](GUIDE.md)，已实测的 pi 事实见 [`FACTS.md`](FACTS.md)
 
 ---
 
-## 0. 定位
+## 0. 一句话
 
-aiteam 是一个 **Agent 操控库**。它非常基础、非常底层：**给设计者的代码一双手，去创建、配置、驱动、观测 agent。**
+> aiteam 是一个 **agent 操控库**：给设计者的代码一双手，**在运行期**读、改、拦截一个 agent 的七个面。**库不含任何策略。**
 
-它基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，是 SDK 上面薄薄的一层，不是 agent 框架的替代品。
+它基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，是 SDK 上面薄薄的一层。它的目标是**研究工具**，不是产品。
 
-操控面的例子（方向示意，不是全部）：控制 agent 的**上下文**、控制 agent 的**输入输出流向**。
+「研究工具」这四个字是有后果的：研究工具的核心能力是**让假设可被替换、可被测量**，而不是替研究者选好立场。所以库里没有花名册、没有内置工具、没有护栏、没有红线、没有 agent 寻址机制 —— 那些都是**可以被对照实验证伪的假设**，它们属于使用者的代码，不属于库。
 
-库本身不规定使用者拿它做什么。它是一个以研究为目的的项目，但**研究取向不构成库的设计约束**——库只负责把操控能力做实。
+v1 恰好把这件事做反了：它把研究假设当成了库的结构（红线「agent 不能配置 agent」、花名册、委派原语都是**待研究的对象**），于是想做「允许 spawn 时传 tools」这种对照实验，必须改库源码。v1 的原文见 [`archive/DESIGN-v1.md`](archive/DESIGN-v1.md)。
 
-## 1. 核心模型
+**不承诺**：pi 没有内置沙箱。`permissions.only` 只是工具集裁剪，扩展与 `bash` 可以绕过它。本库提供的是**能力裁剪 + 拦截**，**不是权限系统**，更不是安全边界。
 
-| 概念 | 含义 | 谁能定义 |
+---
+
+## 1. 三个概念：v1 → v2 的变化
+
+| 概念 | v1（已归档） | v2 |
 |---|---|---|
-| **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**（写代码的人） |
-| **分身（Instance）** | 某个成员的一个运行实例。同一成员可有多个分身 | 由 agent 在运行时启动 |
-| **花名册（members）** | 设计者声明的全部成员 | 设计者 |
+| **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型。由设计者在花名册里声明 | 概念保留，但**不再是库的一部分**——它就是设计者的代码里的一个对象 / 一条记录 |
+| **分身（Instance）** | 某个成员的一个运行实例；由 agent 在运行时通过 `spawn_agent` 启动 | 仍是「一个 `createAgent` 出来的运行实例」，但**起分身是设计者的代码在做**（在自己的工具实现里调 `createAgent`） |
+| **花名册（members）** | 设计者声明的全部成员，交给 `createAgentHost({ members })` | **已移出库**。「花名册」在 v2 里就是设计者自己的一个 `Map`／对象字面量 |
 
-## 2. 红线
+v2 **删掉了** `createAgentHost` / `members` / `spawn_agent` / `send_message` / `maxDepth` / `maxAgents` / `budgetTokens`，以及那条红线。
 
-**agent 不能设计、不能配置 agent。**
+原因不是「它们不好」，而是**它们是假设**：
 
-它唯一能做的两件事是：**从花名册里挑一个成员**、**告诉它要干什么**。连「收窄工具集」这种小自由都不给——那已经是变相的自己设计 agent。
+- 「预定义成员能约束 agent 的行为」
+- 「委派给分身能扩展能力」
+- 「agent 不该能配置 agent」
 
-好处是双向的：agent 没有提权面（无法指定 `cwd` / `agentDir` / `extensions`，也就无法让子 agent 加载任意代码或换用贵模型）；而设计者的灵活性不受损——想加一种新 agent，就在花名册里加一个成员。
+这三条正是研究问题清单要测量的对象。写进库的那一刻，它们就从**可对照的变量**变成了**不可质疑的前提**——测量工具把结论烤进了自己的结构里。
 
-落到代码上：`spawn_agent` 工具**没有** `tools` 参数，也不接受任何配置覆盖。
+v2 里这三条**全部保留为使用者代码**，且每条都写成「一个可被推翻的写法 + 一行具体的改法」：
 
-## 3. 操控面：理想与现状
-
-一个 agent 身上所有可被设计者用代码操控的地方，逐面列出**理想状态**与**当前状态**。
-
-| 操控面 | 理想 | 现状 |
+| 文件 | 假设 | 在 v2 里怎么摆 |
 |---|---|---|
-| **身份与归属** | 归属完整可视；能从 agent 反查它的配置；能导出拓扑 | `id` / `parentId` / `member` 可读；深度由 `parent` 链推出。无配置回读，无拓扑导出 |
-| **上下文** | 读、裁剪、替换；压缩可配、可见；超限可恢复 | `session.messages` 可读（逃生口）。压缩**不可配置**（`SettingsManager.inMemory({})`）、**不可见**（`compaction_*` 事件被丢弃）、摘要 token **不计入 usage**。上下文超限后分身**永久静默返回空**（`{error:null, text:"", usage:0}`、`status` 停在 `idle`），除 `dispose` 外无恢复手段。被 `abort` 的轮次留下 user 消息永久占上下文 |
-| **输入流向** | 何时投、投给谁、排队还是打断，都可控 | `prompt` / `send` / `steer` / `waitForIdle`。`send` 忙时排队且**永不抛错**，忙闲判据同时看自维护的 `running` 计数与 `isStreaming`。`send_message` 只能投给**自己的后代**。无超时，无等答复（`ask`）。预算耗尽后 `send` 仍返回 `{delivered:"ran"}` 而一个字没跑 |
-| **输出流向** | 结果与**这一次调用**绑定；产出可路由 | `RunResult { text, usage, error? }` + `agent.lastResult`。`collectRun()` 排干共享消息池取**最后一条** assistant 消息 → 重叠投递时结果**串台**（per-call 用量随之错，三方累计值仍对，所以对账查不出）。无结构化输出契约 |
-| **生命周期** | 起、停、回收、复活；子树级回收；配额随回收返还 | `createAgent` / `prompt` / `abort` / `dispose` / `waitForIdle`；`dispose` 在跑着时先 `abort` 等 settle 再真回收；`host.dispose()` 级联。`maxAgents` 是**终身累计**，回收不还；中间层 `dispose` 留孤儿，祖先对真后代的投递会被拒且理由是错的 |
-| **工具集** | 精确裁剪与注入；工具结果可拦截 | `tools` 白名单（`[]` = 一个都不给）、`excludeTools`、`customTools`（静态对象或工厂）、`onToolCall` 审批门。非空白名单会**强制并入** customTools 与设计者声明的扩展工具名（关不掉，只能 `excludeTools`）。`tools` 写错一字符会静默塌成 `[]` |
-| **模型** | 按 agent 指定、运行中可换、可调采样参数 | `model`（`"provider/id:thinking"`）、`thinking`；`resolveCliModel` 的 warning 被转成抛错。模型目录可联网刷新（`modelNetwork`，默认开），overlay 缓存在 `<agentDir>/models-store.json`。**无** temperature / top_p / seed（SDK 层可达，库未接）。非枚举的 `thinking` 值静默回落 |
-| **技能与插件** | 按 agent 精确注入；加载失败可观测 | `skills`（名字 / 目录 / `SKILL.md` 路径 / `Skill` 对象）与 `extensions`（路径 / 内联工厂）；技能名字解析失败**抛错**。扩展加载失败**静默**（原因在 `loader.getExtensions().errors`，库不读）；环境里自动发现的扩展**不受** `tools` 白名单管辖，其钩子照样生效 |
-| **角色与提示词** | 追加、替换、覆写 | `role` → `appendSystemPrompt`（保留 pi 默认提示词，追加在 `<tools>` 之后）。无整体替换入口 |
-| **权限与审批** | 拦截、放行、可观测 | `onToolCall` 实现为动态扩展工厂，返回 `{ block: true, reason }`。键名大小写写错 → 门**完全不生效且零信号**；门内 `throw` = 无条件拦截且异常文本进上下文；拦截与「工具自身报错」在库层面同形（都只是 `tool_end.isError`） |
-| **成本与配额** | 按分支归因；硬天花板；超支有出口 | `agent.usage` 累计、`RunResult.usage` 本次、`host.usage` 全宿主；三方对账差额 **0**。护栏是 `maxDepth` / `maxAgents` / `budgetTokens` 三道。但预算是**轮前软约束**：单轮不封顶，忙时 `followUp` / `steer` 完全绕过（实测击穿 5.0×）。被 `abort` 的轮次 usage 记 0 但请求真实计费 |
-| **观测** | 事件全覆盖、载荷可序列化 | 7 个归一化事件（`text` / `thinking` / `tool_start` / `tool_end` / `turn` / `error` / `done`）+ 3 个宿主事件（`agent_created` / `agent_disposed` / `round_completed`）+ `session` 逃生口。忙时 `prompt()` 抛错且**不发任何事件**；事件载荷 `JSON.stringify` 会抛 `Theme not initialized` |
+| [`examples/09-roster.ts`](../examples/09-roster.ts) | 预定义成员能约束行为 | 一个 `Map<string, {role, tools}>`；约束效果成为可对照的变量（删掉花名册、让 spawn 接受任意角色，再跑同一个任务） |
+| [`examples/10-spawn.ts`](../examples/10-spawn.ts) | 委派给分身能扩展能力 | 一个 `spawn` 工具，内部 `createAgent` + `io.prompt`；深度计数器是**使用者代码**（改成 1 或去掉，看结果怎么变） |
+| [`examples/11-redline.ts`](../examples/11-redline.ts) | agent 不该能配置 agent | `spawn` 参数表上的一段检查；注释掉它，模型带的配置就真的会被接进子 agent（这就是那条假设的代价） |
 
-## 4. 对外接口
+三个文件的头部都逐字标着「⚠️ 这是一个【假设】，不是推荐做法」。**若把它们写成库功能，就是把 v1 删掉的政策又请回来。**
 
-```ts
-createAgent(spec: AgentSpec, deps?: CreateAgentDeps): Promise<ControlledAgent>
-createAgentHost(opts?: HostOptions): AgentHost
-inspectEnv(spec?: MemberSpec, deps?: InspectDeps): Promise<EnvReport>
-defineAgentTool(def): AgentToolFactory
-```
+一句话记法：**库给机制，使用者给政策。** 想在 v2 里加一条「规矩」，正确的动作是在自己的工具实现里加一段 `if`，而不是往库里加一个字段。
 
-### 4.1 成员与实例
+---
 
-```ts
-/** 成员定义：设计者写的，agent 不可改 */
-export interface MemberSpec {
-  /** 给 agent 看的职责说明，会出现在 spawn_agent 的工具描述里 */
-  description?: string;
-  cwd?: string;
-  /** 默认宿主级共享。另开会换掉这一份 models.json / auth.json */
-  agentDir?: string;
-  /** 是否允许联网刷新模型目录（pi.dev overlay，带 ETag，4 小时新鲜度窗口），默认 true。
-   *  false 时仍会从 `<agentDir>/models-store.json` 恢复已缓存的 overlay（离线也生效） */
-  modelNetwork?: boolean;
-  /** 覆盖目录来源，默认 https://pi.dev（企业镜像 / 测试用） */
-  catalogBaseUrl?: string;
-  /** 角色说明 → appendSystemPrompt */
-  role?: string;
-  /** 名字或 SKILL.md 路径；Skill 对象必须指向真实存在的文件 */
-  skills?: (string | Skill)[];
-  extensions?: (string | InlineExtension)[];
-  /** 白名单。非空时并入 customTools 与设计者声明的扩展工具名；`[]` = 一个工具都不给 */
-  tools?: string[];
-  excludeTools?: string[];
-  customTools?: AgentTool[];
-  /** "provider/id:thinking" */
-  model?: string;
-  thinking?: ThinkingLevel;
-  /** 审批门 */
-  onToolCall?: ToolGate;
-}
-
-/** 实例规格 = 成员定义 + 身份 */
-export interface AgentSpec extends MemberSpec {
-  id?: string;   // 不填则自动生成
-}
-```
-
-配置优先级：`host.defaults` ← `members[x]` ← 顶层 `spec`，**浅合并覆盖**（数组整体替换，不拼接）。
-
-### 4.2 单个 agent
-
-```ts
-export interface ControlledAgent {
-  readonly id: string;
-  /** 逃生口：原始 SDK 对象；消息历史也从这里取 */
-  readonly session: AgentSession;
-  readonly status: "idle" | "running" | "aborted" | "error" | "disposed";
-  /** 直接用 SDK 的值，不自己推 */
-  readonly isStreaming: boolean;
-  /** 全生命周期累计 */
-  readonly usage: Usage;
-  readonly parentId: string | undefined;
-  /** 由哪个成员创建；顶层 agent 为 undefined */
-  readonly member: string | undefined;
-  /** 最近一次跑完的结果；从未跑过则为 undefined */
-  readonly lastResult: RunResult | undefined;
-
-  /** 顶层交办，返回本轮结果 */
-  prompt(text: string, opts?: PromptOpts): Promise<RunResult>;
-  /** 投递一条消息。目标忙时排队，永不抛错 */
-  send(text: string, opts?: SendOpts): Promise<SendResult>;
-  /** 运行中插话 */
-  steer(text: string): Promise<void>;
-  /** 等它不再运行 */
-  waitForIdle(): Promise<void>;
-  abort(): Promise<void>;
-  on<E extends AgentEventName>(event: E, fn: (payload: AgentEventMap[E]) => void): () => void;
-  dispose(): void;
-}
-
-export interface RunResult {
-  text: string;
-  usage: Usage;      // 本次运行；agent.usage 是全生命周期累计
-  error?: string;    // pi 的 prompt() 接受后失败不 reject，必须显式暴露
-}
-
-export interface SendResult {
-  delivered: "ran" | "queued";
-}
-export interface SendOpts {
-  mode?: "next" | "interrupt";
-}
-
-export interface AgentEventMap {
-  text:       { delta: string };
-  thinking:   { delta: string };
-  tool_start: { toolName: string; callId: string };
-  tool_end:   { toolName: string; callId: string; isError: boolean };
-  turn:       { message: AgentMessage; usage: Usage };
-  error:      { message: string };
-  done:       { usage: Usage };
-}
-```
-
-### 4.3 宿主与花名册
-
-```ts
-export interface HostOptions {
-  /** 花名册：agent 只能从这里挑人 */
-  members?: Record<string, MemberSpec>;
-  maxAgents?: number;      // 全生命周期分身总数上限，默认 16
-  maxDepth?: number;       // 分身层数上限，顶层为第 0 层，默认 2
-  budgetTokens?: number;   // 全宿主累计 token 上限
-  modelRuntime?: ModelRuntime;
-  /** 所有成员的基线，被成员定义覆盖 */
-  defaults?: Partial<MemberSpec>;
-}
-
-export interface AgentHost {
-  readonly usage: Usage;                    // 全宿主累计
-  readonly activeCount: number;
-  readonly maxAgents: number;
-  readonly maxDepth: number;
-  readonly budgetTokens: number | undefined;
-
-  list(): ControlledAgent[];                // 仅未回收的分身
-  get(id: string): ControlledAgent | undefined;
-  on<E extends keyof HostEventMap>(event: E, fn: (payload: HostEventMap[E]) => void): () => void;
-  dispose(): void;                          // 级联回收所有分身
-}
-
-/** 库只发射事件，不内置任何监控策略 */
-export interface HostEventMap {
-  agent_created:   { agent: ControlledAgent; member: string | undefined; parent: ControlledAgent | undefined };
-  agent_disposed:  { agent: ControlledAgent };
-  round_completed: { agent: ControlledAgent; result: RunResult };
-}
-```
-
-宿主上的计数与用量是**只读访问器**。刻意**不提供** `host.createAgent()`——避免出现第二条创建路径。
-
-### 4.4 工具地基
-
-```ts
-export interface AgentToolContext {
-  /** 谁在调用。挑选型工具必须知道自己是谁 */
-  agent: ControlledAgent;
-  signal?: AbortSignal;
-  /** 能力注入点：花名册、寻址、消息等从这里接 */
-  host?: AgentHost;
-}
-
-/** 工厂式：需要上下文的工具走这里 */
-export type AgentToolFactory = (ctx: AgentToolContext) => ToolDefinition;
-/** 静态式：无上下文依赖的简单工具 */
-export type AgentTool = ToolDefinition | AgentToolFactory;
-
-export function defineAgentTool<P extends TSchema>(def: AgentToolDef<P>): AgentToolFactory;
-```
-
-工具工厂在 `createAgent` 期间被调用一次（模型得先看到 `name` / `parameters`），但 `ctx.agent` 是**惰性**的——只有 `execute` 时才取得到持有它的那个 agent。这是必需而非优化：SDK 传给工具 `execute` 的 `ctx` 是 `ExtensionToolContext`，**不含当前 agent 引用**。
-
-### 4.5 库自带的两个能力工具
-
-由 `spec.tools` 里的名字控制启用。
-
-```ts
-spawn_agent({ member: "reviewer", task: "审查 src/foo.ts" })
-  -> 文本里带 agentId + 分身的最终文本
-
-send_message({ agentId: "a3", message: "把结论写成 md" })
-  -> "已投递：当时空闲，已开始处理" | "已投递：正忙，已排队"
-```
-
-`spawn_agent`：从花名册挑一个成员 → 起新分身 → 派活 → 等它做完 → 拿回结论。`member` 用 TypeBox 字面量联合约束，**工具描述动态列出花名册全部成员 + 各自 `description`**——不这么做，agent 无从「挑选」。分身跑完后**保留**在宿主中可寻址。
-
-`send_message`：只准投给**自己的后代分身**（自己创建的及它们的后代）。三个收益：防跨分支干扰；后代关系是树，禁止反向投递就**免费消灭发送环**；与实际信息一致（agent 本来也只知道自己创建的 id）。
-
-### 4.6 环境验证`inspectEnv`
-
-```ts
-export interface EnvReport {
-  agentDir: string;
-  cwd: string;
-  models: { provider: string; total: number; available: string[] }[];  // 只列有可用模型的 provider
-  extensions: { path: string; scope: string; tools: string[] }[];      // tools = 它注册的工具名
-  skills: { name: string; filePath: string; scope: string }[];
-  systemPromptFile?: string;                    // 环境里的 SYSTEM.md（存在即整体替换系统提示词）
-  appendSystemPromptFiles: string[];
-  contextFiles: string[];                       // AGENTS.md / CLAUDE.md 链
-  warnings: string[];                           // 库以前静默吞掉的东西
-}
-
-inspectEnv(spec?: MemberSpec, deps?: { modelRuntime?: ModelRuntime }): Promise<EnvReport>
-```
-
-传的 `spec` 与 `createAgent` 同形（`agentDir` / `cwd` / `skills` / `extensions` / `modelNetwork`），所以看到的就是建成后会生效的那套环境。只读 `DefaultResourceLoader` 与 `ModelRuntime` 上已有的东西 —— 不建 session、不写盘、**不是第二条创建路径**。
-
-它的存在意义：库把 `agentDir` 与 `cwd` 的自动发现交给了 SDK，凡是这两个目录里**碰巧存在**的东西会静默生效（尤其：自动发现的扩展工具不受 `tools` 白名单管辖、`SYSTEM.md` 会整体替掉系统提示词）。`inspectEnv` 把这些以及「为什么一个模型都没有」变成可读文本。
-
-## 5. 实现约定
-
-- **分层**：`L0` pi SDK（不动）→ `L1` 本库（配置收敛、事件归一、用量统计、护栏）。**L1 不做任何 SDK 已经做了的事。**
-- **唯一创建入口**：`createAgent(spec, deps?)`。`host` 只在需要花名册/护栏时通过 `deps` 注入；单 agent 场景完全不需要它。
-- **类型复用**：`Skill` / `ToolDefinition` / `AgentSession` / `AgentMessage` / `Usage` / `ThinkingLevel` 一律从 pi 的包直接 import，**不自己重定义**。
-- **会话**：目前一律 in-memory（`SessionManager.inMemory`），不提供磁盘会话。
-- **依赖**：固定 `@earendil-works/pi-coding-agent@0.99.1`。`typebox` 与 `@earendil-works/pi-ai` 必须**显式声明**——它们只是嵌套依赖，从项目根不可解析。
-
-## 6. 不承诺
-
-pi **没有内置沙箱**。`tools` 白名单只是工具集裁剪，扩展（尤其是环境里自动发现的扩展）与 `bash` 可以绕过它。真正的隔离只能靠容器 / VM。
-
-本库提供的是**能力裁剪 + 审批门**，**不是安全边界**。不要把它当权限系统宣传。
-
-当前明确不做：配置 DSL / YAML 解析器、TUI、沙箱、集群持久化与恢复、磁盘会话。
-
-## 7. 仓库地图
+## 2. 七个面
 
 ```
-src/agent/
-  create-agent.ts   spec → ControlledAgent（生命周期、事件订阅、用量、工具接线、审批门）
-  host.ts           createAgentHost + 花名册 + 三道护栏 + 宿主事件 + 级联回收
-  loader.ts         skills / extensions / role 的配置收敛
-  env.ts            环境自检（inspectEnv）：模型 / 插件 / 技能 / 警告，只读
-  events.ts         pi 的 20+ 事件 → 7 个归一化事件（纯映射）
-  usage.ts          用量累加
-  types.ts          全部对外类型（无运行时代码）
-src/tools/
-  define-agent-tool.ts   工厂式工具地基 + 调用者上下文注入
-  spawn-agent.ts         挑成员 + 派活 + 拿结果
-  send-message.ts        给后代分身追加消息
-test/              node:test，全部走本机假 provider，零 API 成本
-audit/             能力与极限审计的探测脚本与发现（证据链）
-demo/              真模型多轮协作 demo
-docs/
-  DESIGN.md        本文（唯一的宏观设计源）
-  FACTS.md         已实测核对的实现决策
-  research/        能力与极限审计的最终报告 · 研究问题清单
+agent.id            // 只读；trace / 归因的关联键
+agent.usage         // 全生命周期累计
+agent.status        // "idle" | "running" | "disposed"
+
+agent.io            // 输入输出
+agent.context       // 上下文
+agent.tools         // 工具
+agent.permissions   // 权限
+agent.extensions    // 插件
+agent.skills        // 技能
+agent.model         // 模型与思考档
+
+agent.on(event, fn)     // 原始事件，按名收窄；返回退订函数
+agent.onAny(fn)         // 全量；适用于横切观测（trace / 日志）
+agent.dispose()
 ```
 
-## 附录 A：集群形态清单
+两张表先立好边界，后面每一节都在这两条线之内：
 
-以下形态列出来是为了看原语够不够用。前 10 个都能**用库的原语表达**（库不为任何形态写代码——它只提供原语）；第 11 个当前表达不了。
+- **一张表回答「谁负责机制、谁负责政策」**；
+- **另一张表回答「哪些动作要求空闲」**。
 
-两条路径都能走，可混用：
+### 2.1 谁负责机制、谁负责政策
 
-- **A 路：设计者写代码搭拓扑** —— `createAgent` + `prompt` + `send` + `waitForIdle` + `host`
-- **B 路：agent 用工具自己组队** —— `spawn_agent` + `send_message`
+| 面 | 库负责的机制 | **使用者**负责的政策 |
+|---|---|---|
+| `io` | 投递、排队、打断、等待、**结算**（一次运行的区间与归属） | 投什么、什么时候投、要不要超时、失败怎么办 |
+| `context` | 读历史、改**这一轮发给模型的内容**、压缩、自动压缩开关 | 裁多少、按什么规则裁、压不压、什么时候压 |
+| `tools` | 有哪些工具存在、工具结果怎么处理（`onResult` 拦截） | 工具做什么、给谁工具（工具集裁剪归 `permissions`） |
+| `permissions` | 哪些**允许被调用**、调用要不要放行 | 放行判据、白名单里放什么、拒绝的理由怎么写 |
+| `extensions` | 加载 / 卸载、加载错误可读（`errors()`） | 扩展干什么、装几个、按什么角色装 |
+| `skills` | 按路径注入技能、列出当前技能 | 技能内容、按角色装载 |
+| `model` | 换模型、换思考档、读当前与可用 | 什么时候换、为什么换、预算怎么分 |
 
-| # | 形态 | 怎么表达 | 路 |
+**一条边界要特别说清**：`tools` 管「**有哪些工具存在**、工具结果怎么处理」，`permissions` 管「**哪些允许被调用**、调用要不要放行」。两者不是一回事——`tools.enable` 与 `permissions.allow` 会变成同一个东西，所以裁剪只归 `permissions`。
+
+**每个面都有一个 raw 出口**（`agent.context.raw` 等），指向对应的 pi 对象 / 方法。分工是固定的：**一等接口自带该有的守卫与结算，raw 是全权、无护栏**。想绕开库的判断（比如运行中硬压缩），去 raw；不想自己承担代价，用一等接口。
+
+### 2.2 哪些动作要求空闲（R29 / R38）
+
+| 动作 | 同步 / 异步 | 要求空闲 |
+|---|---|---|
+| `io.prompt` / `queue` / `steer` / `abort` / `waitIdle` | async | — |
+| `context.override` / `autoCompact` | 同步 | — |
+| `context.compact` | async | **是** |
+| `tools.add` / `tools.remove` / `tools.onResult` | async（`onResult` 同步装监听） | **是**（`add` / `remove`） |
+| `permissions.gate` | **同步** | — |
+| `permissions.only` / `allow` / `deny` | **async** | **是** |
+| `extensions.add` / `remove` / `skills.add` / `remove` | async | **是** |
+| `model.set` / `model.setThinking` | async / 同步 | —（运行中调用不打断在飞那轮，改动从下一次请求起生效） |
+
+#### 为什么「碰声明面」就要空闲：R29 单一忙判据
+
+「声明面」= 有哪些工具 / 扩展 / 技能存在、白名单允许哪些。改变它要走 pi 的 `reload()`，而**不空闲时 reload 会静默不生效**：pi 的 `reload()` 撞上在飞的那轮不抛错，约 7ms 静默返回 ok、在飞那轮照常跑完，于是「刚加的工具在飞那轮里不存在」这种零症状的失效就发生了（`FACTS.md` #3，spike `s3-reload-while-running.ts`）。
+
+**pi 不兜这个底，所以守卫必须由库自己加。** 而守卫的判据必须**只有一处**：
+
+```
+isBusy = io.isRunning || session.pendingMessageCount > 0
+```
+
+两个分量都不是装饰：
+
+- `io.isRunning` 里的 `running` 计数（库自己数在飞运行）是**必需的**。pi 的 `isStreaming` 要等 `prompt()` 内部若干 await 之后才翻真，而 `io.prompt()` 是**先发起再返回**的——启动窗口里 `isStreaming` 假、`pendingMessageCount` 也是 0。只看 pi 的两个信号，正是那道守卫本来要挡的洞。
+- `pendingMessageCount` 也不能丢：follow-up 消息在 idle 时也会排队（`isRunning` 假、但一轮运行马上要开始），只留第一项会漏判。
+
+若在别处再抄一份判据，两份口径迟早分叉，而分离出来的那一刻守卫就白设了。**注**：`io.queue` / `io.prompt` 自身的忙判据用的是另一份更窄的信号——它只回答「我现在能不能起一轮」，不回答「现在能不能改声明面」。
+
+#### R48：`dispose` 之后，**七个面的一切**都拒绝
+
+`agent.dispose()` 之后，七个面的**每一个成员**（含 `io.pending` / `io.isRunning` 这类读数，以及全部的 `raw` 逃生口）都抛错：「agent … 已 dispose，不能再操作」。
+
+为什么不省掉读数上的守卫：**dispose 后读数不会炸，它返回陈旧值。** 那比抛错更坏——调用方无从判断手里拿到的是活值还是死值。而原先只有 `io` 的三个成员漏了守卫，形成「七分之六遵守、一个面例外」的隐形不对称：例外是可以被查出来的，**不对称的例外是要靠背的**。一张表驱动用例把 40 个面成员放同一条判据下（`test/bridge.test.ts`），从此「哪些成员受管辖」由契约决定，不由记忆决定。
+
+两处是**有注释的例外**，不是漏网：
+
+- `io.waitIdle()` 在已 dispose 时**直接 resolve**（已回收的 agent 永远「已静下来」，v1 决策 #21）；
+- `Agent.session` —— 契约里**没有**这个成员（`agent.session` 是 v1 的逃生口名字，v2 走各面的 `raw`）。
+
+---
+
+## 3. 两个统一机制（以及它们决定了什么）
+
+七个面看起来是七套 API，底下只有两个机制。知道它们，就能预判行为而不是查文档。
+
+### 3.1 机制一：增删 = 改表 + 一次 `reload()`
+
+```
+tools.add / tools.remove / permissions.only|allow|deny / extensions.add|remove / skills.add|remove
+  → 改内存里的注册表
+  → await session.reload()     ← 一次
+```
+
+pi 的 `reload()` 是**重载**而不是增量：丢旧 runner（全部扩展工厂**重跑**）、`settingsManager.reload()`、`resetApiProviders()`、重建工具注册表与活跃集。所以：
+
+- 凡是碰声明面的操作**一律 async**——不是「偶尔 async」，是语义上必须等一次重载。这一条消除了同步版本的整个天花板（见 R38）；
+- 代价是**重载而非增量**：一次 `extensions.add` 可能让工厂与生命周期事件跑两遍（R41 的双趟 reload，见 §3.4）。
+
+**「活的表在库里，不在扩展闭包里」**：`createAgent` 时注册**一个**常驻桥接扩展。它的工厂在每次 reload 时重跑，把当前内存里的工具表、监听表整体接回 pi。由此：运行期改动不会因 reload 丢失；`add` / `gate` 只改内存表 + 触发一次重载，而不是「每个工具一个扩展工厂」。
+
+### 3.2 机制二：面 = 钩子的分组封装（R26 槽位顺序）
+
+面与 `agent.on()` 共用**同一层**（pi 的扩展事件流），不是两套：
+
+| 面 | 底层钩子 / API |
+|---|---|
+| `permissions.gate` | `tool_call`（返回 `{block, reason}`；**改参数靠原地改 `event.input`**） |
+| `permissions.only` / `allow` / `deny` | 白名单 / 排除集（唯一扛得过 reload 的硬过滤）+ `reload()` |
+| `tools.onResult` | `tool_result` |
+| `context.override` | `context` / `context_with_system` |
+| `extensions.add` / `skills.add` | loader 的注入表 + reload |
+| `model.set` / `setThinking` | `session.setModel()` / `setThinkingLevel()`（不触发 reload） |
+
+`permissions.gate` / `context.override` / `tools.onResult` 是**专属槽位**（单槽位，后一次覆盖前一次）。槽位与 `on()` 的关系有两条硬规则：
+
+**① 槽位排在监听表之前生效。** 一条硬理由是安全顺序：`permissions.gate` 必须先跑，才能保证「门拦住之后，用户的 `on("tool_call")` 从不被调用」——否则被拦下的调用还是会出现在用户的监听器里，用户会以为它跑过了。
+
+**② 槽位的结果计入同一个「已有非空结果」守卫。** 也就是：设了 `context.override` 之后，再用 `on("context", …)` 返回一个变换结果会**抛错**，而不是静默地只生效一个。若不留这条规则，「槽位 + `on()` 同时改同一件事」就会变成「后一个悄悄覆盖前一个」——正是 v2 要消灭的那种失效。
+
+**桥接的合并规则**（与 pi 逐字对齐）：监听器按注册顺序执行、拿到的是**原始事件**；最后一个非空结果生效（last-wins）；判据是**真值**（`undefined` / `null` / `0` / `''` / `false` 都不算结果）；返回 `{block:true}` 立即短路。
+
+**为什么桥接不能复刻 pi 的链式传递，于是选择抛错**：pi 里跨扩展返回变换结果时会**链式传递**（后一个扩展看到前一个处理后的结果）。但桥接是 pi 的**单个**扩展，pi 的跨扩展机制在它内部不生效——两个监听器都返回变换结果时，后者会覆盖前者，**前者做的活被静默丢弃**。本库的取舍是：宁可拒绝这种组合，也不静默丢一半。
+
+**R47：非对象的真值（number / string / boolean / bigint）直接抛错，不当变换结果。** 危险写法是 `agent.on("before_provider_request", (e) => arr.push(e))` —— 一行箭头函数想收集事件，实际返回的是数组长度。
+
+`arr.push` 返回数字（真值）⇒ 被当成变换结果 ⇒ pi 的 `before_provider_request` 对任何非 undefined 返回**整体替换 payload** ⇒ 请求里 0 条消息 ⇒ pi 静默重试 ⇒ **空文本、耗时 14 秒、没有任何报错**（探针实测 14265ms、provider 被调 4 次，`FACTS.md` #25）。pi 全部 `handlerResult` 消费点都解构对象字段，**没有任何事件接受非对象变换结果**；pi 自己只对 `user_bash` 做形状校验、对 `before_provider_request` 不设防。所以这一层守卫由库补上，错误文案直接给出正确写法（写块体）。**真值判据本身没改**——改成「非 undefined」会与 pi 分叉。
+
+**错误可见性**：pi 的 `emitError` 只遍历 `errorListeners`、**没有任何 console 兜底**（`FACTS.md` #10），所以钩子里抛的异常在某些事件上会彻底消失。库注册了错误监听器把它们转成带 `[aiteam]` 前缀的 `console.error`（含事件名与扩展路径），并在每次 reload 后**重新挂载**（reload 会换掉 runner 实例，挂在旧实例上的监听器随之死掉，`FACTS.md` #9）。
+
+### 3.3 R37 / R43 / R44：三个「谁压过谁」
+
+同一件事在三个不同场景下会被问到，规则必须一致，否则使用者的预期会随场景漂移。
+
+**统一原则：时间上更晚的显式声明胜；同一份声明内（创建期 spec）无法分先后时，更具体者胜。**
+
+| 编号 | 场景 | 谁胜 | 为什么 |
 |---|---|---|---|
-| 1 | 单 agent | `createAgent` | A |
-| 2 | 并行扇出 | 一条 assistant 消息里发多个 `spawn_agent`（pi 并发执行兄弟工具调用） | A/B |
-| 3 | 流水线 | `const r = await a.prompt(x); await b.prompt(r.text)` | A |
-| 4 | 监督者 + 工人池 | 设计者起 manager；manager 用 `spawn_agent` 派活，分身复用靠 `send_message` | B |
-| 5 | 团队内部探讨直到收敛 | 主持人 spawn 成员拿回观点 → `send_message` 转发他人观点 → 循环，直到主持人自己判断收敛 | B |
-| 6 | 两团队争辩 + 裁决 | 顶层挑两个主持人各自组队（各自子树）→ 顶层在两者之间转发 → 最后挑 judge 成员裁决 | B |
-| 7 | 共享黑板式协作 | 全队 `MemberSpec.cwd` 指向同一目录，成员读写同一个文件 | A/B |
-| 8 | 竞标 / 择优 | 同一任务扇出给多个成员，顶层或 judge 成员选优 | A/B |
-| 9 | 反思-修订循环 | 写手与审阅者两个分身，靠 `send_message` 反复复用，直到审阅者说通过 | A/B |
-| 10 | 层级汇报（逐层汇聚） | 每个主持人先汇总队员结论再上报；同步 `spawn_agent` 的返回值天然支持 | B |
-| 11 | 长跑监督 | agent 长期存活、被消息唤醒 —— **当前原语表达不了**，缺一个 `waiting` 状态与唤醒后的结果回收 | — |
+| **R37** | 运行期 `tools.add(x)`，而 `x` 之前被 `deny` 过 | **add 胜**（add 解除同名 deny） | 点名 add 比之前的点名 deny **更晚**且同样具体。若不这样：新工具停在 `active:false`、模型静默收不到——设计者调了 `add` 却什么都没发生 |
+| **R43** | **同一个 spec 内**：`permissions.deny: ["x"]`，而 `spec.extensions` 声明的扩展注册了 `x` | **deny 胜**（排除集比白名单更硬） | 并列、无法分先后 ⇒ 走具体性。`deny` **点名**了某一个工具；「声明一个扩展」是笼统地把它注册的**所有**工具带进来。前者更具体 |
+| **R44** | **运行期**：先 `deny`，之后更晚的 `extensions.add` 注册了被 deny 的名字 | **add 胜**（并入白名单的同时摘掉排除集） | R37 的对称情形。若不这样，同一个逻辑情形会因为 deny 的来源不同而**结果相反**——创建期 deny + 更晚的 add ⇒ deny 仍胜（排除集没被摘）；运行期 deny + 更晚的 add ⇒ add 胜。同一原则两种结果就是不一贯 |
 
-两个已验证的结论：
+R43 与 R37 不矛盾：R37 说的是**运行期点名 add**（更晚、更具体），R43 说的是**同一份声明内并列**（只能比具体性）。
 
-1. **「`send_message` 只给后代投递」不妨碍以上任何一种形态。** 形态 5/6 的本质都是「主持人持有全局状态并转发」，成员只需回应主持人。被挡住的只有**无人主持的对等闲聊**。
-2. **共享上下文不需要框架支持。** 全队同一个 `cwd`，成员读写同一个文件就是黑板。刻意不做共享内存 / 共享 session——那会把「每个 agent 上下文隔离」的优势翻转成劣势。
+### 3.4 R41：显式声明一定生效
+
+`permissions.only` 非空时，**你在同一个 spec 里显式声明的工具会自动并入白名单**：
+
+1. `tools.custom` 里那些工具的定义名；
+2. `extensions` 里**显式声明**的扩展 / 内联工厂所注册的工具名；
+3. 运行期 `extensions.add(...)` 同理，把它新注册的工具名并进来（R44：同时摘掉排除集）。
+
+**环境里自动发现的扩展不并入。** 理由是 v1 就定下、v2 继续沿用的：否则 `only` 的「精确」会被环境里碰巧存在的扩展悄悄撑开，等于绕过设计者写的能力裁剪。
+
+**若不这样做会怎样**：设计者在同一个 spec 里两行之内写了白名单和扩展，扩展的工具却被 pi 的白名单**硬过滤**掉、无人并入——**两行声明，一行静默无效**。而这条与 R34（`defaultActive:false` 的工具 `add` 之后必须能收到）/ R37 **是同一条原则**：显式声明一定生效。考虑过并否决的替代方案是抛错 / 只警告——那会把库的机械约束转嫁给使用者：他明明写了扩展，却还得为了生效再去 `only` 里手抄一遍工具名。
+
+**代价（必须知道）**：`only` 的「精确」被削弱成「精确 + 你在同一个 spec 里显式声明的工具」。另外，有白名单时的 `extensions.add` 需要**两趟 `reload()`**（第一趟之后才知道工厂注册了哪些名字），而 pi 的每次 reload 都会带 `session_shutdown(reason:"reload")` + 全部扩展工厂重跑 + 设置重载 + `resetApiProviders()` ⇒ **工厂副作用与生命周期事件会观察到双份**（`FACTS.md` #20）。无白名单时只有一趟（库里有短路）。
+
+### 3.5 R38 与「三档优先级」：`only` / `allow` / `deny`
+
+运行期三档语义互不重叠，**都是 async + 要求空闲**：
+
+| 档 | 语义 | 底层 |
+|---|---|---|
+| `only(names)` | **精确**：允许的集合就是这些 | 白名单 |
+| `allow(names)` | **并集**：启用这些（可以推翻之前的 `deny`） | 白名单 + 排除集摘名 + 显式激活 |
+| `deny(names)` | **差集**：关掉这些 | 有白名单时从白名单删名；无白名单时记进排除集 |
+
+**创建期只有 `only` 与 `deny`**（`permissions: { only?, deny?, gate? }`），**没有 `allow`**。这不是省略：创建时最常说的是「只给它这几个」，那是精确语义；而运行期 `allow` 是并集。**同名不同义是陷阱**，所以两边用不同的名字。
+
+**R38：为什么这三档从「同步只改活跃集」改成了 async + reload。** 起因是实现者披露的一个天花板：`allow` 的立即生效只对**注册表里已有**的名字成立，被创建期白名单筛掉的名字要等下一次 reload——而契约规定这三个操作同步、不触发 reload ⇒ **设计者没有任何办法让它生效**，且 `tools.list()` 里连这个名字都看不到 ⇒ 一个**不可见的部分 no-op**。审理后采纳「改契约」而不是「写文档」，三条理由：
+
+1. 它碰的是**声明面**（工具存在与允许的宇宙），与 `tools.add` / `extensions.add` / `skills.add` **同类**——后者全是 async + 需 idle，**同步才是异类**；
+2. 它**简化**实现：原设计要「白名单负责持久 + 活跃集负责立即生效」两层都动，`reload()` 一步同时决定白名单过滤与活跃集，只剩一层机制；
+3. 消除的是**静默失效**——本项目的立项理由。
+
+代价：调用点从 `a.permissions.only([...])` 变成 `await a.permissions.only([...])`，运行中调用会抛（需先 `io.waitIdle()`）。后者正是我们想要的诚实。
+
+**为什么裁剪必须落在「白名单 / 排除集」这一层，而不是只改活跃集**：`reload()` 会**重算**活跃集。凡是只改活跃集的收紧，都会被下一次任何声明面操作**静默抹掉**（`FACTS.md` #13）。这一条还有个反直觉的推论：即使想「我只要临时关掉一个工具」，也该用 `deny` 而不是去动活跃集——临时收紧要能扛过它后面随便一次 `tools.add`。
+
+**为什么 `allow` 多一步「显式激活」**：这是三档里唯一保留第二层的地方，且是**拿测试答的**（删净后一条用例当场红）。原因是 pi 在这里有一处真实的不对称：无白名单时 reload 只把**扩展工具**按 `defaultActive` 推回活跃集，内置工具里没被点名过的不会自己回来——创建期被 `deny` 筛掉的内置 `bash` 就是这种。证据优先于优雅，所以留着这一层，且它有判别用例。
+
+---
+
+## 4. 结算：一次运行，一个归属单位
+
+```
+io.prompt("…")
+  → 起点 agent_start
+  → 终点 agent_settled
+  → RunResult = { runId, text, usage, error?, messages }
+```
+
+**一次「运行」= `agent_start` → `agent_settled`。** `RunResult` 的归属单位就是**这一次运行**：
+
+- `runId`：库生成，出现在 `RunResult` 上；钩子里通过 `ctx.runId` 读。研究里要 trace 与结果归因对得上，就需要这个关联键。**不往 pi 的事件对象上加字段**——那会破坏「原地改 `event.input`」这类变换钩子的约定；
+- `usage`：**本次运行**的用量。别和 `agent.usage`（**全生命周期**累计）混——两者都叫 usage，语义必须靠类型注释与文档写死；
+- `error?`：pi 对「接受之后失败」**不 reject**，只把错误写进消息。所以要显式看 `result.error`：光读 `text` 会把一轮失败读成「空回复」；
+- `messages`：本次运行覆盖的**消息区间**（对象引用，不复制）。
+
+### 为什么是 `agent_settled`，以及为什么 `messages` 不含 `system`
+
+v1 的 `RunResult` 是「排干共享消息池取最后一条 assistant 消息」的结果，后果是**重叠投递时结果串台**（per-call 用量随之错，但三方累计值仍然对，所以对账查不出）。
+
+v2 取 `agent_start` → `agent_settled` 作边界，因为 pi 明确 `agent_settled` 表示「不会再有任何自动重试、压缩、排队续跑」。**边界取错了，归属就是错的**，而归属错误不会有 симптом——它只会让研究数据安静地偏。
+
+`messages` **不含 `system`**：pi 在**首次** prompt 时才把 system 消息写进会话，不过滤的话只有**第一轮**会多带一条，导致轮与轮之间不可比。system 是会话级的，不属于任何一次运行。要看会话原样（含 system）走 `context.raw.session.messages`。
+
+### `queue` 的语义边界
+
+- `queue` **永不因「目标忙」抛错**——这是它存在的理由（v1 `send()` 的同一件事：pi 的 `prompt()` 撞上目标 streaming 会直接抛错，而「目标正忙」在编排里是常态）。
+- 但若**底层投递本身失败**（pi 拒收），`queue` **必须 reject**。把失败的投递报成 `{queued:true}` 是谎报——比 v1 的 `{delivered:"ran"}` 更糟。
+- 忙时投进来的消息若被并进**同一次**运行，就明说它属于同一次（`messages` 区间里包含它），不再拿「已跑过」骗人；闲时 `queue` 会起一次**不 await** 的运行，这种运行的失败**必须经 `console.error` 浮出**（带 `[aiteam]` 前缀与 `runId`），不能只吞不报。要拿到结果与失败就用 `prompt()`。
+- 一次运行的边界由 `prompt` **同步**确定（起手即记下消息下标），所以**并发 `prompt` 各自持自己的区间**，不会串台。
+
+---
+
+## 5. 明确不做
+
+写下这些是为了让「为什么没有 X」不必每次重新论证一遍。
+
+- **配置 DSL / YAML 解析器**——配置就是 TypeScript。加一层 DSL 会把类型检查从设计者手里拿走。
+- **TUI**——那是 pi 的事。
+- **沙箱**——pi 没有，本库也不承诺（见 §0）。
+- **集群持久化与恢复、磁盘会话**——库在内存里工作；要落盘走各面的 `raw`。
+- **agent 寻址 / 全局注册表**——设计者写代码编排时手里**就有** agent 引用，直接 `a.io.queue(…)`。v1 需要寻址只因为第二条路（agent 用工具驱动 agent）拿到的只有字符串 id；v2 里那条路已经是使用者代码，寻址随之失去理由。
+- **任何轮次 / 预算 / 深度的强制护栏**——它们全是 L2 策略（§1 的三条假设就是其中三条）。要护栏，在自己的工具实现里加 `if`；要观测，用 `RunResult.usage` 累加 + `on("turn_end")`。
+- **修 pi 本身的问题**（模型目录 warning、扩展静默失败等）——只在 L1 把它们变成**可读**的（`model.set` 把 warning 转成抛错；`extensions.errors()` 可读），不改 pi。
+
+以及一条**分层纪律**（比上面任何一条都重要）：
+
+```
+L0  pi SDK（不动）
+L1  aiteam —— 面的组织、运行期句柄、结算、原始事件透传
+L2  你的代码 —— 花名册、委派、护栏、红线等一切策略
+```
+
+**L1 不做任何 SDK 已经做了的事。** 每加一个字段都要能回答「pi 为什么不能直接做这件事」。
+
+**候选（本次未纳入，留待以后）**：采样参数一等（`model.sampling` 读写 seed / temperature，研究「同代码跑 N 次方差多大」的前提）、`[Symbol.asyncDispose]()`、带超时的 `prompt` / `waitIdle`、`snapshot()` / `restore(state)`、失败分类（`errorKind`）。
+
+---
+
+## 6. 从哪里开始读
+
+| 想做的事 | 去哪 |
+|---|---|
+| 跑起来 | [`demo/README.md`](../demo/README.md) —— 一条命令验证本机装好了 |
+| 学会用七个面 | [`docs/GUIDE.md`](GUIDE.md) —— 每个面一段；代码与 [`examples/lib/snippets.ts`](../examples/lib/snippets.ts) 同源 |
+| 看一个完整例子 | [`demo/agent-team.ts`](../demo/agent-team.ts) —— 多 agent 协作写报告，七面全出场 |
+| 看某个面的最小用法 | [`examples/`](../examples)：`01-first-agent.ts` … `08-raw-escape.ts` 一事一文件 |
+| 看 v1 的三条假设怎么变成使用者代码 | [`examples/09-roster.ts`](../examples/09-roster.ts) / [`10-spawn.ts`](../examples/10-spawn.ts) / [`11-redline.ts`](../examples/11-redline.ts) |
+| 查某个行为「为什么是这样」 | [`docs/FACTS.md`](FACTS.md)（已实测核对的 pi 事实）→ 本文相关节 → [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md) |
+| 看 v1 长什么样 | [`docs/archive/DESIGN-v1.md`](archive/DESIGN-v1.md) |
+
+本文里凡是关于**库行为**的断言，都能在 [v2 规格](superpowers/specs/2026-10-02-runtime-surfaces-design.md) 的 §1 / §3 / §4 / §5 / §6 / §9，或 [`docs/FACTS.md`](FACTS.md) 的实测事实，或 [v2 核心计划](superpowers/plans/2026-10-02-aiteam-v2-core.md)（R1–R48 裁决）里找到出处。**没有出处的断言不该出现在这里。**
