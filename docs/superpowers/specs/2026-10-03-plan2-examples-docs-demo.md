@@ -1,0 +1,138 @@
+# 计划 2 规格：examples / docs / demo
+
+**状态**：待批准
+**日期**：2026-10-03
+**上游**：[v2 核心规格](2026-10-02-runtime-surfaces-design.md)（rev.8，R1–R48）、[v2 核心计划](../plans/2026-10-02-aiteam-v2-core.md)（已完成）
+
+---
+
+## 0. 一句话
+
+计划 1 把库**做出来**了（七面、零政策、114 例测试）；计划 2 要让它**被别人用起来**——**能看懂（docs）、能上手（examples）、能在自己机器上验证装好了（demo）**。
+
+---
+
+## 1. 分工（经确认）
+
+| 产物 | 定位 | 规模约束 |
+|---|---|---|
+| `examples/` | **最小演示**：每个文件演示**一个**概念，能跑通即可 | 一个文件一件事，不设对照组 |
+| `demo/` | **完整例子 + 安装自检**：跑通 = 本机环境具备研究条件 | 一个够大的真任务，串起七面 |
+| `docs/` | 面向设计者 | 见 §4 |
+
+**为什么 demo 同时是安装自检**：目标使用者是**没装过 pi、但想研究 agent 课题的人**。他需要的第一件东西不是文档，是**一条命令 + 一个结果**：「跑通了 ⇒ 我这台机器可以开始研究了」。所以 demo 的验收标准是 **退出码 0 + 可读的结果**，而不是「代码好看」。
+
+---
+
+## 2. `examples/` —— 最小演示
+
+每个文件回答一个问题，**不追求对照实验**（那属于使用者自己的研究设计）。
+
+**必写**（每个对应一个面或一个核心概念）：
+
+| 文件 | 演示什么 | 关键 API |
+|---|---|---|
+| `01-first-agent.ts` | 最小可用：起一个 agent、问一句、拿文本 | `createAgent` / `io.prompt` / `RunResult.text` |
+| `02-events.ts` | 观测：七个归一化事件 | `agent.on` / `onAny` |
+| `03-context.ts` | 上下文：读历史、本轮覆盖、压缩 | `context.history` / `override` / `compact` |
+| `04-tools.ts` | 工具：加一个自定义工具、看它进模型声明 | `tools.add` / `tools.list` |
+| `05-permissions.ts` | 权限：装一个审批门、白名单 | `permissions.gate` / `only` |
+| `06-resources.ts` | 扩展与技能：运行期加载 | `extensions.add` / `skills.add` |
+| `07-model.ts` | 模型：换模型、换思考档、读可用档 | `model.set` / `setThinking` / `available` |
+| `08-raw-escape.ts` | 逃生口：`raw` 直通 pi，全权 | 各面的 `raw` |
+
+### 2.1 v1 的三个假设 → 标注为「待检验」
+
+**全部保留，但每条开头必须写明它是【假设】、不是推荐做法**（用户指定的写法）：
+
+```ts
+// examples/09-roster.ts
+// ⚠️ 这是一个【假设】，不是推荐做法：
+//    「预定义成员能约束 agent 的行为」
+//    库不提供它 —— 以下是把它作为使用者代码的一种写法。
+```
+
+| 文件 | 假设 | v2 里它变成了什么 |
+|---|---|---|
+| `09-roster.ts` | 预定义成员能约束行为 | 库不再提供 ⇒ **约束效果成为可对照的变量** |
+| `10-spawn.ts` | 委派给分身能扩展能力 | 库不再提供 ⇒ **拓扑自由度成为使用者的选择** |
+| `11-redline.ts` | agent 不该能配置 agent | 库不再强制 ⇒ **遵守/不遵守成为可对照的变量** |
+
+**关键纪律**：这三条**必须**写成「使用者代码」。若写成库功能，就是把计划 1 删掉的政策又请回来。
+
+### 2.2 跑法
+
+- 默认**离线假 provider**（复用 `test/faux-models.ts` 的写法）⇒ 零成本、无需 API key、CI 可跑；
+- 顶部注释写明「若要用真模型，改这两行」。
+
+---
+
+## 3. `demo/` —— 完整例子 + 安装自检
+
+### 3.1 处置现状
+
+| 现状 | 处置 | 理由 |
+|---|---|---|
+| `demo/work/*` | **删产物** | 是 v1 跑出来的结果（`blackboard.md` / `facts.txt` / `report.md`） |
+| `demo/env/auth.json` | **不删也不留**：它含**真实 API 密钥**、已被 gitignore | 留密钥进仓库是安全事故；进提交是**凭据泄露** |
+| `demo/env/models-store.json` | 同上（本机缓存） | 同上 |
+| `demo/env` 的**生成方式** | **写进 demo 代码** | 这才是「留 env 配置」的正确形态 |
+
+⇒ **`demo/env/` 与 `demo/work/` 都不进 git**；`.gitignore` 保持现状即可，只把 `demo/work/*` 的例外行（`!demo/work/AGENTS.md`）一并删掉。
+
+### 3.2 已知需适配的点（库在 v2 重构过）
+
+1. `demo/env` 里 v1 的 auth/models-store 是 v1 结构——**不读它们**，demo 自己按当前结构写（见 `test/faux-models.ts:writeModelsJson` 的形状）。
+2. **`PI_OFFLINE` 与 `modelNetwork` 的语义**（已核）：`modelNetwork:false` 仍会从 `<agentDir>/models-store.json` **恢复**缓存 overlay；`PI_OFFLINE=1` 全局关掉一切模型网络请求。自检的「离线跑通」用前者更明确。
+3. **自检必须能在陌生机器上跑**：`inspectEnv(spec)` 是老接口（v2 保留），但 demo 的自检要**逐步打印**它检查了什么、缺什么、怎么补。
+
+### 3.3 形态
+
+```
+demo/
+  README.md          # 一条命令 + 预期输出 + 失败时怎么办
+  env.ts             # 自建环境（写 models.json / agentDir），幂等
+  check.ts           # 安装自检：逐步打印，退出码 0/1
+  agent-team.ts      # 完整例子：串起七面做一件真事
+  work/              # 产物（gitignored）
+```
+
+**`check.ts` 的自检项**（每项打印「检查什么 → 结果 → 不通过时怎么办」）：
+1. Node 版本 / 原生 `.ts` 可跑；
+2. `@earendil-works/pi-coding-agent` 可解析、版本符合；
+3. `agentDir` 可写、模型目录可读（或离线假 provider 可用）；
+4. `createAgent` 能起一个 agent；
+5. 一轮 prompt 能拿到文本；
+6. 一个工具能被模型调用（证明工具链通）；
+7. 七个面各自至少一次读写（证明 API 形状与文档一致）。
+
+**退出码非 0 时必须打印**：哪一步、原始错误、最可能的三个原因。**不许只打「失败」。**
+
+---
+
+## 4. `docs/` —— 与 examples 同批
+
+| 文件 | 处置 | 验收 |
+|---|---|---|
+| `docs/DESIGN.md` | **重写**为 v2 宏观设计（唯一设计源） | 覆盖七面、零政策、48 条裁决的**为什么**（不是复述实现） |
+| `docs/DESIGN-v1.md` → `docs/archive/DESIGN-v1.md` | 归档 | 顶部注明「v1，已被 v2 取代，保留以理解演进」 |
+| `docs/GUIDE.md` | **重写**：面向设计者怎么用七个面 | 每个面的示例代码**必须与 `examples/` 里的一致**（同一份代码，不是各写一遍） |
+| `docs/FACTS.md` | 保留（刚修完表体） | v2 段 1–26 齐全；v1 段标注「v1 期实测，机制层已在 v2 重写」 |
+| `AGENTS.md` | 更新 | 仓库地图补 `src/surfaces/`（R23）；「三个概念」表格改述（花名册/红线已不是库的一部分） |
+
+---
+
+## 5. 明确不做
+
+- **对照实验**：`examples/` 只做最小演示（用户已定）；要做对照是使用者的研究设计。
+- **`audit/` 的任何保留**：**整目录删除**（用户已定）。208 个文件 / 3.7M。需要时从 git 历史 `043dea3` 检出。
+- **配置 DSL / YAML**、TUI、沙箱、持久化、寻址——同规格 §9。
+- **不新增库能力**：计划 2 若发现契约缺陷，只修缺陷、不加面。
+
+---
+
+## 6. 待批准的开放问题
+
+1. **`docs/GUIDE.md` 与 `examples/` 共享代码**：抽成 `examples/lib/shared.ts`，还是 GUIDE 直接 `include` 示例文件？（前者能被 typecheck，后者会漂移）
+2. **`demo/agent-team.ts` 做哪件「真事」**：v1 的 demo 是「多个 agent 协作写报告」（`work/` 里的产物提示如此）。沿用这个主题，还是换成更贴研究清单的任务？
+3. **`examples/` 是否进 `tsconfig.json` 的 `include`**：进了能被 typecheck 保护，但要求全部离线可跑；不进则可能悄悄失效。
