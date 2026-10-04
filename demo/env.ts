@@ -19,7 +19,7 @@ export const REAL_MODEL_REF = process.env.AITEAM_DEMO_MODEL ?? "opencode-go/spac
 
 /** 只回答「这个 demo 的环境在哪」；字段语义见 `demo/agent/README.md` */
 export interface DemoEnv {
-  agentDir: string; cwd: string; real: true; model: string; altModel: string;
+  agentDir: string; cwd: string; real: true; model: string;
 }
 
 let cached: Promise<DemoEnv> | undefined;
@@ -69,7 +69,7 @@ async function setup(): Promise<DemoEnv> {
         `  · 注意：别指向宿主 ~/.pi/agent —— pi 会整文件写回，把那里别的 provider 凭证抹掉`,
     );
   }
-  return { agentDir: dir, cwd, real: true, model: REAL_MODEL_REF, altModel: REAL_MODEL_REF };
+  return { agentDir: dir, cwd, real: true, model: REAL_MODEL_REF };
 }
 
 /** 这份 auth.json 里真有凭证吗？`{}`（pi 造的空壳）不算 —— 见 setup 的注释。 */

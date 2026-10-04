@@ -38,7 +38,7 @@
 2. **加一个扩展**：新建 `extensions/<名>.ts`，`export default function (pi: ExtensionAPI) { pi.registerTool(…) }`。**类型注解必须写**：本仓 `tsconfig.json` 的 `include` 含 `demo/`，无注解的 `(pi)` 在 `strict` 下编译不过（`npx tsc --noEmit` 会当场报 implicit any）。
 3. **换凭证**：把 `auth.json` 放进来（推荐，gitignored），或用 `AITEAM_DEMO_AUTH=/path/to/auth.json` 指一份。改完 `node demo/check.ts` 验。**别指向宿主 `~/.pi/agent`**——pi 的 auth 存储是读-改-写整个文件，会把那里的凭证抹掉（历史事故见 `demo/README.md`）。
 
-改完环境不生效？删**可再生的产物**再跑：`rm -rf demo/agent/models.json demo/work`。`demo/agent/auth.json` 是你的凭证，**不要删**。
+改完环境不生效？删**可再生的产物**再跑：`rm -rf demo/work`。`demo/agent/auth.json` 是你的凭证，**不要删**。
 
 ## 两条环境事实
 

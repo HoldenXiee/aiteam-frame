@@ -124,8 +124,7 @@ examples/
 ## 4. 跑完整例子：多个 agent 协作写报告
 
 ```bash
-node examples/12-team.ts                    # 离线、零成本
-AITEAM_DEMO_REAL=1 node examples/12-team.ts # 或换成真模型
+node examples/12-team.ts                    # 本机假 provider：离线、零成本、结果确定
 ```
 
 它会起两个检索分身 + 一个写作员，跑完产物落在临时 cwd（`examples/lib/harness.ts` 的 `fauxCwd`，跑完即弃）。**七个面在流程里都有出场**，结尾会自证：

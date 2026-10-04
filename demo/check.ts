@@ -419,16 +419,17 @@ async function main(): Promise<void> {
         // （写死 "off" 会让真模式的自检失败，而且失败在「库的 setThinking 太严」这个错误结论上。）
         const levels = me.model.raw.session.getAvailableThinkingLevels();
         const pickLevel = levels.includes("high") ? "high" : levels[levels.length - 1]!;
-        await me.model.set(env.altModel); // 假模式换到 reasoning:true 的那个；真模式是同一个
+        // 只有一个模型（space-bunny-free）：这一项只能验「换思考档」，不能验「换模型」——
+        // 验的是同一个模型下档位能写进去、能读回来、还能还原（写 set 也要真调一次）。
+        await me.model.set(env.model);
         me.model.setThinking(pickLevel);
         if (me.model.thinking !== pickLevel) {
           throw new Error(`setThinking("${pickLevel}") 之后读回来是 ${me.model.thinking}（可用：${levels.join("、")}）`);
         }
-        await me.model.set(env.model);
         const backLevel = me.model.raw.session.getAvailableThinkingLevels()[0]!;
         me.model.setThinking(backLevel);
         surfaces.push(
-          `model（读 current=${modelBefore}、thinking、available=${availableCount} 个；写 set=${env.altModel.split("/")[1]} + setThinking=${pickLevel}，再还原为 ${me.model.current?.id}/${me.model.thinking}）`,
+          `model（读 current=${modelBefore}、thinking、available=${availableCount} 个；写 set=${env.model.split("/")[1]} + setThinking=${pickLevel}，再还原为 ${me.model.current?.id}/${me.model.thinking}）`,
         );
 
         // extensions：读 list + errors，写 add 一个内联扩展（再读回来确认多了一个）
