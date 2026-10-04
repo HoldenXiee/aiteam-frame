@@ -105,7 +105,7 @@ io.prompt("…")
 
 **三层别混**：`override` 改**本轮**（一次性，下一轮就消失，历史分毫未动）／`replace`、`erase` 改**历史**（append-only，永久生效）／**整段重置不在库内**——pi 没有这个 API，要重置就得换 session、新建 agent 或逐条抹，三条路怎么选登记在 [`DESIGN-解读.md`](DESIGN-解读.md) §5。
 
-**寻址只能用 `entries()` 的 `id`，不要用 `history` 的下标**：`history` **不含 `system`**，而 `entries()` 含（system 也在里面，用 `role` 区分），两个数组从第一条 system 起就错位；而且投影会随编辑变化，下标本身也不稳定。不存在的 id 会抛错，不静默 no-op——在这里静默失败等于「以为改了、其实没改」。
+**寻址只能用 `entries()` 的 `id`，不要用 `history` 的下标**：`history` **不含 `system`**，而 `entries()` 含（system 也在里面，用 `role` 区分），两个数组从第一条 system 起就错位；而且投影会随编辑变化，下标本身也不稳定。不存在的 id 会抛错，不静默 no-op——在这里静默失败等于「以为改了、其实没改」。**system 与压缩 / 分支摘要条目只可寻址、不可编辑**（对它们的 id 调 `replace` / `erase` 会抛中文错并带上 id）。
 
 **这两个写成员不要求空闲**（与 `tools.add` / `permissions.only` / `compact` 不同）：它们写的是 append-only 的 `context_edit` entry，不走 `reload()`，不打断在飞那轮，编辑**从下一次请求起生效**。但「不要求 idle」不是「忙时可以随便用」：pi 会在回合边界从**投影重建** `session.messages`，而 `io` 的结算按运行前的下标切区间——忙时编辑后下标错位，**在飞那轮的 `RunResult.messages` / `text` 就不保证包含本轮产出**（实测：在飞一轮里抹掉两条 → `result.text === ""`，而产出其实已经落进持久化历史）。同一个 slice 出来的 `RunResult.usage` / `RunResult.error` 同受此限（`agent.usage` 那个**全生命周期累计**不受影响）。**要拿准确的本轮结算，先 `await agent.io.waitIdle()` 再编辑。**
 

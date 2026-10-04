@@ -43,9 +43,27 @@ export function createContext(deps: ContextDeps): ContextSurface {
   //   这里不调 `deps.isBusy()`：append-only 不走 `reload()`，在飞的那轮不会被静默丢改动。
   const appendEdit = (entryId: string, replacement: { content: ContextEditableContent } | null) => {
     deps.assertAlive();
-    if (!findEntry(entryId)) {
+    const target = findEntry(entryId);
+    if (!target) {
       throw new Error(
         `找不到 entry：${entryId} —— id 来自 context.entries()，不存在的 id 不静默 no-op`,
+      );
+    }
+    // pi 的 `appendContextEdit` 只接受 `custom_message`，或 role 为 user / assistant / toolResult 的 message。
+    // system 与压缩 / 分支摘要 entry 在 `entries()` 里**故意**出现（对齐关系需要它们），但对它们调
+    // replace/erase 会被 pi 用一句英文内部错拒掉 —— 在这里自己判定，报中文错、带上 id、更早失败。
+    const source = target.sourceEntry;
+    const editable =
+      source.type === "custom_message" ||
+      (source.type === "message" &&
+        (source.message.role === "user" ||
+          source.message.role === "assistant" ||
+          source.message.role === "toolResult"));
+    if (!editable) {
+      const kind = source.type === "message" ? `message（role=${source.message.role}）` : source.type;
+      throw new Error(
+        `entry 不可编辑：${entryId} —— 该 entry 的类型是 ${kind}；只有 user / assistant / toolResult / custom 消息能 replace/erase，` +
+          `system 与压缩 / 分支摘要条目只可寻址、不可编辑`,
       );
     }
     sessionManager.appendContextEdit(entryId, replacement);

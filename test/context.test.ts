@@ -8,6 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { faux, makeAgent, sentMessages } from "./helpers.ts";
+import { sleep } from "./faux-server.ts";
 
 test("history 是会话里存的历史（只读快照）", async () => {
   const a = await makeAgent();
@@ -198,7 +199,16 @@ test("entries() 的 id 真的能用：换一条的内容，历史里那条确实
   const target = a.context.entries().find((e) => e.role === "user");
   assert.ok(target);
   await a.context.replace(target!.id, "被换掉的问题");
-  assert.match(JSON.stringify(a.context.raw.sessionManager.buildSessionProjection().messages), /被换掉的问题/);
+  // 追改 = 换掉那一条，不是再注入一条：只断言「新文本在」判不出「旧文本还在」。
+  // 假 provider 会把用户原话回显进助手回复（echo:原始问题），所以不能直接在整份投影里找「原始问题」，
+  // 要看**投影里的 user 消息**：只有一条，且它是被换掉的那条。
+  const proj = a.context.raw.sessionManager.buildSessionProjection().messages;
+  const userTexts = proj
+    .filter((m) => m.role === "user")
+    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
+  assert.equal(userTexts.length, 1, "追改是换掉那一条，不是再注入一条");
+  assert.match(userTexts[0], /被换掉的问题/);
+  assert.ok(!userTexts[0].includes("原始问题"), "追改是换掉，不是注入：旧文本必须消失");
   a.dispose();
 });
 
@@ -225,6 +235,43 @@ test("replace / erase 收到不存在的 id → 抛错，不静默 no-op", async
   await assert.rejects(() => a.context.replace("no-such-id", "x"), /no-such-id/);
   await assert.rejects(() => a.context.erase("no-such-id"), /no-such-id/);
   a.dispose();
+});
+
+/** 断言「不可编辑」的中文错：文案命中可编辑类措辞，且带上这个 id */
+const assertNotEditable = async (fn: () => Promise<void>, id: string) => {
+  await assert.rejects(fn, (err: Error) => {
+    assert.match(err.message, /不参与可编辑|只可寻址|可编辑/);
+    assert.match(err.message, new RegExp(id), "错误文案必须带上这个 entry 的 id");
+    return true;
+  });
+};
+
+test("entries() 含 system 条目，但 system 只可寻址、不可编辑（replace/erase 抛中文错）", async () => {
+  const a = await makeAgent();
+  try {
+    await a.io.prompt("一句话");
+    const system = a.context.entries().find((e) => e.role === "system");
+    assert.ok(system, "按设计 entries() 必须包含 system 条目（否则与 history 的对齐关系不成立）");
+    await assertNotEditable(() => a.context.replace(system!.id, "x"), system!.id);
+    await assertNotEditable(() => a.context.erase(system!.id), system!.id);
+  } finally {
+    a.dispose();
+  }
+});
+
+test("entries() 含压缩摘要条目，但它只可寻址、不可编辑（erase 抛中文错）", async () => {
+  const a = await makeAgent();
+  try {
+    // 沿用本文件已有的压缩基建：不攒够历史 pi 认为 session too small，压根没有压缩条目
+    await a.io.prompt("[[huge:200000]] one");
+    await a.context.compact("压成一句");
+    assert.equal(a.context.history[0].role, "compactionSummary", "压缩确实发生了（否则这条用例什么都没钉住）");
+    const summary = a.context.entries().find((e) => e.role === "compactionSummary");
+    assert.ok(summary, "压缩后的 entries() 必须包含压缩摘要条目（否则与 history 的对齐关系不成立）");
+    await assertNotEditable(() => a.context.erase(summary!.id), summary!.id);
+  } finally {
+    a.dispose();
+  }
 });
 
 test("连续两次 erase 不会找错下标", async () => {
@@ -291,4 +338,18 @@ test("idle 时抹掉一整轮，不影响之后那轮的结算（RunResult.messa
   } finally {
     a.dispose();
   }
+});
+
+test("忙时编辑：本轮 RunResult 不再包含产出（已登记边界，防止 pi 升级后文档变谎言）", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("旧的");
+  const doomed = a.context.entries().filter((e) => e.role === "user" || e.role === "assistant");
+  const p = a.io.prompt("[[sleep:400]] 新的");          // 不 await：制造在飞那轮
+  await sleep(120);
+  for (const e of doomed) await a.context.erase(e.id);  // 在飞期间编辑历史
+  const r = await p;
+  assert.equal(r.text, "", "忙时编辑会把结算区间切到数组之外 —— 这是 boundary，不是期望行为");
+  assert.ok(r.messages.length === 0, "同上：结算区间为空");
+  assert.ok(a.context.history.some((m) => m.role === "assistant"), "产出本身仍然持久化在历史里");
+  a.dispose();
 });

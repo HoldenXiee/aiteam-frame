@@ -129,6 +129,7 @@ export interface ContextSurface {
    * ⚠️ 忙时编辑的代价：**在飞那轮结束后的本轮 `RunResult.messages` / `text` 不保证包含本轮产出** ——
    * pi 会在回合边界从投影重建整个 `agent.state.messages`（少了几条，下标整体前移），
    * 而 `io` 的结算用运行前的下标切区间，于是切到数组之外。
+   * 同一个 slice 出来的 `RunResult.usage` / `RunResult.error` 同受此限（`agent.usage` 那个全生命周期累计不受影响）。
    * 要拿到准确的本轮结算，先 `await agent.io.waitIdle()` 再编辑。
    */
   replace(entryId: string, content: string): Promise<void>;
@@ -137,6 +138,7 @@ export interface ContextSurface {
    *
    * append-only，不要求 idle：不打断在飞那轮，也不走 `reload()`；抹除**从下一次请求起生效**。
    * ⚠️ 忙时编辑的代价：**在飞那轮结束后的本轮 `RunResult.messages` / `text` 不保证包含本轮产出**（同 `replace`）。
+   * 同一个 slice 出来的 `RunResult.usage` / `RunResult.error` 同受此限（`agent.usage` 那个全生命周期累计不受影响）。
    * 要拿到准确的本轮结算，先 `await agent.io.waitIdle()` 再编辑。
    *
    * 就**模型上下文**而言重复抹同一条是 no-op（已抹的不在投影里），但每次都仍会 append 一条
