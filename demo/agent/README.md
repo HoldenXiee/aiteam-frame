@@ -4,7 +4,7 @@
 
 一句话：**环境即目录、目录即配置**。一个 agent 的「身份与装备」——有哪些技能、能加载哪些扩展、用哪份凭证、看得见哪些模型——不写在代码里，就是这个目录里有哪些文件。想改环境，改目录；想让改动可复现、可 review，就把文件签进仓库。
 
-`demo/` 下的脚本都读同一个环境：`demo/env.ts` 解析出「环境在哪」（假模式再补上动态文件 `models.json`），`demo/lab.ts`（实验起点）与 `demo/check.ts`（环境自检）用同一套路径起 agent。
+`demo/` 下的脚本都读同一个环境：`demo/env.ts` 解析出「环境在哪」并把凭证就位，`demo/lab.ts`（实验起点）、`demo/check.ts`（环境自检）与 `demo/exp-*.ts`（自己写的实验）用同一套路径起 agent。
 
 **复制 `demo/` 会把本目录一起复制走**：环境跟着实验走，副本用副本自己的 `agent/`（机关是 `demo/env.ts` 里那个「相对本文件解析」的 `agentDir()`）。
 
@@ -15,9 +15,8 @@
 | `README.md` | ✅ | 人 | 就是本文件：环境规范。删掉只是少一份文档，不影响运行 |
 | `skills/<名>/SKILL.md` | ✅ | 人 | 技能。文件名目录名随你，**技能名取自 frontmatter 的 `name`**。删掉：靠它约束的行为失去依据 —— 技能是**软约束**（靠模型读了照做，不是代码强制）：`demo/lab.ts` 少掉 `env-style` 后照样 exit 0（这就是 S3 那条 mutation） |
 | `extensions/<名>.ts` | ✅ | 人 | 扩展。`export default (pi: ExtensionAPI) => …`，在函数体里 `pi.registerTool(...)` / `pi.on(...)`。删掉：它注册的工具与钩子消失（`demo/check.ts` 第 7 项会因此变红） |
-| `auth.json` | ❌ gitignored | 人（或 `AITEAM_DEMO_AUTH`） | **真模式唯一读的凭证**。删掉：`AITEAM_DEMO_REAL=1` 会明确报错（四条出路），不会静默 |
-| `models.json` | ❌ gitignored | `demo/env.ts`（假模式） | 本机假 provider 的地址 + 两个模型。**端口是随机的，所以它只能是生成物**，不能签进仓库。删掉：下次跑 `env.ts` 重新生成 |
-| `models-store.json` | ❌ gitignored | pi（真模式联网时） | 模型目录缓存。假模式离线，不会写它。删掉：pi 下次联网重建 |
+| `auth.json` | ❌ gitignored | 人（或 `AITEAM_DEMO_AUTH`） | **唯一读的凭证**。删掉：跑 demo 会明确报错（给出出路），不会静默 |
+| `models-store.json` | ❌ gitignored | pi（联网刷新模型目录时） | 模型目录缓存。删掉：pi 下次联网重建 |
 | `settings.json` | ❌ gitignored | pi（**只在你改过设置时才写** —— `FileSettingsStorage` 的 `fn` 返回 `undefined` 就不写文件） | pi 设置。demo 不动设置，所以跑完这里**通常没有它**；`demo/` 全用默认值，不签入。删掉：下次改设置时重建 |
 | `SYSTEM.md` | **本目录不放** | —— | 见下节 |
 | `APPEND_SYSTEM.md` | **本目录不放** | —— | 与 `SYSTEM.md` 同一族；放进去会改变系统提示词，同样会污染 demo 的判据 |
@@ -37,7 +36,7 @@
 
 1. **加一个技能**：新建 `skills/<任意目录名>/SKILL.md`，frontmatter 里写 `name:`（技能名看这里，不看目录名）与 `description:`。跑 `node demo/check.ts` 第 7 项确认它被发现了。
 2. **加一个扩展**：新建 `extensions/<名>.ts`，`export default function (pi: ExtensionAPI) { pi.registerTool(…) }`。**类型注解必须写**：本仓 `tsconfig.json` 的 `include` 含 `demo/`，无注解的 `(pi)` 在 `strict` 下编译不过（`npx tsc --noEmit` 会当场报 implicit any）。
-3. **换凭证**：把 `auth.json` 放进来（推荐，gitignored），或用 `AITEAM_DEMO_AUTH=/path/to/auth.json` 指一份。改完 `AITEAM_DEMO_REAL=1 node demo/check.ts` 验。**别指向宿主 `~/.pi/agent`**——pi 的 auth 存储是读-改-写整个文件，会把那里的凭证抹掉（历史事故见 `demo/README.md`）。
+3. **换凭证**：把 `auth.json` 放进来（推荐，gitignored），或用 `AITEAM_DEMO_AUTH=/path/to/auth.json` 指一份。改完 `node demo/check.ts` 验。**别指向宿主 `~/.pi/agent`**——pi 的 auth 存储是读-改-写整个文件，会把那里的凭证抹掉（历史事故见 `demo/README.md`）。
 
 改完环境不生效？删**可再生的产物**再跑：`rm -rf demo/agent/models.json demo/work`。`demo/agent/auth.json` 是你的凭证，**不要删**。
 

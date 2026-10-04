@@ -39,10 +39,13 @@ npm install        # 需要 Node ≥ 24（原生跑 .ts，无需构建）
 ## 2. 第一件事：跑一次脚手架
 
 ```bash
-node demo/lab.ts          # 实验脚手架：一个文件、七段、七个面各有一次真实调用（离线、零成本）
+node demo/lab.ts          # 实验脚手架：一个文件、七段、七个面各有一次真实调用（真模型，需 demo/agent/auth.json）
 cp -r demo demo-exp1      # 开始你自己的实验：环境（demo/agent/）跟着一起被复制
 node demo/check.ts        # 环境自检（八项）：确认这台机器具备研究条件
 ```
+
+**`demo/` 跑真模型**（默认 `opencode-go/space-bunny-free` 免费档）：凭证放 `demo/agent/auth.json`，
+或 `AITEAM_DEMO_AUTH=/path/to/auth.json`；换模型用 `AITEAM_DEMO_MODEL`。没凭证会**明确报错**，不静默。
 
 **`demo/` 是实验脚手架，用法是「复制、改、跑」**：`demo/lab.ts` 七段各有一个「改这里」的锚点（环境、模板、自定义工具、交办、观测、打印），改完 `node demo-exp1/lab.ts` 就能看结果。环境 = 仓库里那个看得见的目录 `demo/agent/`，副本用副本自己的。
 
@@ -57,16 +60,16 @@ node demo/check.ts        # 环境自检（八项）：确认这台机器具备�
     原始错误：模型「nope/nope」解析失败：Model "nope/nope" not found. …
     最可能的三个原因与怎么补：
       1. 第 2 项已经告诉你 pi 版本不对（那一步先修）…
-      2. 模型 ref 解析不到… ⇒ 删 `demo/agent/models.json` 再重跑
+      2. 模型 ref 解析不到… ⇒ 检查 `demo/agent/auth.json` 与 AITEAM_DEMO_MODEL
       3. `demo/work/` 不可写或被别的进程占着…
 ```
 
 （**失败信息走 stderr、通过信息走 stdout**，方便你写进 CI 或脚本。）
 
-### 想用真模型跑自检
+### 环境自检与模型
 
 ```bash
-AITEAM_DEMO_REAL=1 node demo/check.ts     # 用 demo 自己的凭证（demo/agent/auth.json）+ 一个免费模型
+node demo/check.ts     # 用 demo 自己的凭证（demo/agent/auth.json）+ 默认免费模型
 ```
 
 默认用 `opencode-go/space-bunny-free`（免费）。想换别的：`AITEAM_DEMO_MODEL=provider/id`。
@@ -183,10 +186,9 @@ docs/FACTS.md         已实测核对的 pi 行为（这个文件必须准）
 npm test              # 144 例断言，本机假 provider，零 API 成本
 npm run typecheck     # tsc --noEmit（含 src / test / demo / examples）
 
-node demo/lab.ts                      # 实验脚手架（离线）
-node examples/12-team.ts              # 完整案例（离线）
-node demo/check.ts                    # 环境自检（离线）
-AITEAM_DEMO_REAL=1 node demo/check.ts # 环境自检（真模型）
+node demo/lab.ts                      # 实验脚手架（真模型，需 demo/agent/auth.json）
+node examples/12-team.ts              # 完整案例（本机假 provider，零成本）
+node demo/check.ts                    # 环境自检（真模型）
 ```
 
 **测试不需要 API key、不联网、零成本。** 全部断言跑在本机假 provider 上（`examples/lib/faux-server.ts`）——它按提示词里的脚本约定回话：
@@ -221,13 +223,13 @@ AITEAM_DEMO_REAL=1 node demo/check.ts # 环境自检（真模型）
 ## 8. 常见问题
 
 **Q：一定要有 API key 吗？**
-不要。默认全部离线、零成本。只有 `AITEAM_DEMO_REAL=1` 才用真凭证。
+分两种：`examples/01–12` 与 `npm test` **不要**（均走本机假 provider，零成本）；`demo/`（`lab.ts` / `check.ts`）**要** —— 它跑真模型。
 
 **Q：`demo/agent/` 和 `demo/work/` 是什么？**
-`demo/agent/` 是**环境目录**（就是 `createLab` 的 `agentDir`）：技能与扩展是仓库里的真文件（进 git），`auth.json` / `models.json` 等动态文件不进 git，每一档管什么见 `demo/agent/README.md`。`demo/work/` 是产物目录。两者里可再生的产物删掉再跑，`ensureEnv()` 会重建；`demo/agent/auth.json` 是你的凭证，**别删**。
+`demo/agent/` 是**环境目录**（就是 `createLab` 的 `agentDir`）：技能与扩展是仓库里的真文件（进 git），`auth.json` 等动态文件不进 git，每一档管什么见 `demo/agent/README.md`。`demo/work/` 是产物目录。可再生的产物删掉再跑就会重建；`demo/agent/auth.json` 是你的凭证，**别删**。
 
 **Q：改坏了怎么办？**
-`rm -rf demo/agent/models.json demo/work && node demo/check.ts`——环境是幂等重建的。
+`rm -rf demo/work && node demo/check.ts`——环境是幂等重建的。
 
 **Q：`audit/` 去哪了？**
 那是 v1 的能力与极限审计（208 文件），库的机制层在 v2 重写过，其结论多数不再成立，已删除。需要时从 git 历史 `043dea3` 检出。

@@ -1,7 +1,8 @@
 // 安装自检：一条命令回答「这台机器现在可以开始研究 agent 课题了吗」。
 //
 // 跑法：node demo/check.ts        成功 = 八项全「通过」+ 退出码 0
-//       PI_OFFLINE=1 node demo/check.ts   等价（demo 本来就离线，见 env.ts）
+//       AITEAM_DEMO_MODEL=provider/id node demo/check.ts   换模型（默认 opencode-go/space-bunny-free）
+//       AITEAM_DEMO_AUTH=/path/to/auth.json node demo/check.ts   换凭证
 //
 // 设计原则：**失败必须可诊断**。哪一步、原始错误、最可能的三个原因与怎么补 —— 缺一不可。
 // 所以下面每一项都带三条 hints，失败时连同原始错误（含栈）一起打出来，然后 exit(1)。
@@ -17,7 +18,6 @@ import { fileURLToPath } from "node:url";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Agent, AgentTool } from "../src/index.ts";
-import { FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, FAUX_PROVIDER } from "../examples/lib/faux-models.ts";
 import { ensureEnv, type DemoEnv } from "./env.ts";
 import { under } from "../src/agent/loader.ts";
 import { createLab, type Lab } from "../src/index.ts";
@@ -70,14 +70,14 @@ function oneLine(text: string, max = 72): string {
 // ─────────────── 八项自检 ───────────────
 
 async function main(): Promise<void> {
-  // 实验室：环境一旦已知（ensureEnv 幂等）就只建一个 —— agentDir / cwd / 离线开关全从这里来。
-  // 惰性建、不在 main 开头就建：真模式下凭证缺失要保持「第 3 项失败 + 三条原因」那个形状。
+  // 实验室：环境一旦已知（ensureEnv 幂等）就只建一个 —— agentDir / cwd 全从这里来。
+  // 惰性建、不在 main 开头就建：凭证缺失时要保持「第 3 项失败 + 三条原因」那个形状。
   let labPromise: Promise<Lab> | undefined;
   const ensureLab = (env: DemoEnv): Promise<Lab> =>
     (labPromise ??= createLab({
       agentDir: env.agentDir,
       cwd: env.cwd,
-      modelNetwork: env.real ? undefined : false, // 假模式离线是默认；真模式才需要联网
+      // 真模型：模型目录联网刷新（默认行为）
     }));
 
   // 跨项共享的状态：agent 本体 + 两个「执行体真跑过」的闭包计数器
@@ -95,6 +95,18 @@ async function main(): Promise<void> {
     name: "demo_probe",
     label: "Demo Probe",
     description: "自检探针：把参数里的 text 原样回显",
+    parameters: Type.Object({ text: Type.String() }),
+    execute: async (_id, params) => {
+      probeCalls += 1;
+      return { content: [{ type: "text" as const, text: `probe 收到：${params.text}` }], details: {} };
+    },
+  });
+
+  /** 第二个探针：与 demo_probe 同构，只为了让模型「有得选」—— 见第 6 项的注释（二选一，不能选「不调」） */
+  const probeToolB: AgentTool = defineTool({
+    name: "demo_probe_b",
+    label: "Demo Probe B",
+    description: "自检探针（与 demo_probe 同构，任选一个调即可）：把参数里的 text 原样回显",
     parameters: Type.Object({ text: Type.String() }),
     execute: async (_id, params) => {
       probeCalls += 1;
@@ -168,42 +180,27 @@ async function main(): Promise<void> {
         if (readBack !== "ok") throw new Error(`写进 ${probePath} 又读回来不是 ok：${JSON.stringify(readBack)}`);
         // 模型可读：走实验室的 inspectEnv（与它起的 agent 同一套 loader / ModelRuntime）
         const report = await lab.inspectEnv();
-        if (env.real) {
-          // 真模型模式：不假设 provider 叫什么，直接找 env.model 那一项
-          const [provider, id] = env.model.split("/");
-          const group = report.models.find((g) => g.provider === provider);
-          if (!group || !group.available.includes(id!)) {
-            throw new Error(
-              `读不到 ${env.model}：providers=${report.models.map((g) => `${g.provider}(${g.available.length})`).join("、")}` +
-                ` warnings=${report.warnings.join("；") || "无"}`,
-            );
-          }
-          return {
-            detail: `agentDir 可写；demo 自己的凭证下读到 ${env.model}`,
-            evidence: [
-              `agentDir=${env.agentDir}（凭证在 demo/agent/auth.json，或由 AITEAM_DEMO_AUTH 复制而来）`,
-              `${provider}: ${group.available.length} 个可用，含 ${id}`,
-            ],
-          };
-        }
-        const group = report.models.find((g) => g.provider === FAUX_PROVIDER);
-        if (!group || !group.available.includes(FAUX_MODEL_ID)) {
+        // 不假设 provider 叫什么，直接找 env.model 那一项
+        const [provider, id] = env.model.split("/");
+        const group = report.models.find((g) => g.provider === provider);
+        if (!group || !group.available.includes(id!)) {
           throw new Error(
-            `读不到假 provider ${FAUX_PROVIDER}/${FAUX_MODEL_ID}：models=${JSON.stringify(report.models)}` +
+            `读不到 ${env.model}：providers=${report.models.map((g) => `${g.provider}(${g.available.length})`).join("、")}` +
               ` warnings=${report.warnings.join("；") || "无"}`,
           );
         }
         return {
-          detail: `agentDir 可写；读到 ${group.available.length} 个模型`,
+          detail: `agentDir 可写；demo 自己的凭证下读到 ${env.model}`,
           evidence: [
-            `${join(env.agentDir, "models.json")} → ${FAUX_PROVIDER}: ${group.available.join("、")}（离线，modelNetwork:false）`,
+            `agentDir=${env.agentDir}（凭证在 demo/agent/auth.json，或由 AITEAM_DEMO_AUTH 复制而来）`,
+            `${provider}: ${group.available.length} 个可用，含 ${id}`,
           ],
         };
       },
       hints: [
         "`demo/agent/` 不可写（权限位、只读挂载、杀软拦住新建目录）⇒ 给目录写权限，或把仓库挪到可写盘",
         "磁盘满 / Windows 路径过长（MAX_PATH）⇒ 清磁盘，或把仓库挪到短路径（如 D:\\aiteam）",
-        "`models.json` 被改坏或结构过时（手工编辑、上一版 demo 留下的）⇒ 删掉 `demo/agent/models.json` 与 `demo/work/` 再重跑，ensureEnv 会重建",
+        "凭证被改坏（手工编辑）⇒ 重新写一份 `demo/agent/auth.json`，或用 AITEAM_DEMO_AUTH 指一份干净的",
       ],
     },
     {
@@ -215,7 +212,7 @@ async function main(): Promise<void> {
           id: "demo-check",
           model: env.model,
           context: { autoCompact: false },
-          tools: { custom: [probeTool] },
+          tools: { custom: [probeTool, probeToolB] },
         });
         const me = agent;
         return {
@@ -224,13 +221,13 @@ async function main(): Promise<void> {
           evidence: [
             `agentDir=${env.agentDir}`,
             `cwd=${env.cwd}`,
-            env.real ? `真模型（凭证来自 demo/agent/auth.json）` : `假 provider=${env.baseUrl}`,
+            `真模型（凭证来自 demo/agent/auth.json）`,
           ],
         };
       },
       hints: [
         "第 2 项已经告诉你 pi 版本不对（那一步先修）⇒ 版本不一致时创建参数形状可能已变",
-        "模型 ref 解析不到（`models.json` 被改过/被别的 demo 覆盖）⇒ 删 `demo/agent/models.json` 再重跑",
+        "凭证不对 / 模型 ref 解析不到（`demo/agent/auth.json` 被改过，或 AITEAM_DEMO_MODEL 指了不存在的模型）⇒ 重写凭证，或先不设 AITEAM_DEMO_MODEL 跑默认免费档",
         "`demo/work/` 不可写或被别的进程占着（会话要落在这里）⇒ 关掉占用它的进程，或删掉 `demo/work/` 让 demo 重建",
       ],
     },
@@ -247,7 +244,7 @@ async function main(): Promise<void> {
         };
       },
       hints: [
-        "假 provider 没起来或端口被占 ⇒ 重跑一次；连续失败就查本机回环（127.0.0.1）是否被安全软件拦住，放行 node",
+        "没网 / 网络被拦 ⇒ 这一项要真的调一次 provider；查代理与防火墙，或先自查 `curl` 一下服务商域名",
         "这一轮模型侧报错了（`result.error` 里就是原始错误）⇒ 按 error 文本查，别只看「失败」两个字",
         "pi 版本变了、SSE 解析不兼容 ⇒ 装回 0.99.1（见第 2 项）",
       ],
@@ -258,21 +255,24 @@ async function main(): Promise<void> {
         const me = requireAgent();
         const env = await ensureEnv();
         const before = probeCalls;
-        // 假 provider 靠提示词里的指令脚本调工具；真模型要自然语言（它会自己决定调）
-        const ask = env.real
-          ? "请调用 demo_probe 工具，把 text 参数设为「自检工具链」，然后告诉我它回了什么。"
-          : '[[tool:demo_probe]] [[args:{"text":"自检工具链"}]]';
-        const result = await me.io.prompt(ask);
+        // 判据是**执行体里的闭包计数器**：模型没调工具它永远是 0，提示词写得再漂亮也过不了。
+        // “二选一 + 必须调一次”是为了避开一个**不可控**变量：模型可以拒绝调工具。
+        // 让它只能选「调哪个」而不能选「调不调」，这一项才不依赖模型的心情 —— 实测 3/3 稳（spike/t-forced；
+        // 没有工具可调时模型会回纯文字，那种情况下 ran=0 是合理的）。
+        const result = await me.io.prompt(
+          "你现在必须调用工具一次：在 demo_probe 和 demo_probe_b 里任选一个，text 参数填「自检工具链」。" +
+            "直接调用，不要只用文字回答。",
+        );
         if (result.error) throw new Error(`这一轮报错：${result.error}`);
         const ran = probeCalls - before;
         if (ran < 1) {
           throw new Error(
-            `demo_probe 的执行体一次都没跑（${before} → ${probeCalls}）：` +
-              `tools.list() 里有没有它不算数，模型必须真的调用它`,
+            `两个探针的执行体一次都没跑（${before} → ${probeCalls}）：` +
+              `tools.list() 里有没有它不算数，模型必须真的调用；且这是「二选一」，它有得选、没得拒`,
           );
         }
         return {
-          detail: `demo_probe 的执行体真跑了 ${ran} 次`,
+          detail: `探针的执行体真跑了 ${ran} 次（二选一）`,
           evidence: [
             `模型这一轮回读：${oneLine(result.text)}`,
             // 这一行是对照，不判别：定义在注册表里 ≠ 执行体跑过
@@ -281,9 +281,9 @@ async function main(): Promise<void> {
         };
       },
       hints: [
-        "模型没选择调用工具（真模型下可能只是不肯调）⇒ 重跑一次；仍不动就换 AITEAM_DEMO_MODEL 指向更擅长工具调用的模型",
-        '（仅假模式）脚本约定没生效：提示里的 `[[tool:demo_probe]] [[args:{"text":"..."}]]` 被改动过 ⇒ 原样恢复（约定见 examples/lib/faux-server.ts 顶部）',
+        "模型没配合（没调工具 / 回空的）⇒ **真模型下偶发**，先重跑一次；连续两次才怀疑环境",
         "工具没进模型声明（白名单挡了 / `tools.custom` 没生效 / 名字对不上）⇒ 看上面打印的「pi 注册表里有它的定义」那一行",
+        "prompt 中途报错（rate limit / 余额 / 网络）⇒ 看原始错误；这一个项目真的会打服务商",
       ],
     },
     {

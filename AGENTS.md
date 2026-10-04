@@ -84,7 +84,7 @@ src/index.ts     唯一导出入口（不做逻辑）：createLab + 全部对外
 src/agent/       lab.ts（createLab：环境所有者与唯一启动入口）· create-agent.ts（agent 的创建路径，只经 lab.createAgent 到达）· bridge.ts（面 = pi 钩子的分组封装）· env.ts（环境自检的实现）· loader.ts（skills / extensions / role 的注入与解析）· types.ts（对外类型）· usage.ts（用量累计）
 src/surfaces/    七个面：io.ts · context.ts · tools.ts（tools + permissions）· resources.ts（extensions + skills）· model.ts
 test/            node:test，本机假 provider，零 API 成本
-examples/        11 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码）；离线基建在 examples/lib/
+examples/        12 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码，12 是完整案例）；离线基建在 examples/lib/
 demo/            实验脚手架（复制即开始实验）：lab.ts（起点）+ agent/（环境）+ check.ts（八项自检）；完整案例在 examples/12-team.ts
 docs/DESIGN.md   宏观设计（唯一设计源）
 docs/GUIDE.md    用法讲解（面向设计者；代码引用 examples/lib/snippets.ts 的同源片段）
