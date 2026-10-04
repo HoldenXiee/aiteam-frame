@@ -35,19 +35,10 @@ export interface ResourceSpec {
   role?: string;
 }
 
-/** 创建期 spec，与七个面同形（字段名 = 面的原语名，规格 §3.2） */
-export interface AgentInit extends ResourceSpec {
+/** 创建期 spec：只说「这个 agent 用哪些」，环境（agentDir / cwd / 网络）不在这里 ——
+ *  那是实验室（`createLab`）的声明，spec 里再写一遍也只会被拒。 */
+export interface AgentSpec extends ResourceSpec {
   id?: string;
-  cwd?: string;
-  agentDir?: string;
-  /**
-   * 是否允许联网刷新模型目录（带 ETag，4 小时新鲜度窗口），默认 true。
-   * false 时仍会从 `<agentDir>/models-store.json` **恢复**已缓存的 overlay（离线也生效），只是不主动拉。
-   * 环境变量 `PI_OFFLINE=1` 可全局关掉一切模型相关网络请求。
-   */
-  modelNetwork?: boolean;
-  /** 覆盖模型目录源，默认 https://pi.dev（企业镜像 / 测试用） */
-  catalogBaseUrl?: string;
   /** "anthropic/claude-opus-4-5:high" */
   model?: string;
   thinking?: ThinkingLevel;
@@ -62,11 +53,6 @@ export interface AgentInit extends ResourceSpec {
   permissions?: { only?: string[]; deny?: string[]; gate?: ToolGate };
   tools?: { custom?: AgentTool[] };
   context?: { autoCompact?: boolean };
-}
-
-export interface CreateAgentDeps {
-  /** 默认按 agentDir + 网络开关取宿主级共享的那个 */
-  modelRuntime?: ModelRuntime;
 }
 
 // ─────────────── 句柄 ───────────────

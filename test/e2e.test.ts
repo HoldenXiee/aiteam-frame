@@ -12,7 +12,7 @@ import {
   FAUX_MODEL_ALT_REF,
   echoTool,
   faux,
-  makeAgent,
+  makeAgentIn,
   sentMessages,
   sentTools,
 } from "./helpers.ts";
@@ -25,8 +25,7 @@ test("七面联跑：加工具 → 装门 → 加扩展 → 加技能 → 改上
     "---\nname: e2e-skill\ndescription: 七面联跑用的技能\n---\n\n正文\n",
   );
 
-  const a = await makeAgent({
-    cwd,
+  const a = await makeAgentIn(cwd, {
     permissions: { only: ["read"] },
     tools: { custom: [echoTool()] },   // R42：创建期自定义工具
   });

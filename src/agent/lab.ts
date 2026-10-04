@@ -1,10 +1,10 @@
-// 实验室（Lab）：环境所有者与唯一启动入口 —— agentDir / cwd 在这里定死，之后本实验室起的分身共用它们。
-// 本任务阶段是纯加法：旧的顶层 createAgent / inspectEnv 原样保留，这里只是转调，两个出口并存。
+// 实验室（Lab）：环境所有者与唯一启动入口 —— agentDir / cwd / 网络开关 / runtime 在这里定死，
+// 之后本实验室起的全部分身共用它们。spec 只说「这个 agent 用哪些」，不参与环境声明。
 import { existsSync } from "node:fs";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgent, getSharedRuntime } from "./create-agent.ts";
+import { createAgentInLab, getSharedRuntime, registerLabEnv } from "./create-agent.ts";
 import { inspectEnv, type EnvReport } from "./env.ts";
-import type { Agent, AgentInit } from "./types.ts";
+import type { Agent, AgentSpec } from "./types.ts";
 
 export interface LabOptions {
   /** 环境目录：凭证(auth.json)、模型目录(models.json)、技能、插件、SYSTEM.md 都从这里找。必填 */
@@ -19,13 +19,12 @@ export interface LabOptions {
   modelRuntime?: ModelRuntime;
 }
 
+/** 对外只有这四个成员：环境（两个目录）+ 两个动作。runtime 等实现细节不在接口上。 */
 export interface Lab {
   readonly agentDir: string;
   readonly cwd: string;
-  createAgent(spec?: AgentInit): Promise<Agent>;
+  createAgent(spec?: AgentSpec): Promise<Agent>;
   inspectEnv(): Promise<EnvReport>;
-  /** @internal 仅供测试断言 runtime 复用 */
-  modelRuntimeForTest(): ModelRuntime;
 }
 
 /** undefined 与空串一视同仁：两个目录都是「没有就活不下去」的东西，不必区分两种缺失 */
@@ -41,17 +40,23 @@ export async function createLab(opts: LabOptions): Promise<Lab> {
   if (!existsSync(cwd)) throw new Error(`createLab：cwd 不存在：${cwd}`);
 
   const { modelNetwork, catalogBaseUrl } = opts;
-  // 复用宿主级共享 runtime（决策 #8）：同一个 agentDir 的实验室与顶层 createAgent 拿到同一份，
-  // 不许自己 new —— 否则第二个实验室会去读第一份的 models.json / auth.json。
+  // agentDir「原本是否存在」必须在这里定：下面取的 runtime 会顺手把目录建出来（ModelRuntime.create 实测如此），
+  // 等到 inspectEnv 再 existsSync 就已经看不到这个诊断了。
+  const agentDirExisted = existsSync(agentDir);
+  // 复用宿主级共享 runtime（决策 #8）：同一个 agentDir 的实验室拿到同一份，不许自己 new ——
+  // 否则第二个实验室会去读第一份的 models.json / auth.json。
+  // 注入的那份优先，并且**真的**给这个实验室起的 agent 用（见下面的 registerLabEnv）。
   const modelRuntime = opts.modelRuntime ?? (await getSharedRuntime(agentDir, { modelNetwork, catalogBaseUrl }));
-  const shared = { agentDir, cwd, modelNetwork, catalogBaseUrl };
+  const env = { agentDir, cwd, modelNetwork, catalogBaseUrl };
 
-  return {
+  const lab: Lab = {
     agentDir,
     cwd,
-    // 本实验室的两个目录是定死的，spec 在后：里面再给 agentDir / cwd 会覆盖实验室这两个
-    createAgent: (spec = {}) => createAgent({ ...shared, ...spec }),
-    inspectEnv: () => inspectEnv(shared),
-    modelRuntimeForTest: () => modelRuntime,
+    // 环境只在实验室，spec 里没有 agentDir / cwd 这类字段可写（写了会被拒），无从覆盖
+    createAgent: (spec = {}) => createAgentInLab(lab, spec),
+    inspectEnv: () => inspectEnv({ ...env, agentDirExisted, modelRuntime }),
   };
+  // 内部环境记录（含 runtime）：导出的 Lab 接口上没有它，createAgentInLab 只从这里取
+  registerLabEnv(lab, { agentDir, cwd, modelRuntime });
+  return lab;
 }

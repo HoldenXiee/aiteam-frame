@@ -1,13 +1,16 @@
-// 包根导出面（`src/index.ts`）：v1 的名字必须已经不在，七个面与结算的类型都能从包根 import。
+// 包根导出面（`src/index.ts`）：唯一入口是实验室，v1/v2 的顶层出口都不在，七个面与结算的类型都能从包根 import。
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as api from "../src/index.ts";
 import type {
   Agent,
-  AgentInit,
+  AgentSpec,
   ContextSurface,
+  EnvReport,
   ExtensionsSurface,
   IoSurface,
+  Lab,
+  LabOptions,
   ModelSurface,
   PermissionsSurface,
   RunResult,
@@ -26,13 +29,16 @@ type PublicTypes = [
   SkillsSurface,
   ModelSurface,
   RunResult,
-  AgentInit,
+  AgentSpec,
+  Lab,
+  LabOptions,
+  EnvReport,
 ];
 const publicTypes: PublicTypes | undefined = undefined;
 
-test("包根导出：入口只有 v2 的两个，v1 的名字不在", () => {
-  assert.deepEqual(Object.keys(api).sort(), ["createAgent", "inspectEnv"]);
-  assert.ok(!("createAgentHost" in api), "v1 的 createAgentHost 不该还在");
-  assert.ok(!("defineAgentTool" in api), "v1 的 defineAgentTool 不该还在");
+test("包根导出：入口只有实验室一个，v1/v2 的顶层出口都不在", () => {
+  assert.deepEqual(Object.keys(api).sort(), ["createLab"]);
+  assert.ok(!("createAgent" in api), "v1/v2 的顶层 createAgent 已被实验室取代");
+  assert.ok(!("inspectEnv" in api), "环境自检挂在实验室上，不再是顶层出口");
   assert.equal(publicTypes, undefined);
 });

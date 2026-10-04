@@ -1,5 +1,5 @@
-// AgentInit 的两个模型目录字段：`modelNetwork`（要不要联网刷目录）与 `catalogBaseUrl`（目录源）。
-// 这两条钉的是 create-agent.ts 的接线（`getSharedRuntime(agentDir, { modelNetwork, catalogBaseUrl })`），
+// LabOptions 的两个模型目录字段：`modelNetwork`（要不要联网刷目录）与 `catalogBaseUrl`（目录源）。
+// 这两条钉的是 lab.ts 的接线（`getSharedRuntime(agentDir, { modelNetwork, catalogBaseUrl })`），
 // 行为本体在 pi 的 ModelRuntime 里 —— 所以断言落在「请求打到哪 / 有没有打」与「缓存能不能恢复」上。
 //
 // 事实依据（pi 源码，实测确认）：
@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAgent } from "../src/agent/create-agent.ts";
+import { createLab } from "../src/agent/lab.ts";
 import { FAUX_MODEL_ID, FAUX_MODEL_REF, writeModelsJson } from "./faux-models.ts";
 import { FAUX_CATALOG_MODEL_ID, FAUX_CATALOG_PROVIDER } from "./faux-server.ts";
 import { faux } from "./helpers.ts";
@@ -72,15 +72,16 @@ test("modelNetwork:false：不发目录请求，但仍从 models-store.json 恢�
     }),
   );
   const before = faux.catalogHits.length;
-  const a = await withNetworkAllowed(() =>
-    createAgent({
+  const a = await withNetworkAllowed(async () => {
+    // 实验室必须在这个窗口里建：runtime 是 createLab 当场取的，PI_OFFLINE 的全局闸那时就得是开的
+    const lab = await createLab({
       agentDir: dir,
       cwd: dir,
-      model: FAUX_MODEL_REF,
       modelNetwork: false,
       catalogBaseUrl: faux.baseUrl, // 万一关网没生效，请求也只会打到本机假服务上
-    }),
-  );
+    });
+    return lab.createAgent({ model: FAUX_MODEL_REF });
+  });
   try {
     assert.deepEqual(
       faux.catalogHits.slice(before),
@@ -100,15 +101,10 @@ test("modelNetwork:false：不发目录请求，但仍从 models-store.json 恢�
 test("catalogBaseUrl 覆盖目录源：请求打到给定的 base（本机假服务）而不是 pi.dev", async () => {
   const dir = makeAgentDir();
   const before = faux.catalogHits.length;
-  const a = await withNetworkAllowed(() =>
-    createAgent({
-      agentDir: dir,
-      cwd: dir,
-      model: FAUX_MODEL_REF,
-      modelNetwork: true,
-      catalogBaseUrl: faux.baseUrl,
-    }),
-  );
+  const a = await withNetworkAllowed(async () => {
+    const lab = await createLab({ agentDir: dir, cwd: dir, modelNetwork: true, catalogBaseUrl: faux.baseUrl });
+    return lab.createAgent({ model: FAUX_MODEL_REF });
+  });
   try {
     const hits = faux.catalogHits.slice(before);
     assert.ok(

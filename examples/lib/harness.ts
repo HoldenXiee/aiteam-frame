@@ -8,8 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createLab } from "../../src/agent/lab.ts";
-import type { Agent, AgentInit, AgentTool } from "../../src/index.ts";
+import { createLab, type Agent, type AgentSpec, type AgentTool } from "../../src/index.ts";
 import { FAUX_MODEL_ALT_ID, FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, writeModelsJson } from "./faux-models.ts";
 import { startFaux } from "./faux-server.ts";
 
@@ -40,7 +39,7 @@ export const lab = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, model
  * 起一个走实验室入口（lab.createAgent）的 agent，默认对着本机假 provider。
  * 签名与 test/helpers.ts 的 makeAgent 一致：给的 spec 覆盖默认值。
  */
-export async function makeOfflineAgent(spec: AgentInit = {}): Promise<Agent> {
+export async function makeOfflineAgent(spec: AgentSpec = {}): Promise<Agent> {
   return lab.createAgent({ model: FAUX_MODEL_REF, ...spec });
 }
 

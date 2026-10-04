@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectEnv } from "../src/agent/env.ts";
-import { fauxAgentDir, fauxCwd } from "./helpers.ts";
+import { createLab } from "../src/index.ts";
+import { fauxAgentDir } from "./helpers.ts";
 
 function makeSkill(root: string, name: string): void {
   const dir = join(root, "skills", name);
@@ -32,7 +32,7 @@ test("报出可用模型、技能、扩展（含扩展偷偷注册的工具名�
   makeSkill(fauxAgentDir, "env-skill");
   makeExtension(fauxAgentDir, "env_ext_tool");
 
-  const report = await inspectEnv({ agentDir: fauxAgentDir, cwd: root, modelNetwork: false });
+  const report = await (await createLab({ agentDir: fauxAgentDir, cwd: root, modelNetwork: false })).inspectEnv();
 
   const faux = report.models.find((m) => m.provider === "faux");
   assert.ok(faux, "没报出 faux provider");
@@ -50,7 +50,7 @@ test("报出可用模型、技能、扩展（含扩展偷偷注册的工具名�
 
 test("空目录：三样都是空的，且把「为什么空」讲出来", async () => {
   const root = mkdtempSync(join(tmpdir(), "aiteam-env-empty-"));
-  const report = await inspectEnv({ agentDir: join(root, "nothing-here"), cwd: root, modelNetwork: false });
+  const report = await (await createLab({ agentDir: join(root, "nothing-here"), cwd: root, modelNetwork: false })).inspectEnv();
 
   assert.deepEqual(report.skills, []);
   assert.deepEqual(report.extensions, []);
@@ -64,7 +64,7 @@ test("环境里的 SYSTEM.md 会被标出来（它会整体替换系统提示词
   const root = mkdtempSync(join(tmpdir(), "aiteam-env-sys-"));
   writeFileSync(join(root, "SYSTEM.md"), "我是整体替换的提示词\n", "utf-8");
 
-  const report = await inspectEnv({ agentDir: root, cwd: root, modelNetwork: false });
+  const report = await (await createLab({ agentDir: root, cwd: root, modelNetwork: false })).inspectEnv();
   assert.ok(report.systemPromptFile?.endsWith("SYSTEM.md"));
   assert.ok(report.warnings.some((w) => w.includes("SYSTEM.md")), report.warnings.join("\n"));
 });
@@ -72,6 +72,6 @@ test("环境里的 SYSTEM.md 会被标出来（它会整体替换系统提示词
 test("跑一轮真 agent 时技能真的进了 system —— 报出来的不是纸上名单", async () => {
   const { captureSystemPrompt } = await import("./helpers.ts");
   makeSkill(fauxAgentDir, "env-real-skill");
-  const { system } = await captureSystemPrompt({ cwd: fauxCwd, skills: ["env-real-skill"] });
+  const { system } = await captureSystemPrompt({ skills: ["env-real-skill"] });
   assert.match(system, /env-real-skill/);
 });

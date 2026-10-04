@@ -30,12 +30,40 @@ test("lab.createAgent 不传 spec 也能起，且真的能跑一轮", async () =
 
 test("同一个 agentDir 的两个实验室共用同一份 modelRuntime", async () => {
   const opts = { modelNetwork: false } as const;
-  const lab = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, ...opts });
-  assert.equal(
-    await lab.modelRuntimeForTest(),
-    await getSharedRuntime(fauxAgentDir, opts),
-    "实验室必须复用宿主级共享 runtime，不能自己另建一份",
-  );
+  const a = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, ...opts });
+  const b = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, ...opts });
+  const agentA = await a.createAgent({ model: FAUX_MODEL_REF });
+  const agentB = await b.createAgent({ model: FAUX_MODEL_REF });
+  try {
+    // 断言落在**真的跑起来的那份**（agent 手里的 runtime）上，不是实验室的探针：
+    // 若 createAgentInLab 自己去取一次 runtime，「两个实验室共用」这条就开始骗人了。
+    assert.equal(
+      agentA.model.raw.modelRuntime,
+      agentB.model.raw.modelRuntime,
+      "同一个 agentDir 的两个实验室必须共用同一份 runtime，不能各自另建",
+    );
+    assert.equal(
+      agentA.model.raw.modelRuntime,
+      await getSharedRuntime(fauxAgentDir, opts),
+      "还必须正是宿主级共享的那份",
+    );
+  } finally {
+    agentA.dispose();
+    agentB.dispose();
+  }
+});
+
+test("LabOptions.modelRuntime 注入的那份真的到达 agent", async () => {
+  // 故意换一个网络开关取值：cache key 不同 ⇒ 这是与实验室默认那份**不同**的 runtime 对象，
+  // 于是「注入了但被忽略」会立刻被下面这行抓住。
+  const injected = await getSharedRuntime(fauxAgentDir, { modelNetwork: true });
+  const lab = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false, modelRuntime: injected });
+  const a = await lab.createAgent({ model: FAUX_MODEL_REF });
+  try {
+    assert.equal(a.model.raw.modelRuntime, injected, "注入的 runtime 必须真的被 agent 用上，不能被静默忽略");
+  } finally {
+    a.dispose();
+  }
 });
 
 test("lab.inspectEnv 只读报告这个实验室的环境", async () => {

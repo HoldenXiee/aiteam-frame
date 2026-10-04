@@ -20,7 +20,7 @@ import type { Agent, AgentTool } from "../src/index.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, FAUX_PROVIDER } from "../examples/lib/faux-models.ts";
 import { ensureEnv, type DemoEnv } from "./env.ts";
 import { under } from "../src/agent/loader.ts";
-import { createLab, type Lab } from "../src/agent/lab.ts";
+import { createLab, type Lab } from "../src/index.ts";
 
 /**
  * 期望的 pi 版本：这里用**精确等值**（===）比较。期望值来自本仓 `package-lock.json` 钉住的

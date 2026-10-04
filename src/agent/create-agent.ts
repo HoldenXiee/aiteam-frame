@@ -1,12 +1,12 @@
 // spec → Agent：配置校验、loader、session、常驻桥接、七面装配、生命周期。
-// 本任务只装配 io（最小驱动版）与桥接；其余六个面是「一碰就喊」的类型占位（分工见实现计划）。
+// 入口只有 `createAgentInLab(lab, spec)`：环境（agentDir / cwd / 网络 / runtime）全部来自实验室，
+// 本文件不再有「自己去搞一个环境」的任何回落路径。
 import { join } from "node:path";
 import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
   createAgentSession,
-  getAgentDir,
   resolveCliModel,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
@@ -18,12 +18,12 @@ import { createContext } from "../surfaces/context.ts";
 import { createTools, createPermissions } from "../surfaces/tools.ts";
 import { createExtensions, createSkills } from "../surfaces/resources.ts";
 import { createModel } from "../surfaces/model.ts";
+import type { Lab } from "./lab.ts";
 import type {
   Agent,
   AgentContext,
-  AgentInit,
+  AgentSpec,
   ContextSurface,
-  CreateAgentDeps,
   ExtensionsSurface,
   ExtensionEvent,
   ModelSurface,
@@ -39,8 +39,22 @@ function nextId(): string {
   return `a${counter}`;
 }
 
-export function defaultAgentDir(): string {
-  return process.env.AITEAM_AGENT_DIR || getAgentDir();
+/**
+ * 实验室的内部环境记录：`agentDir` / `cwd` 在导出的 `Lab` 接口上也有一份，
+ * `modelRuntime` 只在这里 —— 它是实现细节，不进对外类型（R2 的 (i)）。
+ * `createLab` 建实验室时登记（`registerLabEnv`），`createAgentInLab` 只从这里取环境。
+ */
+export interface LabEnv {
+  agentDir: string;
+  cwd: string;
+  modelRuntime: ModelRuntime;
+}
+
+const labEnvs = new WeakMap<Lab, LabEnv>();
+
+/** `createLab` 登记自己那份环境；没登记过的对象 `createAgentInLab` 会拒绝服务 */
+export function registerLabEnv(lab: Lab, env: LabEnv): void {
+  labEnvs.set(lab, env);
 }
 
 /** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir + 网络开关缓存** —— 一个凭证集一个 runtime。
@@ -63,7 +77,7 @@ export function getSharedRuntime(agentDir: string, opts: RuntimeOpts = {}): Prom
   return runtime;
 }
 
-/** 模型目录的网络与来源开关（来自 spec） */
+/** 模型目录的网络与来源开关（来自 LabOptions） */
 export interface RuntimeOpts {
   modelNetwork?: boolean;
   catalogBaseUrl?: string;
@@ -90,7 +104,7 @@ function resolveModelOrThrow(
 
 /** 创建期解析：没给 `model` 就只带思考档，不做任何解析 */
 function resolveModel(
-  spec: AgentInit,
+  spec: AgentSpec,
   modelRuntime: ModelRuntime,
 ): { model?: ResolvedModel; thinkingLevel?: ThinkingLevel } {
   if (!spec.model) return { thinkingLevel: spec.thinking };
@@ -98,13 +112,9 @@ function resolveModel(
   return { model: resolved.model, thinkingLevel: spec.thinking ?? resolved.thinkingLevel };
 }
 
-/** spec 顶层的可用字段 */
+/** spec 顶层的可用字段（环境字段不在这里：它们只属于 `LabOptions`） */
 const SPEC_KEYS = [
   "id",
-  "cwd",
-  "agentDir",
-  "modelNetwork",
-  "catalogBaseUrl",
   "role",
   "model",
   "thinking",
@@ -122,7 +132,7 @@ const SURFACE_KEYS = {
   context: ["autoCompact"],
 } as const satisfies Record<string, readonly string[]>;
 
-function assertSpec(spec: AgentInit): void {
+function assertSpec(spec: AgentSpec): void {
   const given = spec as Record<string, unknown>;
   for (const key of Object.keys(given)) {
     if (!SPEC_KEYS.includes(key as (typeof SPEC_KEYS)[number])) {
@@ -140,16 +150,15 @@ function assertSpec(spec: AgentInit): void {
   }
 }
 
-export async function createAgent(rawSpec: AgentInit = {}, deps: CreateAgentDeps = {}): Promise<Agent> {
+/** 起作用的是实验室：`agentDir` / `cwd` / `modelRuntime` 全部来自它登记的那份环境 */
+export async function createAgentInLab(lab: Lab, rawSpec: AgentSpec = {}): Promise<Agent> {
+  const env = labEnvs.get(lab);
+  if (!env) throw new Error("createAgentInLab：这个实验室不是 createLab 建的（没有环境记录）");
   const spec = rawSpec ?? {};
   assertSpec(spec);
 
   const id = spec.id ?? nextId();
-  const cwd = spec.cwd ?? process.cwd();
-  const agentDir = spec.agentDir ?? defaultAgentDir();
-  const modelRuntime =
-    deps.modelRuntime ??
-    (await getSharedRuntime(agentDir, { modelNetwork: spec.modelNetwork, catalogBaseUrl: spec.catalogBaseUrl }));
+  const { agentDir, cwd, modelRuntime } = env;
   const settingsManager = SettingsManager.inMemory();
   const sessionManager = SessionManager.inMemory(cwd);
 

@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { loadSkillsFromDir, SettingsManager, type AgentSession, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { buildLoader } from "../src/agent/loader.ts";
 import { createExtensions } from "../src/surfaces/resources.ts";
-import { makeAgent, sentTools, echoTool, fauxAgentDir, fauxCwd } from "./helpers.ts";
+import { makeAgent, makeAgentIn, sentTools, echoTool, fauxAgentDir, fauxCwd } from "./helpers.ts";
 
 /** 造一个只含一个技能文件的临时目录；返回目录路径 */
 function skillDir(name: string, description = "探路技能"): string {
@@ -155,7 +155,7 @@ test("environment 自动发现的技能删不掉（remove 只作用于显式加�
     join(cwd, ".pi", "skills", "env-probe", "SKILL.md"),
     "---\nname: env-probe\ndescription: 环境技能\n---\n\n正文\n",
   );
-  const a = await makeAgent({ cwd });
+  const a = await makeAgentIn(cwd);
   try {
     const env = a.skills.list().find((s) => s.name === "env-probe");
     assert.ok(env, "前提：cwd/.pi/skills 里的技能被环境自动发现");
@@ -223,8 +223,7 @@ test("R41 创建期：相对扩展路径按 agent 的 cwd 解析（不是 proces
   // 「相对路径 + 不同 cwd」的显式声明就会静默匹配不上、工具被过滤掉。
   const cwd = mkdtempSync(join(tmpdir(), "aiteam-rel-ext-"));
   extIn(cwd, "rel_probe_tool");
-  const a = await makeAgent({
-    cwd,
+  const a = await makeAgentIn(cwd, {
     permissions: { only: ["read"] },
     extensions: ["./rel_probe_tool.ts"],
   });
@@ -249,7 +248,7 @@ test("R41 运行期：only 非空时 extensions.add(路径) 注册的工具并�
   // 相对路径：同时钉住「路径认法按 agent 的 cwd 解析」（与创建期那条同一个理由）
   const cwd = mkdtempSync(join(tmpdir(), "aiteam-rel-add-"));
   extIn(cwd, "file_probe_tool");
-  const a = await makeAgent({ cwd, permissions: { only: ["read"] } });
+  const a = await makeAgentIn(cwd, { permissions: { only: ["read"] } });
   try {
     await a.extensions.add("./file_probe_tool.ts");
     await a.io.prompt("hi");
@@ -261,12 +260,12 @@ test("R41 边界：环境自动发现的扩展所注册的工具**不**并入白
   const cwd = mkdtempSync(join(tmpdir(), "aiteam-env-ext-"));
   envExt(cwd, "env_probe_tool");
   // 正对照：没有白名单时它确实被环境发现、工具确实注册上了（否则下面的断言是空转）
-  const plain = await makeAgent({ cwd });
+  const plain = await makeAgentIn(cwd);
   try {
     await plain.io.prompt("hi");
     assert.ok(sentTools().includes("env_probe_tool"), `前提：环境扩展没被加载：${sentTools()}`);
   } finally { plain.dispose(); }
-  const only = await makeAgent({ cwd, permissions: { only: ["read"] } });
+  const only = await makeAgentIn(cwd, { permissions: { only: ["read"] } });
   try {
     await only.io.prompt("hi");
     // 并入就红了：白名单不该被环境里碰巧存在的扩展悄悄撑开（v1 `declaredExtensionToolNames` 的既定边界）
@@ -377,7 +376,7 @@ test("extensions.remove 的基准是 agent 的 cwd：相对 add + 绝对 remove 
   const cwd = mkdtempSync(join(tmpdir(), "aiteam-cwd-ext-"));
   extIn(cwd, "cwd_probe_tool");
   const abs = join(cwd, "cwd_probe_tool.ts");
-  const a = await makeAgent({ cwd });
+  const a = await makeAgentIn(cwd);
   try {
     await a.extensions.add("./cwd_probe_tool.ts");
     await a.extensions.remove(abs);
@@ -393,7 +392,7 @@ test("skills.add(相对路径) 基准是 agent 的 cwd（校验不误报「没�
     join(cwd, "skills", "rel-skill", "SKILL.md"),
     "---\nname: rel-skill\ndescription: 相对技能\n---\n\n正文\n",
   );
-  const a = await makeAgent({ cwd });
+  const a = await makeAgentIn(cwd);
   try {
     // 只钉 add 侧的校验基准（remove 的基准由下一条用例单独钉）
     await a.skills.add("./skills/rel-skill");
@@ -408,7 +407,7 @@ test("skills.remove(相对路径) 基准是 agent 的 cwd：绝对 add + 相对 
     join(cwd, "skills", "rel-skill", "SKILL.md"),
     "---\nname: rel-skill\ndescription: 相对技能\n---\n\n正文\n",
   );
-  const a = await makeAgent({ cwd });
+  const a = await makeAgentIn(cwd);
   try {
     await a.skills.add(join(cwd, "skills", "rel-skill"));
     assert.ok(a.skills.list().some((s) => s.name === "rel-skill"));
@@ -426,7 +425,7 @@ test("创建期相对技能路径按 agent 的 cwd 解析（不是 process.cwd()
   );
   // 修之前 buildLoader 会抛「技能路径没能加载出任何技能」—— pi 明明按 loader.cwd 加载到了，
   // 本库的校验却按 process.cwd() 比对（同一个基准 bug）。
-  const a = await makeAgent({ cwd, skills: ["./skills/decl-skill"] });
+  const a = await makeAgentIn(cwd, { skills: ["./skills/decl-skill"] });
   try {
     assert.ok(a.skills.list().some((s) => s.name === "decl-skill"));
   } finally { a.dispose(); }
