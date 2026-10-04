@@ -55,7 +55,7 @@
 | 「同一个模板可以有多个 Agent，通过 Agent ID 来区分」 | 一个模板 → N 个实例，`id` 是关联键 | `nextId()` 自增；`agent.id` | 无 |
 | 「状态：获取 idle / running / disposed；控制即可以让该 agent disposed」 | 读状态 + 主动回收 | `agent.status`（只读）+ `agent.dispose()` | 无 |
 | 「输出…就可以获取 Agent 的输出」 | 一次运行的结果要能拿到 | `io.prompt()` 的 `RunResult{text, usage, messages, error}` | 手写版没提「一次运行」这个边界概念 |
-| 「输入分为两种：1. 排队输入…2. 截断输入：直接中断当前工作内容，立即发送」 | `queue` 和 `steer` | `io.queue()` / `io.steer()` | 无（这是手写版最准的一段） |
+| 「输入分为两种：1. 排队输入…2. 截断输入：直接中断当前工作内容，立即发送」 | `queue` 和 `interrupt` | `io.queue()` / `io.interrupt()` | 已落地：`interrupt` 真的 abort 在飞那轮（`steer` 不 abort，只改向） |
 | 「上下文…比较简单的可以分为：获取当前 Agent 的上下文和直接赋予 Agent 的上下文」 | 读 + 写；「赋予」听起来是**把整段上下文换掉**，比「改这一轮」强 | 现在只有 `context.history`（读）、`context.override`（改**这一轮发给模型的**，不动历史） | ⚠️ 见第 4 节。**「赋予上下文」到底是改本轮，还是改历史本身？** 见 Q3 |
 | 「工具也分两部分：可自定义工具、使用工具（就是 Agent 可以使用哪些工具的权限）」 | (a) 注册新工具 (b) 裁剪模型能用的工具集 | `tools.add/remove/onResult` + `permissions.only/allow/deny/gate` | v2 刻意拆成两个面（存在 vs 允许调用）。手写版把它们并提，见 Q4 |
 | 「这部分的可操控性一定要强一点，因为有很多研究中的高级功能都是通过自定义工具来实现的」 | 自定义工具是主要研究手段，所以入口不能窄 | `tools.custom` + `AgentTool` | 无 |
@@ -99,7 +99,7 @@
 
 | 手写版用语 | HEAD / 代码里的名字 | 备注 |
 |---|---|---|
-| 截断输入 | `io.steer` | 语义一致 |
+| 截断输入 | `io.interrupt` | 语义一致（`io.steer` 只改向，**不中断**） |
 | 排队输入 | `io.queue` | 语义一致 |
 | 直接赋予 Agent 的上下文 | `context.override` | ⚠️ **语义可能不等价**：「赋予」像整段替换历史，「override」明确只改这一轮 |
 | 使用工具（权限） | `permissions` 面 | 手写版把它挂在「工具」下 |
@@ -372,6 +372,8 @@ await agent.permissions.only(["search"]);   // 挑：只让模型看到它
 | **历史（抹除）** | 把已有轮次从上下文里删掉 | `sessionManager.appendContextEdit(targetId, null)` | append-only entry，永久 | 不要 |
 | **整段重置** | 清空重来 | **pi 没有这个 API** | — | — |
 
+**已落地** —— `context.reset()`：对每条**可编辑** entry 逐条 `appendContextEdit(id, null)`（即下面的路径 (c)），仍然是同一个 agent；不可编辑条目（system / 压缩摘要）进返回值 `skipped`。
+
 「整段重置」要自己造，可选路径有三条，代价不同：
 
 - (a) **换 session**：丢弃当前 `SessionManager`，用 `SessionManager.inMemory(cwd)` 建一个新的，重新装载资源 + `reload()`。等价于「把这个 agent 的会话重开」，`agent.id` 与七个面的引用能保留。
@@ -434,7 +436,7 @@ await agent.permissions.only(["search"]);   // 挑：只让模型看到它
 | `reload()` | pi 的重载：重跑全部扩展工厂 + 重载设置 + `resetApiProviders()` + 重建工具注册表与活跃集。库里的增删都要走它，而且**只能在空闲时** |
 | `raw` | 每个面（除 `permissions`）的逃生口，指向对应的 pi 对象。全权、无护栏、无忙判据 |
 | idle / busy | `idle` = 没有在飞运行也没有排队消息。改声明面（工具/插件/技能/权限/compact）要求 idle |
-| `steer` | 运行中插话：打断在飞那轮，立即把新输入发出去 |
+| `steer` | 运行中**改向**：在飞那轮的工具调用跑完后、下一次 LLM 调用前投递，**不 abort**。真中断见 `io.interrupt` |
 | `queue` | 排队投递：不影响当前工作，等空闲再发。目标忙时**不报错** |
 | `gate` | 审批门：工具**被调用时**拦截（`tool_call` 钩子），能看参数、原地改参数、能拦 |
 | settle | 一次运行的终点：`agent_start` → `agent_settled`。`RunResult` 的归属单位 |

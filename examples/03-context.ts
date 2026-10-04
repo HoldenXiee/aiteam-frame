@@ -48,5 +48,12 @@ try {
   }
 }
 
+console.log("[4] 整段重置：逐条抹除，还是同一个 agent（context.reset）");
+const resetReport = await agent.context.reset();
+console.log(`    抹掉 ${resetReport.erased.length} 条；跳过 ${resetReport.skipped.length} 条（id=${resetReport.skipped.map((s) => `${s.role}`).join(",") || "无"}）`);
+console.log(`    重置后 history.length = ${agent.context.history.length}（压缩摘要抹不掉 —— 这就是 skipped 里的那条）`);
+await agent.io.prompt("重置之后重新开始");
+console.log(`    新的一轮照常跑，history.length = ${agent.context.history.length}`);
+
 agent.dispose();
 console.log("\n脚本正常结束，退出码 0");

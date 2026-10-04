@@ -53,8 +53,8 @@
 
 | 面 | 管什么 |
 |---|---|
-| `agent.io` | 投递（`prompt` / `queue` / `steer`）、`abort`、`waitIdle`、**结算**（`RunResult`） |
-| `agent.context` | 读历史、改**这一轮发给模型的内容**、压缩、自动压缩开关 |
+| `agent.io` | 投递（`prompt` / `queue` / `steer` / `interrupt`）、`abort`、`waitIdle`、**结算**（`RunResult`） |
+| `agent.context` | 读历史、改**这一轮发给模型的内容**、压缩、自动压缩开关、整段重置（`reset`） |
 | `agent.tools` | 有哪些工具存在（`list` / `add` / `remove`）、工具结果拦截（`onResult`） |
 | `agent.permissions` | 哪些工具**允许被调用**（`only` / `allow` / `deny`）、审批门（`gate`） |
 | `agent.extensions` | 运行期加载 / 卸载插件，加载错误可读（`errors()`） |

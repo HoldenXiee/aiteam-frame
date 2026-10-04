@@ -375,7 +375,9 @@ async function main(): Promise<void> {
         await me.io.queue("七面 · io：queue 一次");
         await me.io.waitIdle();
         if (me.io.pending !== 0) throw new Error(`waitIdle 之后 io.pending 应为 0，实际 ${me.io.pending}`);
-        surfaces.push(`io（读 pending=${pending} / isRunning=${wasRunning}；写 queue + waitIdle）`);
+        const cut = await me.io.interrupt("七面 · io：interrupt 一次");   // 空闲时 = prompt
+        if (!cut.text) throw new Error("io.interrupt 空闲时应当等价 prompt 并拿到文本");
+        surfaces.push(`io（读 pending=${pending} / isRunning=${wasRunning}；写 queue + waitIdle + interrupt）`);
 
         // context：读 history，写 autoCompact（读回校验）与 override（写完清除），跑一次 compact
         const historyLen = me.context.history.length;

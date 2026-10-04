@@ -26,5 +26,12 @@ console.log(`    input=${result.usage.input} output=${result.usage.output} total
 console.log("[3] 生命周期结算：累计用量与状态（agent.usage / agent.status）");
 console.log(`    usage.total=${agent.usage.totalTokens} status=${agent.status}`);
 
+console.log("[4] 截断输入：中断在飞那轮，立即投递新输入（io.interrupt）");
+const slow = agent.io.prompt("[[sleep:2000]] 慢任务").catch(() => {});
+const cut = await agent.io.interrupt("换成这句：现在说这句");
+console.log(`    interrupt 的返回文本：${cut.text}`);
+await slow;
+console.log("    对照：io.steer 不中断，只在本轮工具调用结束后改向");
+
 agent.dispose();
 console.log(`\ndispose 后 status=${agent.status} —— 脚本正常结束，退出码 0`);

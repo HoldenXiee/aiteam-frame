@@ -67,7 +67,7 @@ my-pi/
 | `lab.createAgent(spec?)` | **唯一**的 agent 创建入口 → `Agent`（七个面 + 句柄 + 观测） |
 | `lab.inspectEnv()` | 环境自检（模型 / 扩展 / 技能 / 上下文文件 / 警告），只读，不建 agent |
 
-`Agent` 上是**七个面**：`io`（投递 / `abort` / `waitIdle` / 结算 `RunResult`）、`context`（历史 / 逐轮覆盖 / 压缩）、`tools`（有哪些工具存在 / 工具结果拦截 `onResult`）、`permissions`（`only` / `allow` / `deny` + 审批门 `gate`）、`extensions`、`skills`、`model`。此外只有句柄（`id` / `usage` / `status` / `dispose`）、观测（`on` / `onAny`，直接镜像 pi 的 `ExtensionEvent`）与 raw 逃生口。逐面怎么用见 [`docs/GUIDE.md`](docs/GUIDE.md)。
+`Agent` 上是**七个面**：`io`（投递 / `interrupt` 截断输入 / `abort` / `waitIdle` / 结算 `RunResult`）、`context`（历史 / 逐轮覆盖 / 压缩 / 整段 `reset`）、`tools`（有哪些工具存在 / 工具结果拦截 `onResult`）、`permissions`（`only` / `allow` / `deny` + 审批门 `gate`）、`extensions`、`skills`、`model`。此外只有句柄（`id` / `usage` / `status` / `dispose`）、观测（`on` / `onAny`，直接镜像 pi 的 `ExtensionEvent`）与 raw 逃生口。逐面怎么用见 [`docs/GUIDE.md`](docs/GUIDE.md)。
 
 `spec` 字段与运行期面一一对应（契约见 `src/agent/types.ts` 的 `AgentSpec`）：`context.autoCompact` / `tools.custom` / `permissions.only` / `permissions.deny` / `permissions.gate` / `extensions` / `skills` / `model` / `thinking`，外加 `id` / `role`。**`agentDir` / `cwd` / `modelNetwork` / `catalogBaseUrl` 不在 `spec` 里**——它们是实验室的环境声明，写进 spec 会被拒。**不写 `permissions.only` 就是 pi 的默认工具集**；白名单会自动并入你在同一 spec 里显式声明的工具名。
 
