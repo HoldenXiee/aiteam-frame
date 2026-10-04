@@ -1,4 +1,4 @@
-// io 面：驱动（prompt / queue / steer / abort / waitIdle）与**调用绑定的结算**。
+// io 面：驱动（prompt / queue / steer / interrupt / abort / waitIdle）与**调用绑定的结算**。
 // v1 的病是「排干共享消息池取最后一条」——重叠投递时结果串台；这里全部用「本次运行的消息区间」。
 import test from "node:test";
 import assert from "node:assert/strict";

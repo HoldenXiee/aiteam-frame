@@ -52,6 +52,18 @@ export async function ioWaitIdle(agent: Agent): Promise<number> {
 }
 // #end io.waitIdle
 
+/** 截断输入：中断在飞那轮，立即投递新输入 —— 与 steer 的区别是本质的。 */
+// #snippet io.interrupt
+export async function ioInterrupt(agent: Agent): Promise<string> {
+  // steer **不 abort**，只在本轮工具调用跑完、下一次 LLM 调用之前改向；要「现在就停、就发这句」
+  // 只能用 interrupt。它空闲时等价 prompt，忙时**不抛错**（这正是它存在的理由：prompt 忙时会拒），
+  // 已排队的 queue 消息也不会被吞掉 —— 那一轮就是这次 interrupt 起的这一轮。
+  const result = await agent.io.interrupt("停一下，改做这件事");
+  if (result.error) throw new Error(`这一轮失败了：${result.error}`);
+  return result.text;
+}
+// #end io.interrupt
+
 // ─────────────── 观测：on 按名收窄，onAny 全量 ───────────────
 
 /** 只关心一种事件时用 on：事件名收窄 handler 的参数类型。 */
@@ -167,6 +179,19 @@ export async function contextEditHistory(agent: Agent): Promise<string[]> {
   return agent.context.entries().map((entry) => entry.id);
 }
 // #end context.editHistory
+
+/** 整段重置：把模型可见的历史逐条抹掉，仍然是你手里这个 agent。 */
+// #snippet context.reset
+export async function contextReset(agent: Agent): Promise<string> {
+  // 与 replace / erase 同一条路（append-only、不要求 idle、不走 reload），所以也共享那条忙时边界：
+  // 要准确的本轮结算就先等闲下来。
+  await agent.io.waitIdle();
+  // 抹不掉的条目会出现在 skipped 里 —— 压缩摘要是 pi 的硬天花板（appendContextEdit 只收
+  // custom_message 与 user / assistant / toolResult），别把「history 不为空」当成 reset 没生效。
+  const report = await agent.context.reset();
+  return `抹掉 ${report.erased.length} 条；跳过 ${report.skipped.map((s) => s.role).join("、") || "无"}`;
+}
+// #end context.reset
 
 // ─────────────── tools：运行期加工具 ───────────────
 
@@ -410,12 +435,14 @@ export const snippets: Record<string, string> = {
   "io.prompt": pick("io.prompt"),
   "io.queue": pick("io.queue"),
   "io.waitIdle": pick("io.waitIdle"),
+  "io.interrupt": pick("io.interrupt"),
   "events.on": pick("events.on"),
   "events.onAny": pick("events.onAny"),
   "context.history": pick("context.history"),
   "context.override": pick("context.override"),
   "context.compact": pick("context.compact"),
   "context.editHistory": pick("context.editHistory"),
+  "context.reset": pick("context.reset"),
   "tools.add": pick("tools.add"),
   "tools.addThenInspect": pick("tools.addThenInspect"),
   "tools.addFactory": pick("tools.addFactory"),

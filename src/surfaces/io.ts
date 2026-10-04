@@ -1,4 +1,4 @@
-// io 面：驱动（prompt / queue / steer / abort / waitIdle）与**调用绑定的结算**。
+// io 面：驱动（prompt / queue / steer / interrupt / abort / waitIdle）与**调用绑定的结算**。
 //
 // 结算的真相是「一次运行 = agent_start → agent_settled」（规格 §5）。pi 的 `session.prompt()`
 // 在 agent_settled 之后才 resolve，所以「prompt 起止之间的消息区间」就是本次运行的产出 ——

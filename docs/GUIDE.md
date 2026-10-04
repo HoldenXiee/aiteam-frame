@@ -89,7 +89,7 @@ io.prompt("…")
 - `queue` 忙时并进**当前这次运行**（结算区间里包含它，不谎报「另起一轮」）；闲时起一轮但**不 await**（await 了它就变成同步 ask），所以紧跟一句 `waitIdle()` 是最常见的写法。这一条路的失败没有 promise 可接，会以 `[aiteam]` 前缀打到 `console.error`——**要拿结果就用 `prompt`**。
 - `waitIdle` 不只是「pi 静下来」，还会等库这边在飞运行的收尾（清 `runId`、归状态）。
 
-→ 片段：`io.prompt`、`io.queue`、`io.waitIdle`。示例：`examples/01-first-agent.ts`。
+→ 片段：`io.prompt`、`io.queue`、`io.waitIdle`、`io.interrupt`。示例：`examples/01-first-agent.ts`。
 
 ### 3.2 `context` —— 历史 / 本轮覆盖 / 压缩
 
@@ -113,7 +113,7 @@ io.prompt("…")
 
 **`erase` 不是幂等的清理手段**：就**模型上下文**而言，重复抹同一条是 no-op（已抹的不在投影里），但每次仍会 append 一条 `context_edit` entry——会话条目会线性增长。
 
-→ 片段：`context.editHistory`。
+→ 片段：`context.editHistory`、`context.reset`。
 
 ### 3.3 `tools` —— 有哪些工具存在
 

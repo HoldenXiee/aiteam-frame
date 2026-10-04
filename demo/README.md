@@ -33,8 +33,8 @@ $ PI_OFFLINE=1 node demo/check.ts
         宿主的（一个都没读进来）：skills=[0] extensions=[0] —— 对照目录 C:\Users\Holder\.pi\agent
         自己的扩展注册的工具：env_checklist
 [8/8] 七面各至少一次读写               … 通过（7 个面各至少一次读写）
-        io（读 pending=0 / isRunning=false；写 queue + waitIdle）
-        context（读 history=8、autoCompact=false；写 autoCompact + override 并清除；compact：会话太小、无需压缩（Nothing to compact (session too small)）—— 正常路径）
+        io（读 pending=0 / isRunning=false；写 queue + waitIdle + interrupt）
+        context（读 history=10、autoCompact=false；写 autoCompact + override 并清除；compact：会话太小、无需压缩（Nothing to compact (session too small)）—— 正常路径）
         tools（读 list=0 个；写 add=demo_probe_extra → 1 个）
         model（读 current=echo/off、thinking、available=2 个；写 set=echo-alt + setThinking=off，再还原为 echo/off）
         extensions（读 list=2 个 + errors=0；写 add → 3 个）
@@ -45,7 +45,7 @@ $ PI_OFFLINE=1 node demo/check.ts
 下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。
 ```
 
-端口、路径、`history=8`、字符数、`node=` 与 `入口=` 这些每次跑都会略不同，其余一致。
+端口、路径、`history=10`、字符数、`node=` 与 `入口=` 这些每次跑都会略不同，其余一致。
 `PI_OFFLINE=1` 可以加也可以不加：demo 自己就管离线（见 `demo/env.ts` 的注释）。
 
 ## 每项在检查什么
@@ -59,7 +59,7 @@ $ PI_OFFLINE=1 node demo/check.ts
 | 5 | 一轮 `io.prompt` 拿到非空文本 | `RunResult.text` 非空且 `result.error` 为空 |
 | 6 | **一个工具真被模型调用** | 工具**执行体**里的闭包计数器 +1（`tools.list()` 里有它**不**算数：那只说明声明在） |
 | 7 | **环境隔离：只认自己的技能与插件** | 看得到自己的那份（`env-style` 技能 + `env-tools.ts` 扩展 + 它注册的 `env_checklist`），且读不到宿主 `~/.pi/agent` 里的任何一份 —— 只有一条成立都说明不了问题 |
-| 8 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
+| 8 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`/`interrupt`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
 
 ### 环境自动发现的技能与插件：不只是「能看见」，还要「真被用上」
 
