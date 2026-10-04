@@ -6,7 +6,7 @@
 // 这样 `override(history)` 才是恒等变换。
 import type { AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Bridge } from "../agent/bridge.ts";
-import type { ContextSurface } from "../agent/types.ts";
+import type { AgentMessage, ContextSurface } from "../agent/types.ts";
 
 export interface ContextDeps {
   session: AgentSession;
@@ -18,12 +18,37 @@ export interface ContextDeps {
   assertAlive: () => void;
 }
 
+/** 一条模型可见消息里的纯文本（content 可能是字符串、也可能是块数组；bashExecution 这类没有 content） */
+function textOf(message: AgentMessage): string {
+  if (!("content" in message)) return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  return (content as readonly { type?: string; text?: string }[])
+    .filter((block) => block.type === "text")
+    .map((block) => block.text ?? "")
+    .join("");
+}
+
 export function createContext(deps: ContextDeps): ContextSurface {
   const { session, sessionManager, bridge } = deps;
   return {
     get history() {
       deps.assertAlive();
       return session.messages.filter((m) => m.role !== "system");
+    },
+    entries() {
+      deps.assertAlive();
+      // 数据源是 session 的投影：它是**压绪感知 + 上下文编辑后**的模型可见结果，与 `history` 同源同序。
+      // `messages` 为空的项是状态型 entry（model 切换 / thinking 档 / context_edit 这类），对模型上下文没有贡献，
+      // 所以不在这里出现 —— 这也保证了「非 system 部分与 history 一一对应」这条对齐关系。
+      return sessionManager
+        .buildSessionProjection()
+        .entries.filter((entry) => entry.messages.length > 0)
+        .map((entry) => ({
+          id: entry.sourceEntry.id,
+          role: entry.messages[0].role,   // 一条 entry 可能投影出多条消息，角色以第一条为准
+          preview: entry.messages.map(textOf).join("").slice(0, 60),
+        }));
     },
     get usage() {
       deps.assertAlive();

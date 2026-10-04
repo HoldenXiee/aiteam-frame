@@ -134,10 +134,38 @@ test("设了 override 之后 on('context') 再返回变换 → 抛错，不静�
   );
 });
 
+test("entries() 空会话返回空数组，不抛错", async () => {
+  const a = await makeAgent();
+  assert.deepEqual(a.context.entries(), []);
+  a.dispose();
+});
+
+test("entries() 与 history 下标的对齐关系（entry.id，不是数组下标）", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("第一句");
+  await a.io.prompt("第二句");
+  const entries = a.context.entries();
+  assert.ok(entries.length >= 4, "两轮至少四条：user/assistant ×2");
+  for (const e of entries) assert.equal(typeof e.id, "string");
+
+  // 关键：entries() 过滤掉 system 之后，顺序与条数必须与 history 一一对应
+  const visible = entries.filter((e) => e.role !== "system");
+  assert.equal(
+    visible.length,
+    a.context.history.length,
+    "entries() 的非 system 部分必须与 history 同长同序 —— 下标是可换的吗",
+  );
+  // preview 是这条 entry 的文本摘要：真取到了正文，且截断到 60 字符
+  for (const e of visible) assert.ok(e.preview.length <= 60);
+  assert.ok(visible.some((e) => e.preview.includes("第一句")), "preview 应当是这条 entry 的文本");
+  a.dispose();
+});
+
 test("dispose 之后 context 面不许再用", async () => {
   const a = await makeAgent();
   a.dispose();
   assert.throws(() => a.context.history);
   assert.throws(() => a.context.override(() => []));
+  assert.throws(() => a.context.entries());
   await assert.rejects(() => a.context.compact(), /disposed/);
 });

@@ -120,6 +120,8 @@ export interface ContextSurface {
    * 要看会话原样（含 system）用 `raw.session.messages`。
    */
   readonly history: readonly AgentMessage[];
+  /** 会话里的 entry（可寻址；system 也在里面，用 role 区分） */
+  entries(): { id: string; role: string; preview: string }[];
   /** 上下文占用（来自 session.getContextUsage()） */
   readonly usage: ContextUsage | undefined;
   /** 自动压缩开关，可读写（映射到 session.autoCompactionEnabled） */
