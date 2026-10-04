@@ -95,6 +95,8 @@ $ cp -r demo demo-exp1 && node demo-exp1/lab.ts
 
 `demo/work/` 是 `cwd`：agent 在哪干活、产物落哪（上面那次的 `notes.md` 就是写作员的 `write` 工具用它落的）。`demo/work/*` 不进 git。
 
+> 里面出现 `skills/demo-check-skill/` 时别困惑：那是 `node demo/check.ts` 第 8 项自己写的（它要真加一个技能来验 skills 面），不是你的东西。
+
 ## 换成真模型（可选；默认本机假 provider）
 
 ```bash
