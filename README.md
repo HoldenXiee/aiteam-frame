@@ -71,16 +71,20 @@ my-pi/
 
 `spec` 字段与运行期面一一对应（契约见 `src/agent/types.ts` 的 `AgentSpec`）：`context.autoCompact` / `tools.custom` / `permissions.only` / `permissions.deny` / `permissions.gate` / `extensions` / `skills` / `model` / `thinking`，外加 `id` / `role`。**`agentDir` / `cwd` / `modelNetwork` / `catalogBaseUrl` 不在 `spec` 里**——它们是实验室的环境声明，写进 spec 会被拒。**不写 `permissions.only` 就是 pi 的默认工具集**；白名单会自动并入你在同一 spec 里显式声明的工具名。
 
-## 检测环境装好没有
+## demo：第一窗口
 
 ```bash
 npm install                          # 装依赖（Node ≥ 24）
-node demo/check.ts                   # 八项安装自检：不需要 key，全程离线
-PI_OFFLINE=1 node demo/agent-team.ts # 多 agent 协作写一份报告（同一套离线环境）
+node demo/agent-team.ts              # 第一窗口：多 agent 协作写一份报告（七个面全出场，离线零成本）
+node demo/check.ts                   # 环境自检：八项，不需要 key，全程离线（环境出问题时来这查）
 ```
 
-`demo/` 是一份**安装自检**：自带本机假 provider，不读本机 pi 的设置 ——
-所以**别人没装 pi 也能跑**，跑通就说明这个库在他那儿是好的。
+`demo/` 是**这个库的第一窗口**：`demo/agent-team.ts` 把七个操控面串成一件真事（两个检索分身 + 一个写作员，
+报告落在 `demo/work/report.md` 与 `demo/work/blackboard.jsonl`），`demo/check.ts` 是八项环境自检。
+环境是**仓库里看得见、可手改的目录** `demo/agent/`（**就是** `createLab` 的 `agentDir`：技能与扩展进仓库，
+`auth.json` / `models.json` 等动态文件不入库），自带本机假 provider，不读本机 pi 的设置 ——
+所以**别人没装 pi 也能跑**，跑通就说明这个库在他那儿是好的。每一档管什么、怎么自己改见
+[`demo/agent/README.md`](demo/agent/README.md)。
 
 ### 换成真模型（可选，默认免费档）
 
@@ -92,7 +96,7 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 ```
 
 - 默认模型是 **`opencode-go/space-bunny-free`（免费档）**；换别的：`AITEAM_DEMO_MODEL=provider/id`。
-- **demo 用它自己的 key**（`demo/env/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**——宿主凭证跑完逐字节不变（实测）。换 key：写进 `demo/env/auth.json` 或 `AITEAM_DEMO_AUTH=/path/to/auth.json`。
+- **demo 用它自己的 key**（`demo/agent/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**——宿主凭证跑完逐字节不变（实测）。换 key：写进 `demo/agent/auth.json` 或 `AITEAM_DEMO_AUTH=/path/to/auth.json`。
 - 提示词会有两套说法（假 provider 靠 `[[tool:…]]` 脚本指令、真模型说人话）——那是**唯一**的分叉点，
   流程完全一致，所以「换真模型」检验的是模型，不是被改写的流程。
 - **真模型下有两处实测差异**（见 [`demo/README.md`](demo/README.md)）：审批门可能一次都没机会拦
@@ -100,7 +104,8 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 
 ### 运行结果的标准
 
-**`node demo/check.ts`** —— 八项全是「通过」，最后两行必须是：
+两个命令都该以退出码 0 收尾：`node demo/agent-team.ts`（**第一窗口**）结尾打印七面自证表、七面全部 ≥ 1；
+`node demo/check.ts`（**环境自检**）八项全是「通过」，最后两行必须是：
 
 ```
 八项全通过 —— 本机可以开始研究 agent 课题了。
@@ -119,10 +124,10 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 | 8 覆盖面 | 七个面各自至少一次读写，能读回状态的都读回校验 |
 
 挂了不会静默：该项行尾打 `… 失败`，下一段跟原始错误（含栈）+ 三个最可能原因与怎么补，退出码 1。失败信息走 stderr、通过信息走 stdout。
-`demo/run/`（假模式 `demo/run/faux`、真模式 `demo/run/real`）与 `demo/work/` 都是**可再生的产物**，删掉重跑即可重建。
+`demo/agent/models.json` 与 `demo/work/` 都是**可再生的产物**（`demo/agent/` 是环境目录本身：技能与扩展进仓库，`auth.json` / `models.json` 不进；`demo/work/` 是产物落点），删掉重跑即可重建。
 每一项在检查什么、怎么读失败输出，见 [`demo/README.md`](demo/README.md)。
 
-改这个库的人另一个免费保险是 `npm test`：120 项测试走本机假 provider，零 API 成本，不碰真模型。
+改这个库的人另一个免费保险是 `npm test`：144 项测试走本机假 provider，零 API 成本，不碰真模型。
 
 **想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解每个操控面。
 
@@ -140,9 +145,10 @@ npm install
 ### 三条命令
 
 ```bash
-npm test            # 120 项测试，本机假 provider，零 API 成本 —— 改完先跑它
+npm test            # 144 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
-node demo/check.ts  # 八项安装自检，不需要 key，全程离线
+node demo/agent-team.ts # 第一窗口：七个面全出场的一次多 agent 协作（不需要 key，全程离线）
+node demo/check.ts  # 八项环境自检，不需要 key，全程离线
 ```
 
 `npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），用一个模块级实验室把 `agentDir` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
@@ -299,7 +305,7 @@ src/agent/      实验室与单 agent 的创建接线
 src/surfaces/   七个面：io / context / tools（含 permissions）/ resources（extensions + skills）/ model
 test/           node:test，全部走本机假 provider，零 API 成本
 examples/       能 node 直接跑的示例 + 离线基建（examples/lib/）
-demo/           安装自检 demo：demo/check.ts 八项自检 + demo/agent-team.ts 多 agent 协作
+demo/           第一窗口：demo/agent-team.ts 多 agent 协作 + demo/agent/ 环境（= agentDir）+ demo/check.ts 八项自检
 docs/           设计文档 + 用法讲解
 ```
 

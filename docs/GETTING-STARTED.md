@@ -58,7 +58,7 @@ node demo/check.ts        # 八项，不需要 API key，全程离线，零成�
     原始错误：模型「nope/nope」解析失败：Model "nope/nope" not found. …
     最可能的三个原因与怎么补：
       1. 第 2 项已经告诉你 pi 版本不对（那一步先修）…
-      2. 模型 ref 解析不到… ⇒ 删 `demo/run/` 再重跑
+      2. 模型 ref 解析不到… ⇒ 删 `demo/agent/models.json` 再重跑
       3. `demo/work/` 不可写或被别的进程占着…
 ```
 
@@ -67,12 +67,12 @@ node demo/check.ts        # 八项，不需要 API key，全程离线，零成�
 ### 想用真模型跑自检
 
 ```bash
-AITEAM_DEMO_REAL=1 node demo/check.ts     # 用宿主 ~/.pi/agent 的真实凭证 + 一个免费模型
+AITEAM_DEMO_REAL=1 node demo/check.ts     # 用 demo 自己的凭证（demo/agent/auth.json）+ 一个免费模型
 ```
 
 默认用 `opencode-go/space-bunny-free`（免费）。想换别的：`AITEAM_DEMO_MODEL=provider/id`。
 
-**demo 用它自己的 key**（`demo/env/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
+**demo 用它自己的 key**（`demo/agent/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
 之所以强调这点：最初真模式直接指宿主目录，而 pi 的 auth 存储是**读-改-写整个 `auth.json`**，实测把宿主另外两个 provider 的凭证抹掉了。改过两次才对，细节见 `demo/README.md`。
 
 ---
@@ -181,7 +181,7 @@ docs/FACTS.md         已实测核对的 pi 行为（这个文件必须准）
 ## 6. 日常开发命令
 
 ```bash
-npm test              # 120 例断言，本机假 provider，零 API 成本
+npm test              # 144 例断言，本机假 provider，零 API 成本
 npm run typecheck     # tsc --noEmit（含 src / test / demo / examples）
 
 node demo/check.ts                    # 安装自检（离线）
@@ -222,11 +222,11 @@ AITEAM_DEMO_REAL=1 node demo/check.ts # 安装自检（真模型）
 **Q：一定要有 API key 吗？**
 不要。默认全部离线、零成本。只有 `AITEAM_DEMO_REAL=1` 才用真凭证。
 
-**Q：`demo/run/` 和 `demo/work/` 是什么？**
-`demo/run/faux/` 是 demo 自己写的模型配置（假 provider 模式；真模式是 `demo/run/real/`），`demo/work/` 是产物目录。**两者都不进 git**（`demo/env/` 是你给的配置源，那份 `auth.json` 可能含真实密钥，同样不进 git）。删掉它们再跑，`ensureEnv()` 会重建。
+**Q：`demo/agent/` 和 `demo/work/` 是什么？**
+`demo/agent/` 是**环境目录**（就是 `createLab` 的 `agentDir`）：技能与扩展是仓库里的真文件（进 git），`auth.json` / `models.json` 等动态文件不进 git，每一档管什么见 `demo/agent/README.md`。`demo/work/` 是产物目录。两者里可再生的产物删掉再跑，`ensureEnv()` 会重建；`demo/agent/auth.json` 是你的凭证，**别删**。
 
 **Q：改坏了怎么办？**
-`rm -rf demo/run demo/work && node demo/check.ts`——环境是幂等重建的。
+`rm -rf demo/agent/models.json demo/work && node demo/check.ts`——环境是幂等重建的。
 
 **Q：`audit/` 去哪了？**
 那是 v1 的能力与极限审计（208 文件），库的机制层在 v2 重写过，其结论多数不再成立，已删除。需要时从 git 历史 `043dea3` 检出。
