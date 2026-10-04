@@ -16,7 +16,7 @@
 | 概念 | 含义 | v2 里由谁定义 |
 |---|---|---|
 | **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**（写代码的人），就是你代码里的一个对象（`examples/09-roster.ts`） |
-| **分身（Instance）** | 某个成员的一个运行实例，同一成员可起多个 | 由**设计者的代码**在运行时调 `createAgent` 起（`examples/10-spawn.ts`） |
+| **分身（Instance）** | 某个成员的一个运行实例，同一成员可起多个 | 由**设计者的代码**在运行时调 `lab.createAgent` 起（`examples/10-spawn.ts`） |
 | **花名册（members）** | 设计者声明的全部成员 | 设计者。v1 里它是 `createAgentHost({ members })` 的入参，**v2 已把那个函数删掉** |
 
 **红线同理**：v1 的「agent 不能设计、不能配置 agent」是焊在库里的；v2 把它降成一条**可被推翻的假设**，写在 `examples/11-redline.ts` 的使用者代码里。

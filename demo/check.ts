@@ -201,9 +201,9 @@ async function main(): Promise<void> {
         };
       },
       hints: [
-        "`demo/env/` 不可写（权限位、只读挂载、杀软拦住新建目录）⇒ 给目录写权限，或把仓库挪到可写盘",
+        "`demo/run/` 不可写（权限位、只读挂载、杀软拦住新建目录）⇒ 给目录写权限，或把仓库挪到可写盘",
         "磁盘满 / Windows 路径过长（MAX_PATH）⇒ 清磁盘，或把仓库挪到短路径（如 D:\\aiteam）",
-        "`models.json` 被改坏或结构过时（手工编辑、上一版 demo 留下的）⇒ 删掉 `demo/env/agent/` 整个目录再重跑，ensureEnv 会重建",
+        "`models.json` 被改坏或结构过时（手工编辑、上一版 demo 留下的）⇒ 删掉 `demo/run/` 整个目录再重跑，ensureEnv 会重建",
       ],
     },
     {
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
       },
       hints: [
         "第 2 项已经告诉你 pi 版本不对（那一步先修）⇒ 版本不一致时创建参数形状可能已变",
-        "模型 ref 解析不到（`models.json` 被改过/被别的 demo 覆盖）⇒ 删 `demo/env/agent/` 再重跑",
+        "模型 ref 解析不到（`models.json` 被改过/被别的 demo 覆盖）⇒ 删 `demo/run/` 再重跑",
         "`demo/work/` 不可写或被别的进程占着（会话要落在这里）⇒ 关掉占用它的进程，或删掉 `demo/work/` 让 demo 重建",
       ],
     },
