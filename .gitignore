@@ -1,12 +1,18 @@
 node_modules/
 *.log
 
-# demo 的**配置源**：你自己的凭证与模型目录缓存（gitignored，不进仓库）
-demo/env/*
-
 # demo 的**运行时产物**：脚本生成，可整个删掉重建
-demo/run/
 demo/work/*
+
+# demo 环境（demo/agent 就是 agentDir）：只有动态文件不进仓库，技能与扩展是仓库里的真文件
+demo/agent/auth.json
+demo/agent/models.json
+demo/agent/models-store.json
+demo/agent/settings.json
+
+# 遗留：v1 的配置源目录与 v2 早先的运行产物目录（旧 checkout 可能还在，仍可能含 key，保留忽略）
+demo/env/*
+demo/run/
 
 # 执行账本：SDD 过程文件与 review diff。不在设计源之内（设计源只有 docs/DESIGN.md），不入库
 .superpowers/
