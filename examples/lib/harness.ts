@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAgent } from "../../src/index.ts";
+import { createLab } from "../../src/agent/lab.ts";
 import type { Agent, AgentInit, AgentTool } from "../../src/index.ts";
 import { FAUX_MODEL_ALT_ID, FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, writeModelsJson } from "./faux-models.ts";
 import { startFaux } from "./faux-server.ts";
@@ -29,21 +29,19 @@ export const fauxAgentDir = join(root, "agent");
 export const fauxCwd = join(root, "work");
 mkdirSync(fauxCwd, { recursive: true });
 writeModelsJson(fauxAgentDir, faux.baseUrl, [FAUX_MODEL_ID, FAUX_MODEL_ALT_ID]);
-// 让不传 agentDir 的 createAgent 也落在这个离线环境里
-process.env.AITEAM_AGENT_DIR = fauxAgentDir;
 
 /**
- * 起一个走库真实入口（createAgent）的 agent，默认对着本机假 provider。
+ * 一个示例一个实验室：环境（agentDir / cwd / 离线）只在这里声明一次，
+ * 之后本文件与示例都从它起 agent，不再逐个传这两个目录。
+ */
+export const lab = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false });
+
+/**
+ * 起一个走实验室入口（lab.createAgent）的 agent，默认对着本机假 provider。
  * 签名与 test/helpers.ts 的 makeAgent 一致：给的 spec 覆盖默认值。
  */
 export async function makeOfflineAgent(spec: AgentInit = {}): Promise<Agent> {
-  return createAgent({
-    agentDir: fauxAgentDir,
-    cwd: fauxCwd,
-    model: FAUX_MODEL_REF,
-    modelNetwork: false, // 连目录刷新也不做：离线是默认，不是运气
-    ...spec,
-  });
+  return lab.createAgent({ model: FAUX_MODEL_REF, ...spec });
 }
 
 /** 模型实际收到的工具名（index 省略时取最近一次请求）——「工具真的进了声明」的 ground truth */

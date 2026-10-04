@@ -21,8 +21,7 @@
 // PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAgent } from "../src/index.ts";
-import { faux, fauxAgentDir, fauxCwd, FAUX_MODEL_REF, makeOfflineAgent } from "./lib/harness.ts";
+import { faux, FAUX_MODEL_REF, lab, makeOfflineAgent } from "./lib/harness.ts";
 
 // ─────────────── 使用者代码：花名册 ───────────────
 // 成员名 → 它的角色描述 + 工具白名单。库对这张表一无所知，它只是这个脚本里的一个 Map。
@@ -51,11 +50,8 @@ const spawn = defineTool({
     }
     decisions.push(`✓ 选中「${params.role}」→ role="${member.role}" tools=[${member.tools.join(", ")}]`);
 
-    const child = await createAgent({
-      agentDir: fauxAgentDir,
-      cwd: fauxCwd,
+    const child = await lab.createAgent({
       model: FAUX_MODEL_REF,
-      modelNetwork: false,
       role: member.role,
       permissions: { only: member.tools }, // 花名册说的工具，就是子 agent 能看到的全部
     });

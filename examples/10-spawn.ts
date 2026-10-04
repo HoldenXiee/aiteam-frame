@@ -21,9 +21,8 @@
 // PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAgent } from "../src/index.ts";
 import type { Agent, AgentTool } from "../src/index.ts";
-import { faux, fauxAgentDir, fauxCwd, FAUX_MODEL_REF, makeOfflineAgent, sentTools } from "./lib/harness.ts";
+import { faux, FAUX_MODEL_REF, lab, makeOfflineAgent, sentTools } from "./lib/harness.ts";
 
 // ─────────────── 使用者代码：深度护栏 ───────────────
 // 库不给护栏，所以「最多几层」这件事只能自己数。改成 1 就是本文件要你去做的那个检验。
@@ -52,11 +51,8 @@ function spawnTool(depth: number): AgentTool {
       }
       log.push(`✓ depth=${depth} < MAX_DEPTH=${MAX_DEPTH} → 起子 agent（第 ${depth + 1} 层） ${what}`);
       // 子 agent 也会拿到 spawn 工具（层数 +1）—— 递归真的可能发生，所以计数器不是摆设。
-      const child = await createAgent({
-        agentDir: fauxAgentDir,
-        cwd: fauxCwd,
+      const child = await lab.createAgent({
         model: FAUX_MODEL_REF,
-        modelNetwork: false,
         role: params.role,
         tools: { custom: [spawnTool(depth + 1)] },
       });

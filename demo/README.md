@@ -19,7 +19,7 @@ $ PI_OFFLINE=1 node demo/check.ts
         入口=D:\space\aiteam\test\node_modules\@earendil-works\pi-coding-agent\dist\index.js
 [3/7] agentDir 可写、模型可读       … 通过（agentDir 可写；读到 2 个模型）
         D:\space\aiteam\test\demo\env\agent\models.json → faux: echo、echo-alt（离线，modelNetwork:false）
-[4/7] createAgent 能起 agent        … 通过（id=demo-check，model=echo/off）
+[4/7] 用实验室起 agent              … 通过（id=demo-check，model=echo/off）
         agentDir=D:\space\aiteam\test\demo\env\agent
         cwd=D:\space\aiteam\test\demo\work
         假 provider=http://127.0.0.1:30096/v1
@@ -50,8 +50,8 @@ $ PI_OFFLINE=1 node demo/check.ts
 |---|---|---|
 | 1 | Node 版本与原生执行 `.ts` | 版本 ≥ v22.18 / v23.6；这个文件本身能被 `node` 跑起来就是证据 |
 | 2 | `@earendil-works/pi-coding-agent` 可解析且版本匹配 | 解析到它的 `package.json`，版本恰好是 **0.99.1**（本仓库钉的） |
-| 3 | `agentDir` 可写、模型可读 | 真写一个文件再读回来；再用库自己的 `inspectEnv` 读到 `faux/echo` |
-| 4 | `createAgent` 能起 agent | 拿到 `agent.id`、`model.current`，没抛错 |
+| 3 | `agentDir` 可写、模型可读 | 真写一个文件再读回来；再用实验室的 `lab.inspectEnv()` 读到 `faux/echo` |
+| 4 | 用实验室起 agent（`lab.createAgent`） | 拿到 `agent.id`、`model.current`，没抛错 |
 | 5 | 一轮 `io.prompt` 拿到非空文本 | `RunResult.text` 非空且 `result.error` 为空 |
 | 6 | **一个工具真被模型调用** | 工具**执行体**里的闭包计数器 +1（`tools.list()` 里有它**不**算数：那只说明声明在） |
 | 7 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |

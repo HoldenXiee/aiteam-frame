@@ -16,11 +16,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAgent, inspectEnv } from "../src/index.ts";
 import type { Agent, AgentTool } from "../src/index.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, FAUX_PROVIDER } from "../examples/lib/faux-models.ts";
-import { ensureEnv } from "./env.ts";
+import { ensureEnv, type DemoEnv } from "./env.ts";
 import { under } from "../src/agent/loader.ts";
+import { createLab, type Lab } from "../src/agent/lab.ts";
 
 /**
  * 期望的 pi 版本：这里用**精确等值**（===）比较。期望值来自本仓 `package-lock.json` 钉住的
@@ -70,6 +70,16 @@ function oneLine(text: string, max = 72): string {
 // ─────────────── 八项自检 ───────────────
 
 async function main(): Promise<void> {
+  // 实验室：环境一旦已知（ensureEnv 幂等）就只建一个 —— agentDir / cwd / 离线开关全从这里来。
+  // 惰性建、不在 main 开头就建：真模式下凭证缺失要保持「第 3 项失败 + 三条原因」那个形状。
+  let labPromise: Promise<Lab> | undefined;
+  const ensureLab = (env: DemoEnv): Promise<Lab> =>
+    (labPromise ??= createLab({
+      agentDir: env.agentDir,
+      cwd: env.cwd,
+      modelNetwork: env.real ? undefined : false, // 假模式离线是默认；真模式才需要联网
+    }));
+
   // 跨项共享的状态：agent 本体 + 两个「执行体真跑过」的闭包计数器
   let agent: Agent | undefined;
   let probeCalls = 0;
@@ -149,14 +159,15 @@ async function main(): Promise<void> {
       name: "agentDir 可写、模型可读",
       run: async () => {
         const env = await ensureEnv();
+        const lab = await ensureLab(env);
         // 写探针：真写一个文件、读回来、再删掉
         const probePath = join(env.agentDir, ".write-probe");
         writeFileSync(probePath, "ok");
         const readBack = readFileSync(probePath, "utf8");
         rmSync(probePath);
         if (readBack !== "ok") throw new Error(`写进 ${probePath} 又读回来不是 ok：${JSON.stringify(readBack)}`);
-        // 模型可读：走库自己的 inspectEnv（与 createAgent 同一套 loader / ModelRuntime）
-        const report = await inspectEnv({ agentDir: env.agentDir, cwd: env.cwd, modelNetwork: false });
+        // 模型可读：走实验室的 inspectEnv（与它起的 agent 同一套 loader / ModelRuntime）
+        const report = await lab.inspectEnv();
         if (env.real) {
           // 真模型模式：不假设 provider 叫什么，直接找 env.model 那一项
           const [provider, id] = env.model.split("/");
@@ -196,15 +207,13 @@ async function main(): Promise<void> {
       ],
     },
     {
-      name: "createAgent 能起 agent",
+      name: "用实验室起 agent",
       run: async () => {
         const env = await ensureEnv();
-        agent = await createAgent({
+        const lab = await ensureLab(env);
+        agent = await lab.createAgent({
           id: "demo-check",
-          agentDir: env.agentDir,
-          cwd: env.cwd,
           model: env.model,
-          modelNetwork: env.real ? undefined : false, // 假模式离线是默认；真模式才需要联网
           context: { autoCompact: false },
           tools: { custom: [probeTool] },
         });
@@ -299,7 +308,8 @@ async function main(): Promise<void> {
             `demo 的 agentDir 就是宿主 pi 目录（${env.agentDir}）—— 那等于「用了电脑的设置」，不是自己一套环境`,
           );
         }
-        const report = await inspectEnv({ agentDir: env.agentDir, cwd: env.cwd, modelNetwork: false });
+        const lab = await ensureLab(env);
+        const report = await lab.inspectEnv();
 
         // 判据是「与**宿主目录**比对」，不是「与 agentDir 比对」——
         // 后者有个致命盲区：agentDir 如果**就是**宿主目录（= 用了电脑的设置），

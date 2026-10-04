@@ -21,14 +21,20 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAgent } from "../src/index.ts";
 import type { Agent, AgentMessage, AgentTool } from "../src/index.ts";
+import { createLab } from "../src/agent/lab.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF } from "../examples/lib/faux-models.ts";
 import { ensureEnv } from "./env.ts";
 
 // ═══════════════ 0. 环境与语料 ═══════════════
 
 const env = await ensureEnv();
+/** 实验室：环境（agentDir / cwd / 离线开关）只声明一次，下面三个分身都从这里起 */
+const lab = await createLab({
+  agentDir: env.agentDir,
+  cwd: env.cwd,
+  modelNetwork: env.real ? undefined : false, // 假模式离线是默认；真模式才需要联网
+});
 const reportPath = join(env.cwd, "report.md");
 const boardPath = join(env.cwd, "blackboard.jsonl");
 const skillsRoot = join(env.cwd, "skills");
@@ -382,12 +388,9 @@ interface Started {
  */
 async function startResearcher(line: ResearchLine): Promise<Started> {
   const agent = watch(
-    await createAgent({
+    await lab.createAgent({
       id: line.name,
-      agentDir: env.agentDir,
-      cwd: env.cwd,
       model: env.model, // 便宜的那档（检索不需要强模型）
-      modelNetwork: env.real ? undefined : false,
       role: `检索员：只查语料库、只把采信的条目记进黑板；不写报告、不动别人的记录。你是${line.name}。`,
       extensions: [searchExtension(line.name)], // extensions 面（创建期声明）
       tools: { custom: [noteTool(line.name)] }, // tools 面（创建期声明）
@@ -438,12 +441,9 @@ async function main(): Promise<void> {
   for (const line of RESEARCH_LINES) started.push(await startResearcher(line));
   for (const { agent, line } of started) agents.push(agent);
   const writer = watch(
-    await createAgent({
+    await lab.createAgent({
       id: "写作员",
-      agentDir: env.agentDir,
-      cwd: env.cwd,
       model: env.model, // 也用便宜档起，写作阶段再运行期升档（model 面）
-      modelNetwork: env.real ? undefined : false,
       role:
         "写作员：把黑板上的材料组织成一份报告；不查新资料、不改别人的记录、不动黑板。" +
         // 这条技能**不在 spec 里**，来自 agentDir 的自动发现（demo/env.ts 里 seed 的 env-style）。
@@ -614,12 +614,9 @@ async function main(): Promise<void> {
     // 这不是绕过问题，而是把变量隔开：要验的是「环境扩展的工具能不能被调用」，
     // 不是「一个刚被明确限制过的 agent 愿不愿意做新事」。
     const envProbe = watch(
-      await createAgent({
+      await lab.createAgent({
         id: "环境工具探针",
-        agentDir: env.agentDir,
-        cwd: env.cwd,
         model: env.model,
-        modelNetwork: env.real ? undefined : false,
         role: "按指令调用工具。",
       }),
     );

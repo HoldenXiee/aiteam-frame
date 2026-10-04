@@ -22,9 +22,8 @@
 // PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAgent } from "../src/index.ts";
 import type { Agent } from "../src/index.ts";
-import { faux, fauxAgentDir, fauxCwd, FAUX_MODEL_REF, makeOfflineAgent } from "./lib/harness.ts";
+import { faux, FAUX_MODEL_REF, lab, makeOfflineAgent } from "./lib/harness.ts";
 
 // ─────────────── 使用者代码：红线 ───────────────
 // spawn 的参数表只有两个位置是对的：要谁、干什么。其余一律是「想配置 agent」。
@@ -70,11 +69,8 @@ const spawn = defineTool({
     //    默认状态下红线守卫把带配置的调用拦在入口，模型永远走不到这里；把上面那段守卫注释掉，
     //    这个洞就会把模型要的 model / tools 当真接进子 agent —— 那才是「agent 自己设计 agent」的后果。
     const wanted = params as unknown as { model?: string; tools?: string[] };
-    const child = await createAgent({
-      agentDir: fauxAgentDir,
-      cwd: fauxCwd,
+    const child = await lab.createAgent({
       model: wanted.model ?? FAUX_MODEL_REF,
-      modelNetwork: false,
       role: params.role,
       permissions: { only: wanted.tools ?? ["read"] }, // 默认 read；模型给了 tools 就按它来
     });
