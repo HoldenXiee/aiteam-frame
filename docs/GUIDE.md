@@ -40,7 +40,7 @@ npm test                        # 全部断言，本机假 provider，零 API �
 | 面 | 创建期 `spec` | 运行期（`agent.<面>`） |
 |---|---|---|
 | `io` | ——（创建时不必配） | `prompt` / `queue` / `steer` / `interrupt` / `abort` / `waitIdle` + 读数 `pending` / `isRunning` |
-| `context` | `context.autoCompact` | `history` / `entries` / `replace` / `erase` / `usage` / `autoCompact` / `override` / `compact` |
+| `context` | `context.autoCompact` | `history` / `entries` / `replace` / `erase` / `reset` / `usage` / `autoCompact` / `override` / `compact` |
 | `tools` | `tools.custom` | `list` / `add` / `remove` / `onResult` |
 | `permissions` | `permissions.only` / `deny` / `gate` | `only` / `allow` / `deny` / `gate`（**没有**创建期 `allow`） |
 | `extensions` | `extensions`（路径或内联工厂） | `add` / `remove` / `list` / `errors` |

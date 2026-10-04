@@ -13,8 +13,8 @@
 
 | 面 | 管什么 |
 |---|---|
-| `io` | 投递（`prompt` / `queue` / `steer`）、`abort`、`waitIdle`、**结算**（`RunResult`） |
-| `context` | 读历史、改**这一轮发给模型的内容**、压缩 |
+| `io` | 投递（`prompt` / `queue` / `steer` / `interrupt`）、`abort`、`waitIdle`、**结算**（`RunResult`） |
+| `context` | 读历史、改**这一轮发给模型的内容**、压缩、整段重置（`reset`） |
 | `tools` | 有哪些工具存在（`list` / `add` / `remove`）、工具结果拦截 |
 | `permissions` | 哪些工具**允许被调用**（`only` / `allow` / `deny`）、审批门 |
 | `extensions` | 运行期加载 / 卸载插件，加载错误可读 |
@@ -91,7 +91,7 @@ node examples/11-redline.ts         # v1 的「红线」假设，写成使用者
 examples/
   01-first-agent.ts    io     起 agent、交办一件事、拿 RunResult
   02-events.ts         观测   七个事件，on 与 onAny
-  03-context.ts        context 读历史 / 本轮覆盖 / 压缩
+  03-context.ts        context 读历史 / 本轮覆盖 / 压缩 / 整段重置
   04-tools.ts          tools  运行期加工具
   05-permissions.ts    permissions 审批门 + 白名单
   06-resources.ts      extensions/skills 运行期加载
