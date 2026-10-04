@@ -220,9 +220,10 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
 必须分，是因为 pi 会在任何 agentDir 里自己造 `auth.json` / `models-store.json`——放同一层时，空壳产物会和你的配置源混在一起，分不清哪个能删。
 | `demo/work/` | agent 的工作目录与产物落点：`report.md` / `blackboard.jsonl` / `skills/` | 不进（`.gitignore`） |
 
-`demo/env/` 下还有两份 v1 遗留文件（`auth.json` 含**真实 API 密钥**、`models-store.json` 是旧结构缓存）。
-demo **不读**它们（自检用的 `agentDir` 是脚本生成的产物目录 `demo/run/faux/`），它们也只是被 gitignore 排除，不会进仓库。
-要清理请自行删除，别把它们的内容贴进任何地方。
+`demo/env/` 下还有两份 v1 遗留文件：`auth.json`（含**真实 API 密钥**）与 `models-store.json`（旧结构缓存）。
+按现在的 `demo/env.ts`，它们**不是一个死目录**：`auth.json` 正是真模式的默认凭证源（`AITEAM_DEMO_AUTH` 的默认值），
+会被**复制**进 `demo/run/real/`（原件只读）；`models-store.json` 存在时同样会被复制过去。
+假模式（默认）两份都不读。两份都被 gitignore 排除，不会进仓库；要清理请自行删除，别把它们的内容贴进任何地方。
 
 ## 换成真模型（一个环境变量）
 
@@ -235,7 +236,7 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 
 | 环境变量 | 作用 | 默认 |
 |---|---|---|
-| `AITEAM_DEMO_REAL=1` | 切到真模型（宿主 `~/.pi/agent` 的凭证） | 关（用本机假 provider） |
+| `AITEAM_DEMO_REAL=1` | 切到真模型（**demo 自己的**凭证，默认 `demo/env/auth.json`） | 关（用本机假 provider） |
 | `AITEAM_DEMO_MODEL` | 真模型用哪个 | `opencode-go/space-bunny-free`（免费档） |
 | `AITEAM_DEMO_AUTH` | 真模式用哪份凭证 | `demo/env/auth.json`（demo 自己的，gitignored） |
 

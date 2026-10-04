@@ -9,7 +9,7 @@
 // 两个判据值得单独说：
 //   第 6 项判的是「工具的执行体真跑过」（闭包计数器），**不是** `tools.list()` 里有它 ——
 //   后者只说明声明存在，工具没被调用时它照样是 active，不判别。
-//   第 7 项七个面每一项都**真的调用过**（并尽可能读回写进去的值），不是「读一个属性」凑数。
+//   第 8 项七个面每一项都**真的调用过**（并尽可能读回写进去的值），不是「读一个属性」凑数。
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
     },
   });
 
-  /** 第 7 项 tools 面要 add 的第二个工具 */
+  /** 第 8 项 tools 面要 add 的第二个工具 */
   const extraTool: AgentTool = defineTool({
     name: "demo_probe_extra",
     label: "Demo Probe Extra",

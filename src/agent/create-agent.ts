@@ -1,7 +1,7 @@
 // spec → Agent：配置校验、loader、session、常驻桥接、七面装配、生命周期。
-// 入口只有 `createAgentInLab(lab, spec)`：环境（agentDir / cwd / 网络 / runtime）全部来自实验室，
+// 入口只有 `createAgentInLab(env, spec)`：环境（agentDir / cwd / 网络 / runtime）全部来自实验室，
 // 本文件不再有「自己去搞一个环境」的任何回落路径。
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   ModelRuntime,
   SessionManager,
@@ -18,7 +18,6 @@ import { createContext } from "../surfaces/context.ts";
 import { createTools, createPermissions } from "../surfaces/tools.ts";
 import { createExtensions, createSkills } from "../surfaces/resources.ts";
 import { createModel } from "../surfaces/model.ts";
-import type { Lab } from "./lab.ts";
 import type {
   Agent,
   AgentContext,
@@ -40,9 +39,9 @@ function nextId(): string {
 }
 
 /**
- * 实验室的内部环境记录：`agentDir` / `cwd` 在导出的 `Lab` 接口上也有一份，
+ * 实验室交给 `createAgentInLab` 的环境：`agentDir` / `cwd` 在导出的 `Lab` 接口上也有一份，
  * `modelRuntime` 只在这里 —— 它是实现细节，不进对外类型（R2 的 (i)）。
- * `createLab` 建实验室时登记（`registerLabEnv`），`createAgentInLab` 只从这里取环境。
+ * `createLab` 把这份记录直接传进来，没有中间注册表：传错环境由类型挡住。
  */
 export interface LabEnv {
   agentDir: string;
@@ -50,20 +49,15 @@ export interface LabEnv {
   modelRuntime: ModelRuntime;
 }
 
-const labEnvs = new WeakMap<Lab, LabEnv>();
-
-/** `createLab` 登记自己那份环境；没登记过的对象 `createAgentInLab` 会拒绝服务 */
-export function registerLabEnv(lab: Lab, env: LabEnv): void {
-  labEnvs.set(lab, env);
-}
-
 /** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir + 网络开关缓存** —— 一个凭证集一个 runtime。
  *  曾经是全局单例，结果是第二个不同 agentDir 的分身仍去读第一个的 models.json/auth.json。
- *  开关也必须进 key：否则第一个 runtime 的设置会决定后面所有分身（与 #8 同类的 bug）。 */
+ *  开关也必须进 key：否则第一个 runtime 的设置会决定后面所有分身（与 #8 同类的 bug）。
+ *  key 里的 agentDir 必须**规范化**：`demo/run/faux` 与它的绝对路径是同一个目录，原样字符串
+ *  会让同一份凭证集拿到两份 runtime —— 而两份 runtime 读改写同一个 auth.json 正是 #8 要根除的。 */
 const sharedRuntimes = new Map<string, Promise<ModelRuntime>>();
 export function getSharedRuntime(agentDir: string, opts: RuntimeOpts = {}): Promise<ModelRuntime> {
   const net = opts.modelNetwork !== false;
-  const key = [agentDir, net ? "net" : "offline", opts.catalogBaseUrl ?? ""].join("\u0000");
+  const key = [resolve(agentDir), net ? "net" : "offline", opts.catalogBaseUrl ?? ""].join("\u0000");
   let runtime = sharedRuntimes.get(key);
   if (!runtime) {
     runtime = ModelRuntime.create({
@@ -150,10 +144,8 @@ function assertSpec(spec: AgentSpec): void {
   }
 }
 
-/** 起作用的是实验室：`agentDir` / `cwd` / `modelRuntime` 全部来自它登记的那份环境 */
-export async function createAgentInLab(lab: Lab, rawSpec: AgentSpec = {}): Promise<Agent> {
-  const env = labEnvs.get(lab);
-  if (!env) throw new Error("createAgentInLab：这个实验室不是 createLab 建的（没有环境记录）");
+/** 起作用的是实验室：`agentDir` / `cwd` / `modelRuntime` 全部来自 `createLab` 交过来的那份环境 */
+export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Promise<Agent> {
   const spec = rawSpec ?? {};
   assertSpec(spec);
 

@@ -2,7 +2,7 @@
 // 之后本实验室起的全部分身共用它们。spec 只说「这个 agent 用哪些」，不参与环境声明。
 import { existsSync } from "node:fs";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgentInLab, getSharedRuntime, registerLabEnv } from "./create-agent.ts";
+import { createAgentInLab, getSharedRuntime } from "./create-agent.ts";
 import { inspectEnv, type EnvReport } from "./env.ts";
 import type { Agent, AgentSpec } from "./types.ts";
 
@@ -33,7 +33,10 @@ function required(value: string | undefined, field: string): string {
   return value;
 }
 
-export async function createLab(opts: LabOptions): Promise<Lab> {
+// 默认值 `{}` 只为「不传就报本库的错」那条路径服务：`{}` 会立刻在 required() 上抛
+// 「createLab：agentDir 必填」，而不是给调用者一个原生 TypeError（两处缺失两套文案）。
+// 用 `as LabOptions` 保住类型层的「必填」——TS 调用者少传 agentDir 仍编译不过。
+export async function createLab(opts: LabOptions = {} as LabOptions): Promise<Lab> {
   const agentDir = required(opts.agentDir, "agentDir");
   const cwd = required(opts.cwd, "cwd");
   // 当场检查（await 之前）：不存在的 cwd 要等到建 session 才炸，那时已经建了一堆东西、文案也难看
@@ -45,7 +48,7 @@ export async function createLab(opts: LabOptions): Promise<Lab> {
   const agentDirExisted = existsSync(agentDir);
   // 复用宿主级共享 runtime（决策 #8）：同一个 agentDir 的实验室拿到同一份，不许自己 new ——
   // 否则第二个实验室会去读第一份的 models.json / auth.json。
-  // 注入的那份优先，并且**真的**给这个实验室起的 agent 用（见下面的 registerLabEnv）。
+  // 注入的那份优先，并且**真的**给这个实验室起的 agent 用（createAgentInLab 直接收这份环境）。
   const modelRuntime = opts.modelRuntime ?? (await getSharedRuntime(agentDir, { modelNetwork, catalogBaseUrl }));
   const env = { agentDir, cwd, modelNetwork, catalogBaseUrl };
 
@@ -53,10 +56,8 @@ export async function createLab(opts: LabOptions): Promise<Lab> {
     agentDir,
     cwd,
     // 环境只在实验室，spec 里没有 agentDir / cwd 这类字段可写（写了会被拒），无从覆盖
-    createAgent: (spec = {}) => createAgentInLab(lab, spec),
+    createAgent: (spec = {}) => createAgentInLab({ agentDir, cwd, modelRuntime }, spec),
     inspectEnv: () => inspectEnv({ ...env, agentDirExisted, modelRuntime }),
   };
-  // 内部环境记录（含 runtime）：导出的 Lab 接口上没有它，createAgentInLab 只从这里取
-  registerLabEnv(lab, { agentDir, cwd, modelRuntime });
   return lab;
 }
