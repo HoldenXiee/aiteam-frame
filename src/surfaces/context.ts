@@ -4,7 +4,7 @@
 // 不动 `session.messages`；pi 传给钩子的是副本，所以历史不会被写坏。
 // 钩子拿到的是**不含 system** 的消息 —— 所以 `history` 也用同一视角（system 每轮由 pi 重建，不是历史），
 // 这样 `override(history)` 才是恒等变换。
-import type { AgentSession, ContextEditableContent, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ContextEditableContent, SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Bridge } from "../agent/bridge.ts";
 import type { AgentMessage, ContextSurface } from "../agent/types.ts";
 
@@ -27,6 +27,14 @@ function textOf(message: AgentMessage): string {
     .filter((block) => block.type === "text")
     .map((block) => block.text ?? "")
     .join("");
+}
+
+/** pi 的 `appendContextEdit` 只接受 `custom_message`，或 role 为 user / assistant / toolResult 的 message */
+function isEditable(source: SessionEntry): boolean {
+  if (source.type === "custom_message") return true;
+  if (source.type !== "message") return false;
+  const role = source.message.role;
+  return role === "user" || role === "assistant" || role === "toolResult";
 }
 
 export function createContext(deps: ContextDeps): ContextSurface {
@@ -52,15 +60,8 @@ export function createContext(deps: ContextDeps): ContextSurface {
     // pi 的 `appendContextEdit` 只接受 `custom_message`，或 role 为 user / assistant / toolResult 的 message。
     // system 与压缩 / 分支摘要 entry 在 `entries()` 里**故意**出现（对齐关系需要它们），但对它们调
     // replace/erase 会被 pi 用一句英文内部错拒掉 —— 在这里自己判定，报中文错、带上 id、更早失败。
-    const source = target.sourceEntry;
-    const editable =
-      source.type === "custom_message" ||
-      (source.type === "message" &&
-        (source.message.role === "user" ||
-          source.message.role === "assistant" ||
-          source.message.role === "toolResult"));
-    if (!editable) {
-      const kind = source.type === "message" ? `message（role=${source.message.role}）` : source.type;
+    if (!isEditable(target.sourceEntry)) {
+      const kind = target.sourceEntry.type === "message" ? `message（role=${target.sourceEntry.message.role}）` : target.sourceEntry.type;
       throw new Error(
         `entry 不可编辑：${entryId} —— 该 entry 的类型是 ${kind}；只有 user / assistant / toolResult / custom 消息能 replace/erase，` +
           `system 与压缩 / 分支摘要条目只可寻址、不可编辑`,
@@ -70,6 +71,28 @@ export function createContext(deps: ContextDeps): ContextSurface {
     session.refreshContext();
   };
 
+  // 数据源是 session 的投影：它是**压缩感知 + 上下文编辑后**的模型可见结果，与 `history` 同源同序。
+  //
+  // 「过滤掉 role === 'system' 之后与 history 一一对应」成立的理由：除压缩 entry 外，每个 entry 恰好投影出一条消息；
+  // 压缩 entry 在有 systemMessage 时投影出两条 `[systemMessage, summary]`（pi `sessionEntryToContextMessages`），
+  // 多出的那条**恒为 system**，而 `history` 本就不含 system —— 所以两边各少一条，基数是配的。
+  // 据此 role 必须取**第一条非 system**：若取 `messages[0]`，压缩 entry 会被贴上 system 标签而在「role !== 'system'」
+  // 这类口径下被整条丢掉，但它的 summary 在 history 里是**非 system**、不会被丢 —— 对齐关系就此破掉。
+  // 要保留的语义：只有 system 消息的 entry（独立的 system 条目）仍然出现，用 role 区分。
+  // `messages` 为空的项是状态型 entry（model 切换 / thinking 档 / context_edit 这类），对模型上下文没有贡献，
+  // 所以不在这里出现。
+  // entries() 与 reset() 共用（reset 先取这个快照再逐条抹，否则遍历器会漏抹 / 重复）
+  const listEntries = () =>
+    sessionManager
+      .buildSessionProjection()
+      .entries.filter((entry) => entry.messages.length > 0)
+      .map((entry) => ({
+        id: entry.sourceEntry.id,
+        // 第一条非 system；整个 entry 全是 system 时回退到第一条
+        role: (entry.messages.find((m) => m.role !== "system") ?? entry.messages[0]).role,
+        preview: entry.messages.map(textOf).join("").slice(0, 60),
+      }));
+
   return {
     get history() {
       deps.assertAlive();
@@ -77,25 +100,7 @@ export function createContext(deps: ContextDeps): ContextSurface {
     },
     entries() {
       deps.assertAlive();
-      // 数据源是 session 的投影：它是**压缩感知 + 上下文编辑后**的模型可见结果，与 `history` 同源同序。
-      //
-      // 「过滤掉 role === 'system' 之后与 history 一一对应」成立的理由：除压缩 entry 外，每个 entry 恰好投影出一条消息；
-      // 压缩 entry 在有 systemMessage 时投影出两条 `[systemMessage, summary]`（pi `sessionEntryToContextMessages`），
-      // 多出的那条**恒为 system**，而 `history` 本就不含 system —— 所以两边各少一条，基数是配的。
-      // 据此 role 必须取**第一条非 system**：若取 `messages[0]`，压缩 entry 会被贴上 system 标签而在「role !== 'system'」
-      // 这类口径下被整条丢掉，但它的 summary 在 history 里是**非 system**、不会被丢 —— 对齐关系就此破掉。
-      // 要保留的语义：只有 system 消息的 entry（独立的 system 条目）仍然出现，用 role 区分。
-      // `messages` 为空的项是状态型 entry（model 切换 / thinking 档 / context_edit 这类），对模型上下文没有贡献，
-      // 所以不在这里出现。
-      return sessionManager
-        .buildSessionProjection()
-        .entries.filter((entry) => entry.messages.length > 0)
-        .map((entry) => ({
-          id: entry.sourceEntry.id,
-          // 第一条非 system；整个 entry 全是 system 时回退到第一条
-          role: (entry.messages.find((m) => m.role !== "system") ?? entry.messages[0]).role,
-          preview: entry.messages.map(textOf).join("").slice(0, 60),
-        }));
+      return listEntries();
     },
     async replace(entryId, content) {
       // `type: "text"` 要收窄成字面量，形状取自 pi 的 ContextEditableContent（不自己发明类型）
@@ -104,6 +109,25 @@ export function createContext(deps: ContextDeps): ContextSurface {
     async erase(entryId) {
       // replacement 为 null = 把目标从模型上下文里省掉（原 entry 不动）
       appendEdit(entryId, null);
+    },
+    async reset() {
+      deps.assertAlive();
+      // 先取快照：边遍历边 appendContextEdit 会改投影，遍历器会漏抹或重复
+      const snapshot = listEntries();
+      const erased: string[] = [];
+      const skipped: { id: string; role: string }[] = [];
+      for (const entry of snapshot) {
+        const target = findEntry(entry.id);
+        if (!target) continue;
+        if (!isEditable(target.sourceEntry)) {
+          skipped.push({ id: entry.id, role: entry.role });
+          continue;
+        }
+        sessionManager.appendContextEdit(entry.id, null);
+        erased.push(entry.id);
+      }
+      if (erased.length) session.refreshContext();   // 不刷的话 history 读的是旧投影
+      return { erased, skipped };
     },
     get usage() {
       deps.assertAlive();

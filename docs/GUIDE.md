@@ -93,7 +93,7 @@ io.prompt("…")
 
 ### 3.2 `context` —— 历史 / 本轮覆盖 / 压缩
 
-**能做什么**：`history`（只读快照）、`entries`（会话条目的**可寻址视图**）、`replace` / `erase`（追改 / 抹除历史）、`usage`（上下文占用）、`autoCompact`（自动压缩开关，可读写）、`override`（改**这一轮发给模型的内容**）、`compact`（压缩）。
+**能做什么**：`history`（只读快照）、`entries`（会话条目的**可寻址视图**）、`replace` / `erase`（追改 / 抹除历史）、`reset`（**整段重置**：逐条抹除，同一个 agent；不可编辑条目见返回值 `skipped`）、`usage`（上下文占用）、`autoCompact`（自动压缩开关，可读写）、`override`（改**这一轮发给模型的内容**）、`compact`（压缩）。
 
 **关键取舍**：
 
@@ -198,7 +198,7 @@ io.prompt("…")
 | 要求空闲 | 不要求 |
 |---|---|
 | `context.compact` | `io.prompt` / `queue` / `steer` / `interrupt` / `abort` / `waitIdle` |
-| `tools.add` / `tools.remove` | `context.override` / `replace` / `erase` / `autoCompact` / `tools.onResult` / `permissions.gate` |
+| `tools.add` / `tools.remove` | `context.override` / `replace` / `erase` / `reset` / `autoCompact` / `tools.onResult` / `permissions.gate` |
 | `permissions.only` / `allow` / `deny` | `model.set` / `model.setThinking`（改动从下一次请求起生效） |
 | `extensions.add` / `remove`、`skills.add` / `remove` | |
 

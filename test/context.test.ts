@@ -353,3 +353,50 @@ test("忙时编辑：本轮 RunResult 不再包含产出（已登记边界，防
   assert.ok(a.context.history.some((m) => m.role === "assistant"), "产出本身仍然持久化在历史里");
   a.dispose();
 });
+
+test("reset：整段抹掉可编辑历史，同一个 agent、id 不变", async () => {
+  const a = await makeAgent();
+  try {
+    await a.io.prompt("第一句");
+    await a.io.prompt("第二句");
+    const idBefore = a.id;
+    const r = await a.context.reset();
+    assert.equal(a.id, idBefore, "reset 是同一个 agent，不是新建一个");
+    assert.equal(a.context.history.length, 0);
+    assert.equal(r.erased.length, 4, "两轮 = 2 user + 2 assistant");
+    await a.io.prompt("重置之后");
+    assert.equal(sentMessages(), 2, "system + 这一句 —— 模型确实看不到旧历史");
+  } finally { a.dispose(); }
+});
+
+test("reset：不可编辑的条目进 skipped，不抛错、不静默（压缩摘要是天花板）", async () => {
+  const a = await makeAgent();
+  try {
+    await a.io.prompt("[[huge:200000]] one");
+    await a.context.compact("压成一句");
+    assert.equal(a.context.history[0].role, "compactionSummary", "压缩确实发生了（否则这条用例什么都没钉住）");
+    const r = await a.context.reset();
+    assert.ok(
+      r.skipped.some((s) => s.role === "compactionSummary"),
+      `压缩摘要抹不掉，必须出现在 skipped 里：${JSON.stringify(r)}`,
+    );
+    assert.equal(a.context.history[0].role, "compactionSummary", "抹不掉就得留在历史里，不许假装清空了");
+  } finally { a.dispose(); }
+});
+
+test("reset：连抹两次不报错，第二次没有可抹的（不线性 append）", async () => {
+  const a = await makeAgent();
+  try {
+    await a.io.prompt("一句话");
+    const first = await a.context.reset();
+    assert.ok(first.erased.length > 0);
+    const second = await a.context.reset();
+    assert.deepEqual(second.erased, [], "第二次不该再抹出条目");
+  } finally { a.dispose(); }
+});
+
+test("dispose 之后 context.reset() 抛错（R48）", async () => {
+  const a = await makeAgent();
+  a.dispose();
+  await assert.rejects(() => a.context.reset(), /disposed/);
+});

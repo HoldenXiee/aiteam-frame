@@ -154,6 +154,18 @@ export interface ContextSurface {
    * `context_edit` entry —— 会话条目会线性增长，别把 erase 当幂等的清理手段。
    */
   erase(entryId: string): Promise<void>;
+  /**
+   * 整段重置：把当前**模型可见**的可编辑条目逐条抹除（`erase` 的批量版），仍然是原来那个 agent
+   * （`id` / 各面引用 / session 都不换）。
+   *
+   * 不可编辑的条目（system / 压缩摘要 / 分支摘要）**抹不掉**（pi 的 `appendContextEdit` 只收
+   * custom_message 与 user / assistant / toolResult），它们出现在返回值的 `skipped` 里 —— 不抛错、
+   * 也不静默：只抹掉一半而返回值像「成功了」正是本库要根除的失效模式。
+   *
+   * 与 `replace` / `erase` 同一条路（append-only、不要求 idle、不走 reload），所以忙时编辑的
+   * `RunResult` 边界同样适用（见 `replace` 的注释）。
+   */
+  reset(): Promise<{ erased: string[]; skipped: { id: string; role: string }[] }>;
   /** 上下文占用（来自 session.getContextUsage()） */
   readonly usage: ContextUsage | undefined;
   /** 自动压缩开关，可读写（映射到 session.autoCompactionEnabled） */
