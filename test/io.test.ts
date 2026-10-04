@@ -128,3 +128,54 @@ test("运行中失败不 reject，但 RunResult.error 要显式暴露", async ()
     assert.equal(r.text, "");
   } finally { a.dispose(); }
 });
+
+test("interrupt：在飞那轮被中断，新输入立即投递并拿到它的 RunResult", async () => {
+  const a = await makeAgent();
+  try {
+    const slow = a.io.prompt("[[sleep:2000]] 慢").catch(() => {});
+    await a.io.interrupt("换成这句");            // 不抛错 = 它真的中断了，而 prompt 在忙时会拒绝
+    const r = await a.io.prompt("下一句");        // 中断之后可以正常继续
+    assert.equal(r.text, "echo:下一句");
+    await slow;
+    assert.notEqual(a.status, "running");
+  } finally { a.dispose(); }
+});
+
+test("interrupt：启动窗口里调用也要中断（pi 的 isStreaming 还没翻真）", async () => {
+  const a = await makeAgent();
+  try {
+    const slow = a.io.prompt("[[sleep:800]] 慢").catch(() => {});
+    const r = await a.io.interrupt("窗口里插队");   // 紧跟同步调用，不给 setTimeout
+    assert.match(r.text, /窗口里插队/);
+    await slow;
+  } finally { a.dispose(); }
+});
+
+test("interrupt 空闲时 = prompt", async () => {
+  const a = await makeAgent();
+  try {
+    const r = await a.io.interrupt("直接说");     // 没有在飞轮次，不该抛错
+    assert.equal(r.text, "echo:直接说");
+  } finally { a.dispose(); }
+});
+
+test("interrupt 不吞掉已排队的 queue 消息（queue 的承诺不被违背）", async () => {
+  const a = await makeAgent();
+  try {
+    const slow = a.io.prompt("[[sleep:800]] 慢").catch(() => {});
+    await a.io.queue("排队的话");
+    const r = await a.io.interrupt("打断");
+    const userText = r.messages
+      .filter((m) => m.role === "user")
+      .map((m) => JSON.stringify(m.content))
+      .join("|");
+    assert.ok(userText.includes("排队的话"), `排队的消息应当在这一轮里被投递：${userText}`);
+    await slow;
+  } finally { a.dispose(); }
+});
+
+test("dispose 之后 interrupt 抛错（R48）", async () => {
+  const a = await makeAgent();
+  a.dispose();
+  await assert.rejects(() => a.io.interrupt("x"), /disposed/);
+});

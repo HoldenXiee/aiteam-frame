@@ -109,6 +109,15 @@ export interface IoSurface {
   /** 目标忙则排队；返回队列事实，不谎报「已跑过」 */
   queue(text: string): Promise<{ queued: true }>;
   steer(text: string): Promise<void>;
+  /**
+   * 截断输入：**中断在飞那轮**，立即投递新输入并拿它的结算。
+   *
+   * 与 `steer` 的区别是本质的：pi 的 `steer` 不 abort，只在本轮工具调用跑完、**下一次 LLM 调用之前**
+   * 改向（`agent-session.js:1665` 只 push 进队列）。要「现在就停、就发这句」只能 abort。
+   *
+   * 空闲时等价于 `prompt`（不抛错）。忙时**不抛错** —— 这正是它存在的理由，`prompt` 忙时会拒。
+   */
+  interrupt(text: string, opts?: { images?: ImageContent[] }): Promise<RunResult>;
   abort(): Promise<void>;
   waitIdle(): Promise<void>;
   readonly raw: AgentSession;

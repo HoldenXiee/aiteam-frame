@@ -105,6 +105,15 @@ export function createIo(deps: IoDeps): IoSurface {
     return result;
   }
 
+  /** 等 pi 侧静下来 + 库自己的在飞运行全部收尾（已回收的分身永远「已静下来」，不抛错） */
+  async function waitIdle(): Promise<void> {
+    // 已回收的分身永远「已静下来」，不抛错、直接 resolve（v1 决策 #21）
+    if (deps.getStatus() === "disposed") return;
+    await session.waitForIdle();
+    // session 静下来 ≠ 库这边的运行都已收尾（finally 里还要清 runId / 状态）；等它们真的结算完
+    while (inFlight.size > 0) await Promise.all([...inFlight]);
+  }
+
   return {
     // R48：与其余六个面统一——dispose 之后**一切**都不可再用（含读数与 raw 逃生口）。
     // 原先只有 pending / isRunning / raw 三个漏了守卫，成了「七分之六遵守、一个面例外」的隐形不对称；
@@ -146,16 +155,26 @@ export function createIo(deps: IoDeps): IoSurface {
       deps.assertAlive();
       await session.steer(text);
     },
+    /**
+     * 截断输入 = abort → 等库自己的在飞运行收尾 → 正常跑一轮。
+     * 三步缺一不可：pi 的 `session.abort()` 内部已经 `await this.waitForIdle()`（agent-session.js:1841-1851），
+     * 但库自己的 `run()` 还在 finally 里清 runId / status，不排干 `inFlight` 就调 `run()` 会撞
+     * 「agent 正在运行」——把一次合法的中断变成假错误。
+     * 已排队的 queue 消息**不清**：`queue` 承诺过「等空闲再发」，那一轮就是这一轮（用例钉住）。
+     */
+    async interrupt(text, opts) {
+      deps.assertAlive();
+      if (!isRunning()) return run(text, opts, nextRunId());   // 空闲：等价 prompt，abort 也不需要
+      await session.abort();
+      await waitIdle();
+      return run(text, opts, nextRunId());
+    },
     async abort() {
       deps.assertAlive();
       await session.abort();
     },
     async waitIdle() {
-      // 已回收的分身永远「已静下来」，不抛错、直接 resolve（v1 决策 #21）
-      if (deps.getStatus() === "disposed") return;
-      await session.waitForIdle();
-      // session 静下来 ≠ 库这边的运行都已收尾（finally 里还要清 runId / 状态）；等它们真的结算完
-      while (inFlight.size > 0) await Promise.all([...inFlight]);
+      await waitIdle();
     },
     get raw() {
       deps.assertAlive();

@@ -39,7 +39,7 @@ npm test                        # 全部断言，本机假 provider，零 API �
 
 | 面 | 创建期 `spec` | 运行期（`agent.<面>`） |
 |---|---|---|
-| `io` | ——（创建时不必配） | `prompt` / `queue` / `steer` / `abort` / `waitIdle` + 读数 `pending` / `isRunning` |
+| `io` | ——（创建时不必配） | `prompt` / `queue` / `steer` / `interrupt` / `abort` / `waitIdle` + 读数 `pending` / `isRunning` |
 | `context` | `context.autoCompact` | `history` / `entries` / `replace` / `erase` / `usage` / `autoCompact` / `override` / `compact` |
 | `tools` | `tools.custom` | `list` / `add` / `remove` / `onResult` |
 | `permissions` | `permissions.only` / `deny` / `gate` | `only` / `allow` / `deny` / `gate`（**没有**创建期 `allow`） |
@@ -79,7 +79,9 @@ io.prompt("…")
 
 ### 3.1 `io` —— 驱动与结算
 
-**能做什么**：`prompt`（交办并拿 `RunResult`）、`queue`（忙时排队、**永不因忙抛错**）、`steer`（运行中改向）、`abort`、`waitIdle`；读数 `pending` / `isRunning`。
+**能做什么**：`prompt`（交办并拿 `RunResult`）、`queue`（忙时排队、**永不因忙抛错**）、`steer`（运行中改向）、`interrupt`（**中断在飞那轮并立即投递**，拿 `RunResult`）、`abort`、`waitIdle`；读数 `pending` / `isRunning`。
+
+`steer` 与 `interrupt` 的区别是本质的：pi 的 `steer` **不 abort**，只在本轮工具调用跑完、下一次 LLM 调用之前改向；要「现在就停、就发这句」只能用 `interrupt`（空闲时它等价于 `prompt`，忙时**不抛错**——这正是它存在的理由；已排队的 `queue` 消息不会因此被吞掉）。
 
 **关键取舍**：
 
@@ -195,7 +197,7 @@ io.prompt("…")
 
 | 要求空闲 | 不要求 |
 |---|---|
-| `context.compact` | `io.prompt` / `queue` / `steer` / `abort` / `waitIdle` |
+| `context.compact` | `io.prompt` / `queue` / `steer` / `interrupt` / `abort` / `waitIdle` |
 | `tools.add` / `tools.remove` | `context.override` / `replace` / `erase` / `autoCompact` / `tools.onResult` / `permissions.gate` |
 | `permissions.only` / `allow` / `deny` | `model.set` / `model.setThinking`（改动从下一次请求起生效） |
 | `extensions.add` / `remove`、`skills.add` / `remove` | |
