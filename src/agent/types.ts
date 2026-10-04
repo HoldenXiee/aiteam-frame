@@ -122,6 +122,10 @@ export interface ContextSurface {
   readonly history: readonly AgentMessage[];
   /** 会话里的 entry（可寻址；system 也在里面，用 role 区分） */
   entries(): { id: string; role: string; preview: string }[];
+  /** 追改：把 entry 在本轮上下文里的贡献换成新内容。append-only，不要求 idle */
+  replace(entryId: string, content: string): Promise<void>;
+  /** 抹除：把 entry 从本轮上下文里删掉（原 entry 不动）。append-only，不要求 idle */
+  erase(entryId: string): Promise<void>;
   /** 上下文占用（来自 session.getContextUsage()） */
   readonly usage: ContextUsage | undefined;
   /** 自动压缩开关，可读写（映射到 session.autoCompactionEnabled） */

@@ -4,7 +4,7 @@
 // 不动 `session.messages`；pi 传给钩子的是副本，所以历史不会被写坏。
 // 钩子拿到的是**不含 system** 的消息 —— 所以 `history` 也用同一视角（system 每轮由 pi 重建，不是历史），
 // 这样 `override(history)` 才是恒等变换。
-import type { AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ContextEditableContent, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Bridge } from "../agent/bridge.ts";
 import type { AgentMessage, ContextSurface } from "../agent/types.ts";
 
@@ -31,6 +31,27 @@ function textOf(message: AgentMessage): string {
 
 export function createContext(deps: ContextDeps): ContextSurface {
   const { session, sessionManager, bridge } = deps;
+
+  // replace / erase 共用的寻址：按 entry.id 在**投影**里找目标。
+  // 不带 `messages.length > 0` 过滤：已被抹除的条目仍可寻址（重复 erase 不报错，而不是「找不到」）。
+  const findEntry = (entryId: string) =>
+    sessionManager.buildSessionProjection().entries.find((entry) => entry.sourceEntry.id === entryId);
+
+  // 两个写成员共用的落库 + 刷新（控制器裁定）：
+  //   `appendContextEdit` 是 append-only entry，不改原 entry、**不**刷新 `session.messages`，
+  //   而 `context.history` 读的正是后者 —— 不调 `refreshContext()` 就看不到改动。
+  //   这里不调 `deps.isBusy()`：append-only 不走 `reload()`，在飞的那轮不会被静默丢改动。
+  const appendEdit = (entryId: string, replacement: { content: ContextEditableContent } | null) => {
+    deps.assertAlive();
+    if (!findEntry(entryId)) {
+      throw new Error(
+        `找不到 entry：${entryId} —— id 来自 context.entries()，不存在的 id 不静默 no-op`,
+      );
+    }
+    sessionManager.appendContextEdit(entryId, replacement);
+    session.refreshContext();
+  };
+
   return {
     get history() {
       deps.assertAlive();
@@ -57,6 +78,14 @@ export function createContext(deps: ContextDeps): ContextSurface {
           role: (entry.messages.find((m) => m.role !== "system") ?? entry.messages[0]).role,
           preview: entry.messages.map(textOf).join("").slice(0, 60),
         }));
+    },
+    async replace(entryId, content) {
+      // `type: "text"` 要收窄成字面量，形状取自 pi 的 ContextEditableContent（不自己发明类型）
+      appendEdit(entryId, { content: [{ type: "text" as const, text: content }] });
+    },
+    async erase(entryId) {
+      // replacement 为 null = 把目标从模型上下文里省掉（原 entry 不动）
+      appendEdit(entryId, null);
     },
     get usage() {
       deps.assertAlive();

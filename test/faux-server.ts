@@ -8,6 +8,8 @@ export interface FauxCall {
   system: string;
   lastUser: string;
   messageCount: number;
+  /** 这次请求里**所有**消息的文本拼成一串（ground truth：模型实际看到了什么） */
+  messagesText: string;
 }
 
 export interface Faux {
@@ -98,6 +100,7 @@ export async function startFaux(): Promise<Faux> {
         system,
         lastUser,
         messageCount: messages.length,
+        messagesText: messages.map((m) => textOfContent(m?.content)).join("\n"),
       });
 
       try {

@@ -7,7 +7,7 @@
 //     不是历史；这样 `override(history)` 才是恒等）。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeAgent, sentMessages } from "./helpers.ts";
+import { faux, makeAgent, sentMessages } from "./helpers.ts";
 
 test("history 是会话里存的历史（只读快照）", async () => {
   const a = await makeAgent();
@@ -186,4 +186,92 @@ test("dispose 之后 context 面不许再用", async () => {
   assert.throws(() => a.context.override(() => []));
   assert.throws(() => a.context.entries());
   await assert.rejects(() => a.context.compact(), /disposed/);
+});
+
+// ---------------------------------------------------------------------------
+// replace / erase：历史可改（append-only entry，不是改原 entry，也不要求 idle）
+// ---------------------------------------------------------------------------
+
+test("entries() 的 id 真的能用：换一条的内容，历史里那条确实变了", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("原始问题");
+  const target = a.context.entries().find((e) => e.role === "user");
+  assert.ok(target);
+  await a.context.replace(target!.id, "被换掉的问题");
+  assert.match(JSON.stringify(a.context.raw.sessionManager.buildSessionProjection().messages), /被换掉的问题/);
+  a.dispose();
+});
+
+test("erase：抹掉一轮之后，history 变短，且它不再出现在投影里", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("第一句");
+  const before = a.context.history.length;
+  // 假 provider 会把用户原话回显进助手回复（echo:第一句），只抹 user 会留下回显副本 ——
+  // 要断言「这段文本从投影里消失」，就得抹掉承载它的整轮（user + assistant）。
+  const doomed = a.context.entries().filter((e) => e.role === "user" || e.role === "assistant");
+  assert.equal(doomed.length, 2);
+  for (const e of doomed) await a.context.erase(e.id);
+  assert.ok(a.context.history.length < before, "history 必须变短");
+  assert.ok(
+    !JSON.stringify(a.context.raw.sessionManager.buildSessionProjection().messages).includes("第一句"),
+    "被抹的条目不能再出现在发给模型的投影里",
+  );
+  a.dispose();
+});
+
+test("replace / erase 收到不存在的 id → 抛错，不静默 no-op", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("一句话");
+  await assert.rejects(() => a.context.replace("no-such-id", "x"), /no-such-id/);
+  await assert.rejects(() => a.context.erase("no-such-id"), /no-such-id/);
+  a.dispose();
+});
+
+test("连续两次 erase 不会找错下标", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("甲");
+  await a.io.prompt("乙");
+  const users = a.context.entries().filter((e) => e.role === "user");
+  assert.equal(users.length, 2);
+  // 先按捕获的 id 连抹两个 user（中间投影已变，仍不许找错条目）
+  await a.context.erase(users[0].id);
+  await a.context.erase(users[1].id);
+  // 再抹助手回显，才能断言「甲」「乙」彻底不在投影里
+  for (const e of a.context.entries().filter((e) => e.role === "assistant")) {
+    await a.context.erase(e.id);
+  }
+  const msgs = JSON.stringify(a.context.raw.sessionManager.buildSessionProjection().messages);
+  assert.ok(!msgs.includes("甲") && !msgs.includes("乙"));
+  a.dispose();
+});
+
+test("replace 出来的内容真的进了下一次请求（跑一轮验证）", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("原始问题");
+  const target = a.context.entries().find((e) => e.role === "user")!;
+  await a.context.replace(target.id, "替换后的问题");
+  const before = faux.calls.length;
+  await a.io.prompt("继续");
+  assert.match(faux.calls[before].messagesText, /替换后的问题/);
+  a.dispose();
+});
+
+test("erase 之后模型收到的那条消息确实不见了", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("要被抹掉的一句");
+  const doomed = a.context.entries().filter((e) => e.role === "user" || e.role === "assistant");
+  for (const e of doomed) await a.context.erase(e.id);
+  const before = faux.calls.length;
+  await a.io.prompt("继续");
+  assert.ok(!faux.calls[before].messagesText.includes("要被抹掉的一句"));
+  a.dispose();
+});
+
+test("dispose 之后 replace / erase 都抛错", async () => {
+  const a = await makeAgent();
+  await a.io.prompt("一句话");
+  const id = a.context.entries()[0].id;
+  a.dispose();
+  await assert.rejects(() => a.context.replace(id, "x"), /dispose/);
+  await assert.rejects(() => a.context.erase(id), /dispose/);
 });
