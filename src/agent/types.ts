@@ -122,9 +122,26 @@ export interface ContextSurface {
   readonly history: readonly AgentMessage[];
   /** 会话里的 entry（可寻址；system 也在里面，用 role 区分） */
   entries(): { id: string; role: string; preview: string }[];
-  /** 追改：把 entry 在本轮上下文里的贡献换成新内容。append-only，不要求 idle */
+  /**
+   * 追改：把 entry 在本轮上下文里的贡献换成新内容。
+   *
+   * append-only，不要求 idle：不打断在飞那轮，也不走 `reload()`；编辑**从下一次请求起生效**。
+   * ⚠️ 忙时编辑的代价：**在飞那轮结束后的本轮 `RunResult.messages` / `text` 不保证包含本轮产出** ——
+   * pi 会在回合边界从投影重建整个 `agent.state.messages`（少了几条，下标整体前移），
+   * 而 `io` 的结算用运行前的下标切区间，于是切到数组之外。
+   * 要拿到准确的本轮结算，先 `await agent.io.waitIdle()` 再编辑。
+   */
   replace(entryId: string, content: string): Promise<void>;
-  /** 抹除：把 entry 从本轮上下文里删掉（原 entry 不动）。append-only，不要求 idle */
+  /**
+   * 抹除：把 entry 从本轮上下文里删掉（原 entry 不动）。
+   *
+   * append-only，不要求 idle：不打断在飞那轮，也不走 `reload()`；抹除**从下一次请求起生效**。
+   * ⚠️ 忙时编辑的代价：**在飞那轮结束后的本轮 `RunResult.messages` / `text` 不保证包含本轮产出**（同 `replace`）。
+   * 要拿到准确的本轮结算，先 `await agent.io.waitIdle()` 再编辑。
+   *
+   * 就**模型上下文**而言重复抹同一条是 no-op（已抹的不在投影里），但每次都仍会 append 一条
+   * `context_edit` entry —— 会话条目会线性增长，别把 erase 当幂等的清理手段。
+   */
   erase(entryId: string): Promise<void>;
   /** 上下文占用（来自 session.getContextUsage()） */
   readonly usage: ContextUsage | undefined;

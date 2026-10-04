@@ -275,3 +275,20 @@ test("dispose 之后 replace / erase 都抛错", async () => {
   await assert.rejects(() => a.context.replace(id, "x"), /dispose/);
   await assert.rejects(() => a.context.erase(id), /dispose/);
 });
+
+test("idle 时抹掉一整轮，不影响之后那轮的结算（RunResult.messages / text）", async () => {
+  const a = await makeAgent();
+  try {
+    await a.io.prompt("要被抹掉的一句");
+    const doomed = a.context.entries().filter((e) => e.role === "user" || e.role === "assistant");
+    for (const e of doomed) await a.context.erase(e.id);
+    // 结算区间靠 `io` 的「运行前下标 → slice」切出来，而 pi 会在回合边界从投影重建 `agent.state.messages`。
+    // 忙时编辑会让重建后的数组比下标短、切到数组之外；idle 时编辑则不该影响后面那轮的结算。
+    const r = await a.io.prompt("继续");
+    assert.ok(r.text.length > 0, "忙时编辑会打坏结算，空闲时不该受影响");
+    assert.ok(r.messages.some((m) => m.role === "assistant"), "本轮产出必须出现在结算区间里");
+    assert.ok(!JSON.stringify(r.messages).includes("要被抹掉的一句"), "被抹的条目不该回到结算区间");
+  } finally {
+    a.dispose();
+  }
+});
