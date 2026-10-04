@@ -85,7 +85,7 @@ src/agent/       lab.ts（createLab：环境所有者与唯一启动入口）· 
 src/surfaces/    七个面：io.ts · context.ts · tools.ts（tools + permissions）· resources.ts（extensions + skills）· model.ts
 test/            node:test，本机假 provider，零 API 成本
 examples/        11 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码）；离线基建在 examples/lib/
-demo/            安装自检：demo/check.ts（八项，不需要 key）+ demo/agent-team.ts（多 agent 协作写报告）
+demo/            实验脚手架（复制即开始实验）：lab.ts（起点）+ agent/（环境）+ check.ts（八项自检）；完整案例在 examples/12-team.ts
 docs/DESIGN.md   宏观设计（唯一设计源）
 docs/GUIDE.md    用法讲解（面向设计者；代码引用 examples/lib/snippets.ts 的同源片段）
 docs/FACTS.md    已实测核对的实现决策（v1 段 + v2 段）

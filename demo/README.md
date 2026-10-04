@@ -1,295 +1,156 @@
-# demo —— 第一窗口：看这个库能操控什么
+# demo —— 实验脚手架：复制它，开始你自己的实验
 
-**第一条命令**（离线、零成本、不需要 API key、也不需要你装过 pi）：
+**这是脚手架，不是展示品。** 它短（`lab.ts` 161 行）、能跑、七个操控面各有一次真实调用；它的用法是**复制、改、跑**。
+
+## 三条命令
 
 ```bash
-node demo/agent-team.ts
+cp -r demo demo-exp1        # 1. 复制：环境（demo/agent/）跟着一起走
+# 2. 改它 —— lab.ts 七段各有一个「改这里」的锚点
+node demo-exp1/lab.ts       # 3. 跑
 ```
 
-它起两个检索分身 + 一个写作员，把七个操控面串成一件真事。看四样东西：
+只想看原版跑一次：`node demo/lab.ts`（离线、零成本、不需要 key）。
 
-1. **七个面各自出场 ≥ 1 的自证表**（`[6]` 段）——数字来自代理计数，不是手写的，哪个面没出场就红；
-2. **黑板流水**：谁查了什么、采信了哪几条、哪一步被审批门拦下（`demo/work/blackboard.jsonl`）；
-3. **报告由代码拼**：模型只决定「查什么、采信哪几条、分几节」，正文由 `writeReport()` 从黑板 + 语料拼出（`demo/work/report.md`）；
-4. **每一处设计决策旁边都有一行「要检验这条，改成 X 再跑」**——具体到能照着改、改完重跑看结果。
+**环境在副本自己的 `agent/` 里。** `cp -r demo demo-exp1` 之后，`demo-exp1/lab.ts` 用的是 `demo-exp1/agent/`，不是原 demo 的 —— `demo/env.ts` 里 `agentDir()` 相对本文件解析，这就是「复制即用」的全部机关。
 
-环境是 `demo/agent/`（**就是** `createLab` 的 `agentDir`，看得见、可手改），规范见 [`demo/agent/README.md`](agent/README.md)。
-
-## agent-team 的预期输出（真实跑出来的）
+实跑实录（机器路径会不同）。**第一段**是跑原版：
 
 ```text
-$ node demo/agent-team.ts
-[1] 环境（demo 自己的 agentDir / cwd，离线假 provider）
-    agentDir = D:\space\aiteam\test\demo\agent
-    cwd      = D:\space\aiteam\test\demo\work
-    语料     = 6 条（C1、C2、C3、C4、C5、C6）
-[2] 成员与分身：检索员 ×2 + 写作员 ×1 = 3 个分身 —— 起几个是使用者代码的决定
-    检索员-1  model=echo  技能=[env-style、research-style]  检索线=「上下文 白名单」/ 标签 tools
-    检索员-2  model=echo  技能=[env-style、research-style]  检索线=「审批门 分工 分身 装载」/ 标签 装载
-    写作员  model=echo  技能=[env-style、writing-style]  extensions=2  工具白名单=[read、bash、edit、write、env_checklist、read_blackboard、draft_section、clear_blackboard]
-[3] 检索阶段：每个检索分身各查一轮，采信记进黑板
-    [检索员-1] 第一问命中：C1、C2
-    [检索员-1] tools 面：运行期 add(search_by_tag) → 模型现在看得到 [note、search、search_by_tag]
-    [检索员-1] 采信：C1、C2
-    [检索员-2] 第一问命中：C2、C3、C4、C5、C6
-    [检索员-2] 采信：C3、C4、C5、C6
-    context 钩子实测（pi 交给 override 的条数 → 它返回、真发出去的条数）：
-      检索员-1  1 → 1
-      检索员-1  3 → 3
-      检索员-1  5 → 1  ← 裁掉了
-      检索员-1  8 → 4  ← 裁掉了
-      检索员-2  1 → 1
-      检索员-2  3 → 3
-      检索员-2  5 → 1  ← 裁掉了
-      检索员-2  7 → 3  ← 裁掉了
-[4] 写作阶段：便宜的检索 → 强的写作
-    model 面：echo/off → echo-alt/high
-    extensions 面：运行期 add(引用检查) → 2 → 3 个（errors=0）
-    大纲：一、上下文预算：裁的是这一轮，不是历史 ｜ 二、工具集与审批门：先裁能力，再拦动作 ｜ 三、分工与装载：便宜的检索、强的写作
-    cite_check（运行期扩展注册的工具真跑了）：echo:引用检查：3 条 不在语料里：C9
-    环境自动发现：技能 env-style=可见，扩展工具 env_checklist=可见
-    env_checklist（环境扩展注册的工具）：真跑了 —— echo:交付清单： 1. 每节都有依据行 2. 引用都核对过 3. 审批门拦过 （这一份由环境扩展 env-tools…
-    审批门：看过 6 次调用，拦下 1 次
-    被拦后模型读到的是：echo:写作员不许做这类会抹掉别人成果的操作；要清空黑板请改设计者代码，不要在会话里试
-[5] 汇总：报告由代码拼（黑板 + 语料），写到 demo/work/report.md
-    D:\space\aiteam\test\demo\work\report.md：91 行；采信语料 6 条；黑板流水 16 条
-[6] 自证：七个面各自被调用了几次（数据来自计数代理，不是手写的数字）
-    io           10  ██████████
-    context       2  ██
-    tools         1  █
-    permissions   1  █
-    extensions    1  █
-    skills        2  ██
-    model         2  ██
-    七面全部 ≥ 1 ✓
+$ node demo/lab.ts
+[0] 环境 = D:\space\aiteam\test\demo\agent
+    cwd = D:\space\aiteam\test\demo\work  provider = 假（离线、零成本）
+[2] 起了 2 个分身：检索员(echo)、写作员(echo)
+[4] 检索员说：echo:C3: 工具集分两层：创建期声明有哪些，运行期按白名单决定哪些**允许被调用**
+    io.queue → {"queued":true}
+    写作员升档：echo → echo-alt（检索员仍是 echo）
+    [门] 拦下 bash：{"block":true,"reason":"写作员不许清空东西；要清空请改设计者代码，不要在会话里试"}
+    被拦后模型读到的是：echo:写作员不许清空东西；要清空请改设计者代码，不要在会话里试
+[5] override 期间模型只收到最后 1 条，而 history 照常增长 8 → 12
+    entries() 可寻址条目 13 条（带 id，能拿去 replace/erase）：158bc51d(system)、d6dc9128(user)、8922c40f(assistant)…
+    事件：tool_call 2 次 [检索员:tool_search, 写作员:write]；agent_settled 1 次
 
-全部跑通 —— 报告在 demo/work/report.md。改一处设计决策、再跑一次，就能检验那条假设。
+[6] 结果
+    检索员：model=echo 累计 tokens=108 状态=idle
+    写作员：model=echo-alt 累计 tokens=72 状态=idle
+    检索员这轮文本（RunResult.text）：echo:C3: 工具集分两层：创建期声明有哪些，运行期按白名单决定哪些**允许被调用**
+    工具调用序列（on("tool_call") 收到）：检索员:tool_search → 写作员:write
+    检索员 agent_settled 次数（onAny 收到）：1
+    审批门拦下 1 次 [bash]（gate 的 {block:true, reason} 见上面第 4 段）
+    检索员可寻址条目（context.entries()）：13 条
+    产物：D:\space\aiteam\test\demo\work\notes.md —— 写作员的 write 工具用了实验室的 cwd
+
+改这里：把你的分析写在这；下一个实验：cp -r demo demo-exp1 && node demo-exp1/lab.ts
 ```
 
-机器路径会不同，其余一致（本机连跑两次的 `report.md` md5 相同，产物可复现）。
+**第二段**是复制一份再跑 —— 只有路径不同，但那就是「复制即用」的全部证据：
 
-**产物在 `demo/work/`**（gitignored，可随时删掉重跑）：
+```text
+$ cp -r demo demo-exp1 && node demo-exp1/lab.ts
+[0] 环境 = D:\space\aiteam\test\demo-exp1\agent
+    cwd = D:\space\aiteam\test\demo-exp1\work  provider = 假（离线、零成本）
+[2] 起了 2 个分身：检索员(echo)、写作员(echo)
+[4] 检索员说：echo:C3: 工具集分两层：创建期声明有哪些，运行期按白名单决定哪些**允许被调用**
+    io.queue → {"queued":true}
+    写作员升档：echo → echo-alt（检索员仍是 echo）
+    [门] 拦下 bash：{"block":true,"reason":"写作员不许清空东西；要清空请改设计者代码，不要在会话里试"}
+    被拦后模型读到的是：echo:写作员不许清空东西；要清空请改设计者代码，不要在会话里试
+[5] override 期间模型只收到最后 1 条，而 history 照常增长 8 → 12
+    entries() 可寻址条目 13 条（带 id，能拿去 replace/erase）：395dd335(system)、e797437b(user)、e5213931(assistant)…
+    事件：tool_call 2 次 [检索员:tool_search, 写作员:write]；agent_settled 1 次
 
-| 文件 | 是什么 |
-|---|---|
-| `demo/work/report.md` | 报告本体：由 `demo/agent-team.ts` 的 `writeReport()` 从黑板 + 语料拼出 |
-| `demo/work/blackboard.jsonl` | 黑板：这次协作的每一笔（检索 / 采信 / 读板 / 起草 / 门 / 引用检查） |
-| `demo/work/skills/{research-style,writing-style}/SKILL.md` | 两个角色各自的技能（脚本自己写的，真实存在的 SKILL.md） |
+[6] 结果
+    检索员：model=echo 累计 tokens=108 状态=idle
+    写作员：model=echo-alt 累计 tokens=72 状态=idle
+    检索员这轮文本（RunResult.text）：echo:C3: 工具集分两层：创建期声明有哪些，运行期按白名单决定哪些**允许被调用**
+    工具调用序列（on("tool_call") 收到）：检索员:tool_search → 写作员:write
+    检索员 agent_settled 次数（onAny 收到）：1
+    审批门拦下 1 次 [bash]（gate 的 {block:true, reason} 见上面第 4 段）
+    检索员可寻址条目（context.entries()）：13 条
+    产物：D:\space\aiteam\test\demo-exp1\work\notes.md —— 写作员的 write 工具用了实验室的 cwd
 
-两件必须先知道的事：
+改这里：把你的分析写在这；下一个实验：cp -r demo demo-exp1 && node demo-exp1/lab.ts
+```
 
-1. **报告里的每一句话都是代码拼的，不是「模型」写的。** 假 provider 只会回 `echo:<原文截断>`，所以
-   `agent-team.ts` 里那些 `[[tool:…]]` / `[[call:…]]` 是**给假 provider 的脚本指令**（约定见
-   `examples/lib/faux-server.ts` 顶部），「模型」负责的是调用顺序与取舍（查什么、采信哪几条、分几节），
-   报告正文由代码按 id 从语料取值。要让它真的写字：`AITEAM_DEMO_REAL=1` + 把 `writeReport()` 里「按 id 取语料正文」
-   换成「取模型写的段落」（见下面「换成真模型」一节与 `agent-team.ts` 头部的改法）。
-2. **它是一个可改造的起点，不是推荐架构。** 「几个 agent、怎么分工、要不要护栏、审批门拦什么」
-   全是使用者代码，每一处设计决策旁边都有一行「要检验这条，改成 X 再跑」——具体到能照着改、改完重跑就能看结果。
-   例：把 `RESEARCH_LINES` 减到 1 条、把审批门的判据改成只拦 `rm_`、把写作员的 `permissions.only` 删掉。
+## `lab.ts` 的七段
 
-## 环境：`demo/agent/` 就是 agentDir
-
-环境不是脚本里的字符串，是**仓库里这个看得见的目录**：
-
-| 路径 | 谁写 | 进 git 吗 |
+| 段 | 是什么 | 「改这里」改什么 |
 |---|---|---|
-| `demo/agent/skills/env-style/SKILL.md` | 人（改它 = 改报告写作规范） | 进 |
-| `demo/agent/extensions/env-tools.ts` | 人（注册 `env_checklist` 工具） | 进 |
-| `demo/agent/README.md` | 人（**环境规范**：每一档管什么、哪些能删） | 进 |
-| `demo/agent/models.json` | `demo/env.ts`（假 provider 端口随机，只能是生成物） | 不进 |
-| `demo/agent/auth.json` · `models-store.json` · `settings.json` | 你（真模式凭证）· pi 自己 | 不进 |
-| `demo/work/` | agent（`report.md` / `blackboard.jsonl` / 技能） | 不进 |
+| 0 环境 | `ensureEnv()` + `createLab({ agentDir, cwd })` | 换环境目录 / 工作目录 / 联网开关 |
+| 1 模板 | `interface Member` + 两个**普通对象**（检索员、写作员） | 加成员；改它的 `model` / `tools` / `only` |
+| 2 起分身 | `lab.createAgent(spec)` ×2；写作员装一个审批门 | 起几个分身；门拦什么 |
+| 3 自定义工具 | `tool_search`：在 6 条内联语料里按关键词找 | 换成你的检索 / 统计 / 评测工具 |
+| 4 跑 | `io.prompt`、`io.queue`（排队投递）、升档、被门拦的那一轮 | 交办什么 |
+| 5 观测 | `on("tool_call")` / `onAny`、`context.override`、`context.entries()` | 收什么材料 |
+| 6 打印 | 结果 + 「读什么」的样板 | **把你的分析写在这** |
 
-技能与扩展走 pi 的**自动发现**：放在目录里就生效，不用写进 `createLab` 的 spec。想看这套环境里实际生效了什么，用 `lab.inspectEnv()`（`node demo/check.ts` 第 3、7 项就是在用它）。
+**七个面没有全出场**（刻意）：`interrupt` / `reset` / `compact` / `skills.add` / `extensions.add` / `onResult` 都不在 `lab.ts` 里 —— 一份实验只关心自己那几个面，这本身就是示范。
 
-**怎么自己改**（加技能 / 加扩展 / 换凭证）、**为什么不放 `SYSTEM.md`**、**两种模式共用一个环境目录的已知代价** —— 都在 [`demo/agent/README.md`](agent/README.md) 里逐条写着。
+## 环境：`demo/agent/` 就是 `agentDir`
 
-改了环境不生效怎么办：删**可再生的产物**再跑 —— `rm -rf demo/agent/models.json demo/work`。`demo/agent/auth.json` 是你的凭证，**不要删**。
+环境不是脚本里的字符串，是**仓库里这个看得见的目录**：技能（`skills/env-style/SKILL.md`）与扩展（`extensions/env-tools.ts`）是仓库里的真文件，走 pi 的**自动发现**（放着就生效，不用写进 `createLab` 的 spec）。改环境 = 改文件；review 环境 = 看 diff。
 
-## 换成真模型（可选，默认免费档）
+- **每一档管什么、哪些能删、为什么不放 `SYSTEM.md`、两种模式共用一个目录的代价** → [`demo/agent/README.md`](agent/README.md)
+- 改了环境不生效：删**可再生的产物**再跑 —— `rm -rf demo/agent/models.json demo/work`。`demo/agent/auth.json` 是你的凭证，**不要删**。
 
-两种模式**同一个 demo、同一套流程**，差别只在 provider：
+`demo/work/` 是 `cwd`：agent 在哪干活、产物落哪（上面那次的 `notes.md` 就是写作员的 `write` 工具用它落的）。`demo/work/*` 不进 git。
+
+## 换成真模型（可选；默认本机假 provider）
 
 ```bash
-AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
-AITEAM_DEMO_REAL=1 node demo/check.ts        # 环境自检走真模型
+AITEAM_DEMO_REAL=1 node demo/lab.ts      # 脚手架走真模型
+AITEAM_DEMO_REAL=1 node demo/check.ts    # 环境自检走真模型
 ```
 
 | 环境变量 | 作用 | 默认 |
 |---|---|---|
-| `AITEAM_DEMO_REAL=1` | 切到真模型（**demo 自己的**凭证） | 关（用本机假 provider） |
+| `AITEAM_DEMO_REAL=1` | 切到真模型（**demo 自己的**凭证） | 关（本机假 provider） |
 | `AITEAM_DEMO_MODEL` | 真模型用哪个 | `opencode-go/space-bunny-free`（免费档） |
-| `AITEAM_DEMO_AUTH` | 真模式用哪份凭证（会被**复制**进 `demo/agent/auth.json`，原件只读） | `demo/agent/auth.json`；没有就迁 `demo/env/auth.json` |
+| `AITEAM_DEMO_AUTH` | 真模式用哪份凭证（会被**复制**进 `demo/agent/auth.json`，原件只读） | `demo/agent/auth.json` |
 
-**demo 用它自己的 key**（`demo/agent/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
-三处都没有凭证时**明确报错**（不静默），文案里给出四条出路：写进 `demo/agent/auth.json` / `AITEAM_DEMO_AUTH=` / 干脆跑离线 / **别指向宿主**。
+**demo 用它自己的 key**（`demo/agent/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。两处都没有凭证时**明确报错**（不静默），文案里给出出路：写进 `demo/agent/auth.json` / `AITEAM_DEMO_AUTH=` / 干脆跑离线 / **别指向宿主**。
 
 > ⚠️ 这一条反着改过两次，每次都是真事故：
 > 1. 最初真模式直接指宿主目录（理由「不复制密钥」）⇒ **pi 的 auth 存储是读-改-写整个 `auth.json`**
->    （`auth-storage.js` 的 `withLock` 会把 `fn(current)` 出的完整 `next` 整文件写回，
->    且 `ensureFileExists()` 在每次 withLock 里都先建文件）。实测跑一次，宿主从
+>    （`auth-storage.js` 的 `withLock` 把 `fn(current)` 出的完整 `next` 整文件写回）。实测跑一次，宿主从
 >    `{opencode-go, openrouter, opencode}` 被重写成只剩 `{opencode-go}`——**另外两个 provider 的凭证被抹掉**。
-> 2. 改成「复制宿主凭证」⇒ 不再破坏宿主了，但仍**不符合 demo 的定位**：
->    跑 demo 会烧**你自己的**额度、用**你本机 pi 的账号**，与 demo 要演示的东西无关。
+> 2. 改成「复制宿主凭证」⇒ 不再破坏宿主，但仍不符合 demo 的定位：跑 demo 会烧**你自己的**额度、用**你本机 pi 的账号**。
 >
 > 现在：真模式用 `demo/agent/auth.json`（demo 自己的免费账号），宿主目录**一个字节都不碰**。
 
-### 提示词的两套说法
+## 完整案例在别处
 
-假 provider **只会照脚本回话**，所以要靠 `[[tool:…]]` / `[[call:…]]` 指令告诉它调哪个工具；真模型得说人话。
-这个分叉点在 `demo/agent-team.ts` 的 `ask(fauxText, realText)` 一处收口——**流程（谁先跑、哪一步升档、门拦什么）两边完全一样**，
-所以「换真模型」检验的是**模型**，不是被改写的流程。
+| 想看什么 | 去哪 |
+|---|---|
+| **七面全出场**的完整案例（786 行、自证表、每一处设计决策旁边一行「要检验这条，改成 X 再跑」） | [`examples/12-team.ts`](../examples/12-team.ts) |
+| 环境自检八项（真调用、失败三段式、不需要 key） | `node demo/check.ts` |
+| 一面一事的 11 个最小示例 | [`examples/`](../examples/)（从 `01-first-agent.ts` 起） |
 
-### ⚠️ 真模型下两处实测差异（不是 bug，是真发现）
+**为什么它们不在 `demo/` 里**：脚手架要**短**（给人改），案例要**全**（给人读），两者服务不同的人。所以 `lab.ts` 是起点、`12-team.ts` 是案例、`check.ts` 是排查工具，各就各位。
 
-**1. 审批门可能一次都没机会拦。** 真模型读了 `role` 里的边界（「不动黑板」），**自己在会话里就拒绝了**，
-压根没调 `clear_blackboard`——于是「拦下 0 次」不是门坏了，而是**护栏顺序**这件事变得可观察了：
+`demo/check.ts` 八项一览（判据都在脚本自己的 hints 里）：
 
-- `role` 里的边界是**软约束**（靠模型配合）；
-- `permissions.gate` 是**硬约束**（靠代码，模型不配合也拦得住）。
+| 项 | 检查什么 |
+|---|---|
+| 1 | Node 版本与原生执行 `.ts` |
+| 2 | `@earendil-works/pi-coding-agent` 可解析且版本恰好是 **0.99.1** |
+| 3 | `agentDir` 可写、模型可读（真写一个文件再读回来） |
+| 4 | 用实验室起 agent（`lab.createAgent`） |
+| 5 | 一轮 `io.prompt` 拿到非空文本 |
+| 6 | **一个工具真被模型调用**（执行体里的闭包计数器，不是 `tools.list()` 里有它） |
+| 7 | **环境隔离：只认自己的技能与插件**（看得到自己的那份，且读不到宿主 `~/.pi/agent` 的任何一份） |
+| 8 | 七个面各自至少一次读写 |
 
-想看到门真的拦下：把 `role` 里的「不动黑板」删掉再跑。`agent-team.ts` 在真模式遇到「拦下 0 次」时会打印这条提示。
+第 7 项的判据与本环境里那份扩展注册的工具能不能被某个 agent 看见（`permissions.only` 决定）—— 实测对照表见 [`demo/agent/README.md`](agent/README.md) 的 R41 段。
 
-**2. 模型可能自行增删小节。** 你要求三节，它可能给你五节——真模型比假 provider 灵活。
-`draft_section` 是**留痕**，所以提示词在真模式下说死「每一节都要调一次工具」（否则它直接在回复里写，黑板没留痕、大纲一行是空的——实测踩到过）。
+## 目录
 
-### 报告正文由谁来写
-
-假 provider 不会写字，所以 `writeReport()` 是**按 id 从语料取值**拼出报告正文的。
-真模型会写字，但 `writeReport()` 仍走同一条路（保证两种模式产物可比）——想让它用模型写的段落，
-改 `writeReport()` 里那一段（该文件头部写了改法）。
-
-## 附加：环境自检（可选）
-
-**这是环境出问题时的诊断入口，不是新人的第一步。** 第一件事在上面——先跑 `node demo/agent-team.ts`。
-什么时候来这：怀疑 Node / pi 版本 / 环境目录 / 隔离出了问题，或想确认「这台机器具备研究条件」：
-
-```bash
-node demo/check.ts        # 八项，不需要 API key，全程离线，零成本
-```
-
-退出码 **0** = 八项全过；**1** = 某一项挂了。八项都是**真调用**，不是读一个属性凑数。
-
-```text
-$ node demo/check.ts
-[1/8] Node 与原生 .ts                  … 通过（v24.18.0）
-        node=D:\Develop\nodejs\node.exe
-[2/8] pi-coding-agent 可解析           … 通过（0.99.1）
-        入口=D:\space\aiteam\test\node_modules\@earendil-works\pi-coding-agent\dist\index.js
-[3/8] agentDir 可写、模型可读          … 通过（agentDir 可写；读到 2 个模型）
-        D:\space\aiteam\test\demo\agent\models.json → faux: echo、echo-alt（离线，modelNetwork:false）
-[4/8] 用实验室起 agent                 … 通过（id=demo-check，model=echo/off）
-        agentDir=D:\space\aiteam\test\demo\agent
-        cwd=D:\space\aiteam\test\demo\work
-        假 provider=http://127.0.0.1:30023/v1
-[5/8] 一轮 io.prompt 拿到非空文本      … 通过（拿到 26 字符）
-        模型说：echo:自检第 5 项：请回一句话（任意内容即可）
-[6/8] 工具真被模型执行                 … 通过（demo_probe 的执行体真跑了 1 次）
-        模型这一轮回读：echo:probe 收到：自检工具链
-        对照（不判别）：pi 注册表里有它的定义 = 有
-[7/8] 环境隔离：只认自己的技能与插件   … 通过（只看得到自己的 1 个技能、1 个扩展）
-        自己的：skills=[env-style] extensions=[./extensions/env-tools.ts]
-        宿主的（一个都没读进来）：skills=[0] extensions=[0] —— 对照目录 C:\Users\Holder\.pi\agent
-        自己的扩展注册的工具：env_checklist
-[8/8] 七面各至少一次读写               … 通过（7 个面各至少一次读写）
-        io（读 pending=0 / isRunning=false；写 queue + waitIdle + interrupt）
-        context（读 history=10、autoCompact=false；写 autoCompact + override 并清除；compact：会话太小、无需压缩（Nothing to compact (session too small)）—— 正常路径）
-        tools（读 list=0 个；写 add=demo_probe_extra → 1 个）
-        model（读 current=echo/off、thinking、available=2 个；写 set=echo-alt + setThinking=off，再还原为 echo/off）
-        extensions（读 list=2 个 + errors=0；写 add → 3 个）
-        skills（读 list=1 个；写 add=demo-check-skill（真 SKILL.md）→ 2 个）
-        permissions（写 gate 且真被调用 1 次；only 后活跃集只剩它，deny/allow 用 tools.list() 读回）
-
-八项全通过 —— 本机可以开始研究 agent 课题了。
-下一步：node examples/01-first-agent.ts（最小演示）；失败时怎么读输出见 demo/README.md。
-```
-
-端口、路径、`history=10`、字符数、`available=2`（真假模式共用一个环境目录时会随对面模式的产物变，见 `demo/agent/README.md`）、`node=` 与 `入口=` 这些每次跑都会略不同，其余一致。
-
-## 每项在检查什么
-
-| 项 | 检查什么 | 判据（怎么算通过） |
+| 路径 | 是什么 | 进 git |
 |---|---|---|
-| 1 | Node 版本与原生执行 `.ts` | 版本 ≥ v22.18 / v23.6；这个文件本身能被 `node` 跑起来就是证据 |
-| 2 | `@earendil-works/pi-coding-agent` 可解析且版本匹配 | 解析到它的 `package.json`，版本恰好是 **0.99.1**（本仓库钉的） |
-| 3 | `agentDir` 可写、模型可读 | 真写一个文件再读回来；再用实验室的 `lab.inspectEnv()` 读到 `faux/echo` |
-| 4 | 用实验室起 agent（`lab.createAgent`） | 拿到 `agent.id`、`model.current`，没抛错 |
-| 5 | 一轮 `io.prompt` 拿到非空文本 | `RunResult.text` 非空且 `result.error` 为空 |
-| 6 | **一个工具真被模型调用** | 工具**执行体**里的闭包计数器 +1（`tools.list()` 里有它**不**算数：那只说明声明在） |
-| 7 | **环境隔离：只认自己的技能与插件** | 看得到自己的那份（`env-style` 技能 + `env-tools.ts` 扩展 + 它注册的 `env_checklist`），且读不到宿主 `~/.pi/agent` 里的任何一份 —— 只有一条成立都说明不了问题 |
-| 8 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`/`interrupt`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
-
-### 环境自动发现的技能与插件：不只是「能看见」，还要「真被用上」
-
-`demo/agent/` 里那份技能（`env-style`）与那份扩展（`env-tools.ts`，注册 `env_checklist` 工具）**都不在 spec 里** —— 走的是「环境自动发现」这条路。`agent-team.ts` 里它们被**真的用上**：
-
-| 资源 | 怎么被用上 | 判据 |
-|---|---|---|
-| 技能 `env-style` | `role` 里要求按它写（每节末尾一行「依据：」） | `技能=[env-style、…]` 与 `环境自动发现：技能 env-style=可见` |
-| 扩展工具 `env_checklist` | 让一个**干净的**探针 agent 调它 | 返回值里含「由环境扩展」那句 |
-
-**一个真实取舍**（demo 专门演示）：环境自动发现的扩展所注册的工具，**只在没写 `permissions.only` 时可见** ——
-白名单不该被环境里碰巧存在的扩展悄悄撑开（R41）。写作员是 demo 里唯一没写 `only` 的 agent。
-
-**真模型 vs 假 provider 的差异**（实测，不是猜测）：
-- 假 provider 照提示词里的脚本必调工具；真模型有自己的取舍，可能直接回文字、不调工具。
-- 所以那个工具调用用一个**新建的**探针 agent，而不是复用写作员 —— 实测：写作员上下文里堆了十几轮
-  「不许动黑板」的对话之后，面对新指令会**延续原有行为模式**，回空文本、连工具调用都不产生
-  （`text=""`、`error=undefined`、消息里只有 user+assistant 各一条）。换干净上下文就正常。
-- 同理 `draft_section` / `cite_check` 在真模型下可能不被调用 —— demo 会**如实打印**「模型没调用」
-  并区分它与「扩展没生效」（后者要看 `extensions.errors()`），不静默也不误诊。
-
-### 第 7 项为什么单列：隔离要「两边都成立」才叫隔离
-
-`agentDir` 只要没被填过东西，`skills.list()` / `extensions.list()` 返回空**说明不了任何事**——
-空可能是因为隔离做对了，也可能是因为这条发现路径压根没被走到。
-所以环境里放了一份技能（`env-style`）和一份扩展（`env-tools.ts`），判据变成：
-
-1. **看得到自己的** ⇒ 自动发现这条路是通的；
-2. **看不到宿主 `~/.pi/agent` 里的任何一份** ⇒ 隔离真的生效。
-
-> 这一条最初写成「与 `env.agentDir` 比对」，被 mutation 打回来了：
-> 如果 agentDir **就是**宿主目录（= 用了电脑的设置），那宿主的一切都算「自己的」，这一项会**通过**。
-> 改成「与**宿主目录**比对」，并加一条硬断言「agentDir 不许落在宿主目录里」。
-
-**这一项不跑模型**，纯粹查环境里有什么——便宜、确定、不需要 provider。
-
-### 失败了怎么办
-
-失败时输出是固定三段式 —— **不许只说「失败」**（下面是第 5 项失败时的真实形状，栈略）：
-
-```text
-[5/8] 一轮 io.prompt 拿到非空文本      … 失败
-    原始错误：RunResult.text 是空的：""                                ← 原始错误（含栈，便于贴给维护者）
-      at Object.run (file:///.../demo/check.ts:202:25)
-      ...
-    最可能的三个原因与怎么补：                     ← 三个原因，每条都带动作
-      1. 假 provider 没起来或端口被占 ⇒ 重跑一次；连续失败就查本机回环 …
-      2. 这一轮模型侧报错了（`result.error` 里就是原始错误）⇒ 按 error 文本查 …
-      3. pi 版本变了、SSE 解析不兼容 ⇒ 装回 0.99.1（见第 2 项）
-```
-
-读法：看 `[i/8]` 是哪一项 → 看原始错误 → 按三个原因里最像的那条动手。
-失败信息走 **stderr**、通过信息走 stdout —— 脚本里用 `2>&1` 一起抓，或只把 stderr 当告警。
-
-最常见的两类失败：
-
-- **第 1、2 项**：环境问题。跑 `node --version` 与 `npm ls @earendil-works/pi-coding-agent`；依赖没装就在仓库根目录 `npm install`。
-- **第 3 项之后**：环境产物被改坏。`demo/agent/models.json` 与 `demo/work/` 都是**可再生的产物**：
-  `rm -rf demo/agent/models.json demo/work`（Windows 用资源管理器删掉）再重跑，`ensureEnv()` 会重建。
-  真模式凭证 `demo/agent/auth.json` 不是产物，**别删**。
-
-## 目录说明
-
-| 路径 | 是什么 | 进 git 吗 |
-|---|---|---|
+| `demo/lab.ts` | **实验起点**：环境声明 + 模板 + 七个面的用法，一份实验一个文件 | 进 |
 | `demo/agent/` | **环境（= agentDir）**：技能与扩展是仓库里的真文件，规范见里面的 `README.md` | 技能/扩展/README 进；动态文件不进 |
-| `demo/work/` | agent 的工作目录与产物落点：`report.md` / `blackboard.jsonl` / `skills/` | 不进（`.gitignore`） |
-| `demo/env.ts` | 幂等自建环境：起假 provider 并写 `models.json`，或把凭证放进 `demo/agent/auth.json` | 进 |
-| `demo/check.ts` | 环境自检（八项） | 进 |
-| `demo/agent-team.ts` | 完整例子：多 agent 协作写报告（七面全出场 + 自证表） | 进 |
-| `demo/env/` · `demo/run/` | **遗留**：v1 的配置源（那份 `auth.json` 可能含真实密钥）与 v2 早先的运行产物目录。不再写入；旧 checkout 的残留仍被 `.gitignore` 与 `tsconfig.json` 忽略 | 不进（`.gitignore`） |
-
-`demo/env/auth.json`（若存在，含**真实 API 密钥**）现在只作为**一次性迁移源**：首次真模式运行会被**复制**进 `demo/agent/auth.json`，原件保留、可自行删除。要清理请自行删除，别把内容贴进任何地方。
-
-各面怎么用见 `examples/`（`01-first-agent.ts` 起，每个文件演示一件事）。
+| `demo/env.ts` | 环境在哪（幂等）：起假 provider 并写 `models.json`，或把凭证放进 `demo/agent/auth.json` | 进 |
+| `demo/check.ts` | 环境自检（八项）：怀疑环境出问题时来这里 | 进 |
+| `demo/work/` | `cwd` 与产物落点（上面那次的 `notes.md`） | 不进（`.gitignore`） |
+| `demo/agent/auth.json` · `models.json` · `models-store.json` · `settings.json` | 凭证 · 假 provider 地址（端口随机 ⇒ 只能是生成物）· pi 的两份缓存 | 不进 |
+| `demo/run/` | **遗留**：v2 早先的运行产物目录，不再写入（旧 checkout 的残留仍被 `.gitignore` 与 `tsconfig.json` 忽略） | 不进 |

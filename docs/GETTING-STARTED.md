@@ -36,14 +36,17 @@ npm install        # 需要 Node ≥ 24（原生跑 .ts，无需构建）
 
 ---
 
-## 2. 第一件事：跑第一窗口
+## 2. 第一件事：跑一次脚手架
 
 ```bash
-node demo/agent-team.ts   # 多 agent 协作写一份报告：七个操控面全出场，离线、零成本
+node demo/lab.ts          # 实验脚手架：一个文件、七段、七个面各有一次真实调用（离线、零成本）
+cp -r demo demo-exp1      # 开始你自己的实验：环境（demo/agent/）跟着一起被复制
 node demo/check.ts        # 环境自检（八项）：确认这台机器具备研究条件
 ```
 
-**`agent-team` 才是「第一件事」**：新人第一条命令该看到的是**这个库能操控什么**（七个面各出场 ≥ 1 的自证表、黑板流水、报告由代码拼）。它跑完会把报告写在 `demo/work/report.md`。
+**`demo/` 是实验脚手架，用法是「复制、改、跑」**：`demo/lab.ts` 七段各有一个「改这里」的锚点（环境、模板、自定义工具、交办、观测、打印），改完 `node demo-exp1/lab.ts` 就能看结果。环境 = 仓库里那个看得见的目录 `demo/agent/`，副本用副本自己的。
+
+**想看「这个库到底能操控什么」**：跑完整案例 `node examples/12-team.ts`（786 行、七个面全出场、结尾自证表、每一处设计决策旁边一行「要检验这条，改成 X 再跑」）。看代码读它，做实验用 `demo/`。
 
 `check` 是**环境出问题时的诊断入口**（不是新人的第一步）：它检查的是「**你这台机器具备研究条件**」——Node 与原生 `.ts`、pi 版本、环境可写、模型可读、能起 agent、**工具真能被模型调用**、七个面各自能读写。退出码 0 = 八项全过。
 
@@ -118,11 +121,11 @@ examples/
 ## 4. 跑完整例子：多个 agent 协作写报告
 
 ```bash
-node demo/agent-team.ts                    # 离线、零成本
-AITEAM_DEMO_REAL=1 node demo/agent-team.ts # 或换成真模型
+node examples/12-team.ts                    # 离线、零成本
+AITEAM_DEMO_REAL=1 node examples/12-team.ts # 或换成真模型
 ```
 
-它会起两个检索分身 + 一个写作员，跑完产出 `demo/work/report.md`。**七个面在流程里都有出场**，结尾会自证：
+它会起两个检索分身 + 一个写作员，跑完产物落在临时 cwd（`examples/lib/harness.ts` 的 `fauxCwd`，跑完即弃）。**七个面在流程里都有出场**，结尾会自证：
 
 ```
 [6] 自证：七个面各自被调用了几次（数据来自计数代理，不是手写的数字）
@@ -180,7 +183,8 @@ docs/FACTS.md         已实测核对的 pi 行为（这个文件必须准）
 npm test              # 144 例断言，本机假 provider，零 API 成本
 npm run typecheck     # tsc --noEmit（含 src / test / demo / examples）
 
-node demo/agent-team.ts               # 第一窗口（离线）
+node demo/lab.ts                      # 实验脚手架（离线）
+node examples/12-team.ts              # 完整案例（离线）
 node demo/check.ts                    # 环境自检（离线）
 AITEAM_DEMO_REAL=1 node demo/check.ts # 环境自检（真模型）
 ```

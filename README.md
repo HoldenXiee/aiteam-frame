@@ -7,7 +7,8 @@
 理想是一个 agent 身上的每个面都能被设计者的代码操控；v2 里**机制层已经补齐**（七个面，逐面见 [`docs/GUIDE.md`](docs/GUIDE.md)），**策略层刻意留空**。完整的操控面清单与对外接口见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
 > **第一次接手这个项目？** 读 [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md)——30 分钟跑起来、看懂、开始研究。
-> **想看这个库能操控什么？** `npm install && node demo/agent-team.ts`（一条命令，不需要 key，七个面全出场）。
+> **想看这个库能操控什么？** `npm install && node examples/12-team.ts`（一条命令，不需要 key，七个面全出场）。
+> **想自己动手做实验？** `cp -r demo demo-exp1 && node demo-exp1/lab.ts`（**实验脚手架**：复制即用，改 `lab.ts` 就行）。
 > **只想验证这台机器能不能跑？** `node demo/check.ts`（八项环境自检，同样不需要 key）。
 
 ## 核心模型
@@ -37,7 +38,7 @@ npm install
 
 对外只有一个入口：`createLab({ agentDir, cwd, ... })` → `Lab`——环境在这里声明一次，agent 由 `lab.createAgent(spec?)` 起，环境自检是 `lab.inspectEnv()`（只读）。库**不附带任何内置工具**、没有花名册、没有委派能力——工具集要么用 `permissions.only` 显式给，**要么就是 pi 的默认集**（`read` / `bash` / `edit` / `write`）；要**零工具**必须显式写 `permissions.only: []`。
 
-最小可跑示例：[`examples/01-first-agent.ts`](examples/01-first-agent.ts)（起一个 agent、交办一件事、拿 `RunResult`）。`examples/` 里 `01`–`08` 一面一事，`09`–`11` 是上面三条假设的「可被推翻的写法」。
+最小可跑示例：[`examples/01-first-agent.ts`](examples/01-first-agent.ts)（起一个 agent、交办一件事、拿 `RunResult`）。`examples/` 里 `01`–`08` 一面一事，`09`–`11` 是上面三条假设的「可被推翻的写法」，`12-team.ts` 是七面全出场的完整案例。
 逐面怎么用、每个取舍的代价，见 [`docs/GUIDE.md`](docs/GUIDE.md)。
 
 ### 环境：三样东西
@@ -56,7 +57,7 @@ my-pi/
 
 模型目录默认允许联网刷新（`createLab` 的 `modelNetwork` 选项，pi.dev 的 overlay，缓存在 `<agentDir>/models-store.json`，4 小时新鲜度窗口）。`PI_OFFLINE=1` 关掉一切模型网络请求。
 
-设计者也可以不走工具，直接把一个 agent 的输出喂给另一个：`a.io.prompt(...)` 的 `text` 直接拼进 `b.io.prompt(...)`，或让两个 agent 通过共享的外部状态（黑板文件、数据库）交换——怎么做都是你的代码。例子见 [`demo/agent-team.ts`](demo/agent-team.ts)。
+设计者也可以不走工具，直接把一个 agent 的输出喂给另一个：`a.io.prompt(...)` 的 `text` 直接拼进 `b.io.prompt(...)`，或让两个 agent 通过共享的外部状态（黑板文件、数据库）交换——怎么做都是你的代码。例子见 [`examples/12-team.ts`](examples/12-team.ts)。
 
 ### API 速览
 
@@ -72,16 +73,19 @@ my-pi/
 
 `spec` 字段与运行期面一一对应（契约见 `src/agent/types.ts` 的 `AgentSpec`）：`context.autoCompact` / `tools.custom` / `permissions.only` / `permissions.deny` / `permissions.gate` / `extensions` / `skills` / `model` / `thinking`，外加 `id` / `role`。**`agentDir` / `cwd` / `modelNetwork` / `catalogBaseUrl` 不在 `spec` 里**——它们是实验室的环境声明，写进 spec 会被拒。**不写 `permissions.only` 就是 pi 的默认工具集**；白名单会自动并入你在同一 spec 里显式声明的工具名。
 
-## demo：第一窗口
+## demo：实验脚手架（完整案例在 `examples/12-team.ts`）
 
 ```bash
 npm install                          # 装依赖（Node ≥ 24）
-node demo/agent-team.ts              # 第一窗口：多 agent 协作写一份报告（七个面全出场，离线零成本）
+node demo/lab.ts                     # 脚手架跑一次（离线、零成本、不需要 key）
+cp -r demo demo-exp1                 # 开始你自己的实验：环境（demo/agent/）跟着一起被复制
+node examples/12-team.ts             # 完整案例：多 agent 协作写一份报告（七个面全出场）
 node demo/check.ts                   # 环境自检：八项，不需要 key，全程离线（环境出问题时来这查）
 ```
 
-`demo/` 是**这个库的第一窗口**：`demo/agent-team.ts` 把七个操控面串成一件真事（两个检索分身 + 一个写作员，
-报告落在 `demo/work/report.md` 与 `demo/work/blackboard.jsonl`），`demo/check.ts` 是八项环境自检。
+`demo/` 是**实验脚手架**（`lab.ts` 161 行，复制即开始你自己的实验）：环境声明 + 模板 + 七个面各自一次真实调用，
+七段各有一个「改这里」的锚点。**完整案例在 [`examples/12-team.ts`](examples/12-team.ts)**（786 行：两个检索分身偏一个写作员，
+七个面全出场、跑完打印自证表、每一处设计决策旁边一行「要检验这条，改成 X 再跑」）—— 脚手架要短，案例要全，两者服务不同的人。
 环境是**仓库里看得见、可手改的目录** `demo/agent/`（**就是** `createLab` 的 `agentDir`：技能与扩展进仓库，
 `auth.json` / `models.json` 等动态文件不入库），自带本机假 provider，不读本机 pi 的设置 ——
 所以**别人没装 pi 也能跑**，跑通就说明这个库在他那儿是好的。每一档管什么、怎么自己改见
@@ -92,9 +96,9 @@ node demo/check.ts                   # 环境自检：八项，不需要 key，�
 两种模式**同一个 demo、同一套流程**，差别只在 provider：
 
 ```bash
-AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 第一窗口走真模型
-AITEAM_DEMO_REAL=1 node demo/check.ts        # 环境自检走真模型
-AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
+AITEAM_DEMO_REAL=1 node demo/lab.ts           # 脚手架走真模型
+AITEAM_DEMO_REAL=1 node examples/12-team.ts   # 完整案例走真模型
+AITEAM_DEMO_REAL=1 node demo/check.ts         # 环境自检走真模型
 ```
 
 - 默认模型是 **`opencode-go/space-bunny-free`（免费档）**；换别的：`AITEAM_DEMO_MODEL=provider/id`。
@@ -106,7 +110,8 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 
 ### 运行结果的标准
 
-两个命令都该以退出码 0 收尾：`node demo/agent-team.ts`（**第一窗口**）结尾打印七面自证表、七面全部 ≥ 1；
+三个命令都该以退出码 0 收尾：`node examples/12-team.ts`（**完整案例**）结尾打印七面自证表、七面全部 ≥ 1；
+`node demo/lab.ts`（**脚手架**）结尾打印工具调用序列、用量与产物路径；
 `node demo/check.ts`（**环境自检**）八项全是「通过」，最后两行必须是：
 
 ```
@@ -149,7 +154,8 @@ npm install
 ```bash
 npm test            # 144 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
-node demo/agent-team.ts # 第一窗口：七个面全出场的一次多 agent 协作（不需要 key，全程离线）
+node demo/lab.ts    # 实验脚手架：复制即开始你自己的实验（不需要 key，全程离线）
+node examples/12-team.ts # 完整案例：七个面全出场的一次多 agent 协作（不需要 key，全程离线）
 node demo/check.ts  # 八项环境自检，不需要 key，全程离线
 ```
 
@@ -307,7 +313,7 @@ src/agent/      实验室与单 agent 的创建接线
 src/surfaces/   七个面：io / context / tools（含 permissions）/ resources（extensions + skills）/ model
 test/           node:test，全部走本机假 provider，零 API 成本
 examples/       能 node 直接跑的示例 + 离线基建（examples/lib/）
-demo/           第一窗口：demo/agent-team.ts 多 agent 协作 + demo/agent/ 环境（= agentDir）+ demo/check.ts 八项自检
+demo/           实验脚手架：lab.ts（起点）+ agent/（环境，= agentDir）+ check.ts（八项自检）；完整案例是 examples/12-team.ts
 docs/           设计文档 + 用法讲解
 ```
 
