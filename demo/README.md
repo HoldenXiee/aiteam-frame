@@ -141,7 +141,7 @@ AITEAM_DEMO_REAL=1 node demo/check.ts    # 环境自检走真模型
 | 7 | **环境隔离：只认自己的技能与插件**（看得到自己的那份，且读不到宿主 `~/.pi/agent` 的任何一份） |
 | 8 | 七个面各自至少一次读写 |
 
-第 7 项的判据与本环境里那份扩展注册的工具能不能被某个 agent 看见（`permissions.only` 决定）—— 实测对照表见 [`demo/agent/README.md`](agent/README.md) 的 R41 段。
+第 7 项判的是 `lab.inspectEnv()` 的**加载结果**（技能与扩展的路径），它**不建 agent**（`demo/check.ts` 里自己写着这句话）；某个 agent 运行时看不看得见那些工具是**另一件事**，那件由 `permissions.only` 决定 —— 实测对照表见 [`demo/agent/README.md`](agent/README.md) 的 R41 段。
 
 ## 目录
 

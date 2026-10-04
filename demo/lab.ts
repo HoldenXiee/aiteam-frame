@@ -138,7 +138,7 @@ const 覆盖前 = 检索.context.history.length;
 检索.context.override((messages) => messages.slice(-1)); // 这一轮只发最后 1 条
 await 检索.io.prompt('只发最后一条也要能答。\n[[tool:tool_search]] [[args:{"query":"白名单"}]]');
 检索.context.override(undefined); // 清除：下一轮恢复全量
-console.log(`[5] override 期间模型只收到最后 1 条，而 history 照常增长 ${覆盖前} → ${检索.context.history.length}`);
+console.log(`[5] override 生效：这一轮只发最后 1 条（\`slice(-1)\`），而 history 照常增长 ${覆盖前} → ${检索.context.history.length}`);
 const entries = 检索.context.entries();
 console.log(`    entries() 可寻址条目 ${entries.length} 条（带 id，能拿去 replace/erase）：${entries.slice(0, 3).map((e) => `${e.id.slice(0, 8)}(${e.role})`).join("、")}…`);
 

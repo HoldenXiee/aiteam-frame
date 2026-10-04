@@ -1,6 +1,7 @@
 // demo 环境自带的扩展：只在这个 agentDir 里，因此能证明「环境自动发现」这条路是通的。
 // 它注册的工具名**不会**被并入 `permissions.only` 白名单（R41）—— 所以只在没写 only 的
-// agent 上可见。demo 里的写作员正是没写 only 的那个，它用这个工具给报告加一份「交付清单」。
+// agent 上可见。`demo/lab.ts` 的写作员写了 `only`，因此看不到它（两个方向的实测对照见
+// `demo/agent/README.md` 的 R41 段）；想看它真的被调用，自己起一个不写 `only` 的 agent 再调它。
 //
 // 类型注解不是装饰：这个文件在 tsconfig 的 include 范围内（demo/），无注解的 (pi) 在 strict 下编译不过。
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
