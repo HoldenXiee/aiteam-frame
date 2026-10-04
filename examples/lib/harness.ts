@@ -3,6 +3,8 @@
 // 每个示例都 `node examples/NN-*.ts` 直接跑，且必须零 API 成本、无需真 key ——
 // 所以这里在 import 时就启动假服务、写好自己的 models.json，并把 `PI_OFFLINE=1` 钉死。
 // 做法照 test/helpers.ts（照抄，不 import test/：示例不该依赖测试目录的路径）。
+// 注意：这是**跑完即弃**的临时环境（mkdtemp）——示例演示的是「面」。真要研究，环境要像
+// demo/agent/ 那样是一个看得见、可手改的目录（见 demo/agent/README.md）。
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -52,7 +52,7 @@ export interface LabEnv {
 /** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir + 网络开关缓存** —— 一个凭证集一个 runtime。
  *  曾经是全局单例，结果是第二个不同 agentDir 的分身仍去读第一个的 models.json/auth.json。
  *  开关也必须进 key：否则第一个 runtime 的设置会决定后面所有分身（与 #8 同类的 bug）。
- *  key 里的 agentDir 必须**规范化**：`demo/run/faux` 与它的绝对路径是同一个目录，原样字符串
+ *  key 里的 agentDir 必须**规范化**：`demo/agent` 与它的绝对路径是同一个目录，原样字符串
  *  会让同一份凭证集拿到两份 runtime —— 而两份 runtime 读改写同一个 auth.json 正是 #8 要根除的。 */
 const sharedRuntimes = new Map<string, Promise<ModelRuntime>>();
 export function getSharedRuntime(agentDir: string, opts: RuntimeOpts = {}): Promise<ModelRuntime> {
