@@ -34,14 +34,14 @@ npm install
 
 ## 用
 
-对外只有两个入口：`createAgent(spec, deps?)`（**唯一**的 agent 创建入口）与 `inspectEnv(spec?, deps?)`（只读的环境自检）。库**不附带任何内置工具**、没有花名册、没有委派能力——工具集要么用 `permissions.only` 显式给，**要么就是 pi 的默认集**（`read` / `bash` / `edit` / `write`）；要**零工具**必须显式写 `permissions.only: []`。
+对外只有一个入口：`createLab({ agentDir, cwd, ... })` → `Lab`——环境在这里声明一次，agent 由 `lab.createAgent(spec?)` 起，环境自检是 `lab.inspectEnv()`（只读）。库**不附带任何内置工具**、没有花名册、没有委派能力——工具集要么用 `permissions.only` 显式给，**要么就是 pi 的默认集**（`read` / `bash` / `edit` / `write`）；要**零工具**必须显式写 `permissions.only: []`。
 
 最小可跑示例：[`examples/01-first-agent.ts`](examples/01-first-agent.ts)（起一个 agent、交办一件事、拿 `RunResult`）。`examples/` 里 `01`–`08` 一面一事，`09`–`11` 是上面三条假设的「可被推翻的写法」。
 逐面怎么用、每个取舍的代价，见 [`docs/GUIDE.md`](docs/GUIDE.md)。
 
 ### 环境：三样东西
 
-`agentDir` 决定这个 agent 能用什么。默认是 `AITEAM_AGENT_DIR` 环境变量或本机 pi 目录（`~/​.pi/agent`）；换成自己的目录就完全脱离本机 pi 设置。一个目录里只放三样：
+`agentDir` 决定这个实验室起的 agent 能用什么。**必填，没有默认值**——缺 `agentDir` 或缺 `cwd` 直接抛错，也不会回落到环境变量或本机 pi 目录（`~/​.pi/agent`）；换成自己的目录就完全脱离本机 pi 设置。一个目录里只放三样：
 
 ```
 my-pi/
@@ -50,25 +50,26 @@ my-pi/
   skills/                   技能
 ```
 
-`inspectEnv(spec)` 把这套环境里**实际生效**的东西摊平给你看：`models`（只列配好凭证的 provider）/ `extensions`（路径、来源、它注册了哪些工具名）/ `skills` / `contextFiles`（跟着 `cwd` 走的上下文文件链）/ `warnings`（目录不存在、没有 `models.json`、扩展加载失败、`SYSTEM.md` 会整体替换提示词…）。
+`lab.inspectEnv()` 把这套环境里**实际生效**的东西摊平给你看：`models`（只列配好凭证的 provider）/ `extensions`（路径、来源、它注册了哪些工具名）/ `skills` / `contextFiles`（跟着 `cwd` 走的上下文文件链）/ `warnings`（目录不存在、没有 `models.json`、扩展加载失败、`SYSTEM.md` 会整体替换提示词…）。
 跑法见 `demo/check.ts` 第 3 项。
 
-模型目录默认允许联网刷新（`modelNetwork`，pi.dev 的 overlay，缓存在 `<agentDir>/models-store.json`，4 小时新鲜度窗口）。`PI_OFFLINE=1` 关掉一切模型网络请求。
+模型目录默认允许联网刷新（`createLab` 的 `modelNetwork` 选项，pi.dev 的 overlay，缓存在 `<agentDir>/models-store.json`，4 小时新鲜度窗口）。`PI_OFFLINE=1` 关掉一切模型网络请求。
 
 设计者也可以不走工具，直接把一个 agent 的输出喂给另一个：`a.io.prompt(...)` 的 `text` 直接拼进 `b.io.prompt(...)`，或让两个 agent 通过共享的外部状态（黑板文件、数据库）交换——怎么做都是你的代码。例子见 [`demo/agent-team.ts`](demo/agent-team.ts)。
 
 ### API 速览
 
-对外只有两个函数：
+对外只有一个函数：
 
 | | |
 |---|---|
-| `createAgent(spec, deps?)` | **唯一**的 agent 创建入口 → `Agent`（七个面 + 句柄 + 观测） |
-| `inspectEnv(spec?, deps?)` | 环境自检（模型 / 扩展 / 技能 / 上下文文件 / 警告），只读，不建 agent |
+| `createLab(opts)` | **唯一**的启动入口 → `Lab`：`agentDir` / `cwd` 必填（环境），另有 `modelNetwork` / `catalogBaseUrl` / `modelRuntime` |
+| `lab.createAgent(spec?)` | **唯一**的 agent 创建入口 → `Agent`（七个面 + 句柄 + 观测） |
+| `lab.inspectEnv()` | 环境自检（模型 / 扩展 / 技能 / 上下文文件 / 警告），只读，不建 agent |
 
 `Agent` 上是**七个面**：`io`（投递 / `abort` / `waitIdle` / 结算 `RunResult`）、`context`（历史 / 逐轮覆盖 / 压缩）、`tools`（有哪些工具存在 / 工具结果拦截 `onResult`）、`permissions`（`only` / `allow` / `deny` + 审批门 `gate`）、`extensions`、`skills`、`model`。此外只有句柄（`id` / `usage` / `status` / `dispose`）、观测（`on` / `onAny`，直接镜像 pi 的 `ExtensionEvent`）与 raw 逃生口。逐面怎么用见 [`docs/GUIDE.md`](docs/GUIDE.md)。
 
-`spec` 字段与运行期面一一对应（契约见 `src/agent/types.ts` 的 `AgentInit`）：`context.autoCompact` / `tools.custom` / `permissions.only` / `permissions.deny` / `permissions.gate` / `extensions` / `skills` / `model` / `thinking` / `modelNetwork` / `catalogBaseUrl`，外加 `id` / `cwd` / `agentDir` / `role`。**不写 `permissions.only` 就是 pi 的默认工具集**；白名单会自动并入你在同一 spec 里显式声明的工具名。
+`spec` 字段与运行期面一一对应（契约见 `src/agent/types.ts` 的 `AgentSpec`）：`context.autoCompact` / `tools.custom` / `permissions.only` / `permissions.deny` / `permissions.gate` / `extensions` / `skills` / `model` / `thinking`，外加 `id` / `role`。**`agentDir` / `cwd` / `modelNetwork` / `catalogBaseUrl` 不在 `spec` 里**——它们是实验室的环境声明，写进 spec 会被拒。**不写 `permissions.only` 就是 pi 的默认工具集**；白名单会自动并入你在同一 spec 里显式声明的工具名。
 
 ## 检测环境装好没有
 
@@ -111,17 +112,17 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 | 项 | 过了意味着 |
 |---|---|
 | 1–2 环境 | Node 不用任何开关就能直接跑 `.ts`；钉住的 pi 版本可解析 |
-| 3 环境 | `agentDir` 真可写、`models.json` 真读得到模型（走库自己的 `inspectEnv`） |
+| 3 环境 | `agentDir` 真可写、`models.json` 真读得到模型（走实验室的 `lab.inspectEnv()`） |
 | 4–5 起 agent | 拿到 `agent.id` 与当前模型；一轮 `io.prompt` 的 `text` 非空、`error` 为空 |
 | 6 工具 | 一个工具的**执行体**真被模型调过（计数器 +1）——`tools.list()` 里有它**不**算数，那只说明声明在 |
 | 7 环境隔离 | **只看得到 demo 自己的技能与插件**（不用跑模型）：既看得到自己那份（证明自动发现这条路是通的），又看不到宿主 `~/.pi/agent` 里的任何一份（证明隔离真的生效）——只有一条成立都说明不了问题 |
 | 8 覆盖面 | 七个面各自至少一次读写，能读回状态的都读回校验 |
 
 挂了不会静默：该项行尾打 `… 失败`，下一段跟原始错误（含栈）+ 三个最可能原因与怎么补，退出码 1。失败信息走 stderr、通过信息走 stdout。
-`demo/env/agent/` 与 `demo/work/` 都是**可再生的产物**，删掉重跑即可重建。
+`demo/run/`（假模式 `demo/run/faux`、真模式 `demo/run/real`）与 `demo/work/` 都是**可再生的产物**，删掉重跑即可重建。
 每一项在检查什么、怎么读失败输出，见 [`demo/README.md`](demo/README.md)。
 
-改这个库的人另一个免费保险是 `npm test`：114 项测试走本机假 provider，零 API 成本，不碰真模型。
+改这个库的人另一个免费保险是 `npm test`：120 项测试走本机假 provider，零 API 成本，不碰真模型。
 
 **想看怎么用这个库，先读 [`docs/GUIDE.md`](docs/GUIDE.md)**，它逐面讲解每个操控面。
 
@@ -139,12 +140,12 @@ npm install
 ### 三条命令
 
 ```bash
-npm test            # 114 项测试，本机假 provider，零 API 成本 —— 改完先跑它
+npm test            # 120 项测试，本机假 provider，零 API 成本 —— 改完先跑它
 npm run typecheck   # tsc --noEmit
 node demo/check.ts  # 八项安装自检，不需要 key，全程离线
 ```
 
-`npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），把 `AITEAM_AGENT_DIR` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
+`npm test` 里没有真 API：`test/helpers.ts` 会起一个本机假 provider（HTTP + SSE），用一个模块级实验室把 `agentDir` 指向它，并设 `PI_OFFLINE=1`。每个测试文件是独立进程，互不污染。
 
 ### 改哪儿
 
@@ -154,7 +155,7 @@ node demo/check.ts  # 八项安装自检，不需要 key，全程离线
 | 面 = pi 钩子的分组封装（`on` / `onAny` / 槽位 / 忙判据） | `src/agent/bridge.ts` |
 | 七个面各自的行为 | `src/surfaces/io.ts` · `src/surfaces/context.ts` · `src/surfaces/tools.ts` · `src/surfaces/resources.ts` · `src/surfaces/model.ts` |
 | skills / extensions / role 的注入与解析 | `src/agent/loader.ts` |
-| 环境自检 `inspectEnv` | `src/agent/env.ts` |
+| 环境自检 `lab.inspectEnv` | `src/agent/env.ts` |
 | 用量累计 | `src/agent/usage.ts` |
 | 对外类型（无运行时逻辑） | `src/agent/types.ts` |
 | 对外导出（唯一入口，不做逻辑） | `src/index.ts` |
@@ -169,7 +170,7 @@ node demo/check.ts  # 八项安装自检，不需要 key，全程离线
 1. **L1 不做 SDK 已经做了的事。** 加功能前先确认 pi SDK 里没有等价物 —— `node_modules/@earendil-works/pi-coding-agent/docs/` 是第一手资料。
 2. **只说实测过的。** 任何「已实现 / 已修复」都要配一个能跑出结果的检查：`npm test` 里的一条断言、`examples/` 下某个文件的实际输出，或 `node demo/check.ts` 的一项。
 3. **类型不重定义。** `Skill` / `ToolDefinition` / `AgentSession` / `Message` / `Usage` / `ThinkingLevel` 一律从 pi 的包 import。
-4. **唯一创建入口。** 不加第二条造 agent 的路径（`host.createAgent()` 之类）；库不给 agent 附带任何提权工具——委派、收窄工具集都是使用者代码，见 `examples/10-spawn.ts` 与 `examples/11-redline.ts`。
+4. **唯一创建入口。** 环境只能在 `createLab` 声明、agent 只能经 `lab.createAgent` 起，不加第二条造 agent 的路径（v1 那种顶层 `createAgent()` 已经不导出）；库不给 agent 附带任何提权工具——委派、收窄工具集都是使用者代码，见 `examples/10-spawn.ts` 与 `examples/11-redline.ts`。
 5. **接口变了就同步三份文档**：`DESIGN.md`（接口与现状）→ `FACTS.md`（带编号的决策与理由）→ `GUIDE.md`（怎么用）。
 
 ### 加一个测试
@@ -286,12 +287,13 @@ Conventional Commits + 中文描述（照 `git log` 的风格）：`feat:` / `fi
 ## 目录
 
 ```
-src/index.ts    唯一导出入口（不做逻辑）：createAgent / inspectEnv + 对外类型
-src/agent/      单 agent 的创建与接线
-  create-agent.ts   唯一的创建路径 → Agent（七面 + 句柄 + 观测）
+src/index.ts    唯一导出入口（不做逻辑）：createLab + 对外类型
+src/agent/      实验室与单 agent 的创建接线
+  lab.ts            createLab：环境所有者与唯一启动入口
+  create-agent.ts   agent 的创建路径（只经 lab.createAgent 到达）→ Agent（七面 + 句柄 + 观测）
   bridge.ts         面 = pi 钩子的分组封装；忙判据；R47 形状守卫
   loader.ts         skills / extensions / role 的配置收敛
-  env.ts            inspectEnv：环境自检（模型/插件/技能），只读
+  env.ts            环境自检的实现（lab.inspectEnv）：模型/插件/技能，只读
   usage.ts          用量累计（本次 vs 全生命周期）
   types.ts          全部对外类型（无运行时逻辑）
 src/surfaces/   七个面：io / context / tools（含 permissions）/ resources（extensions + skills）/ model

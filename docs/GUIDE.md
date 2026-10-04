@@ -14,7 +14,7 @@
 ## 0. 先跑起来
 
 ```bash
-node demo/check.ts              # 安装自检：七项，不需要 key，全程离线
+node demo/check.ts              # 安装自检：八项，不需要 key，全程离线
 node examples/01-first-agent.ts # 最小示例：起一个 agent、交办一件事、拿结果
 npm test                        # 全部断言，本机假 provider，零 API 成本
 ```
@@ -23,16 +23,19 @@ npm test                        # 全部断言，本机假 provider，零 API �
 
 ---
 
-## 1. 创建：一个入口，七个面
+## 1. 创建：实验室一个入口，七个面
 
-对外只有两个函数（[`src/index.ts`](../src/index.ts) 是唯一出口，不做逻辑）：
+对外只有一个函数（[`src/index.ts`](../src/index.ts) 是唯一出口，不做逻辑）：
 
 | | |
 |---|---|
-| `createAgent(spec, deps?)` | **唯一**的 agent 创建入口 → 一个 `Agent`（七个面 + 句柄 + 观测） |
-| `inspectEnv(spec?, deps?)` | 环境自检，只读：这套环境里实际生效了什么。见 §6 |
+| `createLab(opts)` | **唯一**的启动入口 → `Lab`：环境在这里声明一次（`agentDir` / `cwd` 必填），之后本实验室起的全部分身共用 |
+| `lab.createAgent(spec?)` | **唯一**的 agent 创建入口 → 一个 `Agent`（七个面 + 句柄 + 观测） |
+| `lab.inspectEnv()` | 环境自检，只读：这套环境里实际生效了什么。见 §6 |
 
-**创建期 spec 与运行期面是一一对应的**——字段名就是那个面的原语名（契约在 [`src/agent/types.ts`](../src/agent/types.ts) 的 `AgentInit`）：
+`Lab` 只有四个成员：`agentDir` / `cwd` / `createAgent` / `inspectEnv`（其余选项见 `LabOptions`）。
+
+**创建期 spec 与运行期面是一一对应的**——字段名就是那个面的原语名（契约在 [`src/agent/types.ts`](../src/agent/types.ts) 的 `AgentSpec`）：
 
 | 面 | 创建期 `spec` | 运行期（`agent.<面>`） |
 |---|---|---|
@@ -42,11 +45,11 @@ npm test                        # 全部断言，本机假 provider，零 API �
 | `permissions` | `permissions.only` / `deny` / `gate` | `only` / `allow` / `deny` / `gate`（**没有**创建期 `allow`） |
 | `extensions` | `extensions`（路径或内联工厂） | `add` / `remove` / `list` / `errors` |
 | `skills` | `skills`（路径或 `Skill` 对象） | `add` / `remove` / `list` |
-| `model` | `model` / `thinking` / `modelNetwork` / `catalogBaseUrl` | `set` / `setThinking` + 读数 `current` / `thinking` / `available` |
+| `model` | `model` / `thinking` | `set` / `setThinking` + 读数 `current` / `thinking` / `available` |
 
-其余 `spec` 字段：`id`（不写则自动生成）、`cwd`、`agentDir`、`role`（追加到系统提示词尾部，不替换）。
+其余 `spec` 字段：`id`（不写则自动生成）、`role`（追加到系统提示词尾部，不替换）。**`agentDir` / `cwd` / `modelNetwork` / `catalogBaseUrl` 不在 `spec` 里**——它们归实验室（`createLab`），写进 `spec` 会被拒。
 
-**记忆点**：库给机制，使用者给政策。`createAgent` 造出来的是**不带任何库内置工具**的 agent——库不附带 `spawn_agent` 之类，没有花名册、没有委派能力。工具集只有两种来路：用 `permissions.only` 显式给，**或者干脆不写，就是 pi 的默认集**（`read` / `bash` / `edit` / `write`，实测）；要**零工具**必须显式写 `permissions.only: []`。想组队、想加护栏、想画红线，都是你自己的工具实现里的几行代码（见 `examples/09-roster.ts` / `10-spawn.ts` / `11-redline.ts`）。
+**记忆点**：库给机制，使用者给政策。`lab.createAgent` 造出来的是**不带任何库内置工具**的 agent——库不附带 `spawn_agent` 之类，没有花名册、没有委派能力。工具集只有两种来路：用 `permissions.only` 显式给，**或者干脆不写，就是 pi 的默认集**（`read` / `bash` / `edit` / `write`，实测）；要**零工具**必须显式写 `permissions.only: []`。想组队、想加护栏、想画红线，都是你自己的工具实现里的几行代码（见 `examples/09-roster.ts` / `10-spawn.ts` / `11-redline.ts`）。
 
 ---
 
@@ -189,13 +192,14 @@ io.prompt("…")
 
 ---
 
-## 6. 环境自检：`inspectEnv`
+## 6. 环境自检：`lab.inspectEnv()`
 
 只读、不建 agent、不写盘。它回答一个问题：**「为什么我一个模型都没有？」**
 
+环境（`agentDir` / `cwd`）由实验室声明，自检查的就是这个实验室的环境。
 `agentDir` 与 `cwd` 里的东西是 SDK 自动发现的，会静默生效；环境报告把它们摊平：`models`（只列配好凭证的 provider）、`extensions`（路径、来源、它注册了哪些工具名）、`skills`、`contextFiles`（跟着 `cwd` 走的上下文文件链）、`warnings`（目录不存在 / 没有 `models.json` / 扩展加载失败 / `SYSTEM.md` 会整体替换系统提示词…）。
 
-模型目录默认允许联网刷新（`modelNetwork`，带新鲜度窗口的 overlay，缓存到 `<agentDir>/models-store.json`）：只刷新**有凭证的 provider**；关掉它仍然会从缓存恢复 overlay。`PI_OFFLINE=1` 关掉一切模型相关网络请求。
+模型目录默认允许联网刷新（`createLab` 的 `modelNetwork` 选项，带新鲜度窗口的 overlay，缓存到 `<agentDir>/models-store.json`）：只刷新**有凭证的 provider**；关掉它仍然会从缓存恢复 overlay。`PI_OFFLINE=1` 关掉一切模型相关网络请求。
 
 → 示例：`demo/check.ts` 第 3 项（「模型可读」那一步就走它）。设计理由见 [`FACTS.md`](FACTS.md) #31（在 v1 §7 表内，该结论对 v2 仍适用）。
 

@@ -28,7 +28,7 @@
 | 概念 | 含义 | 谁能定义 |
 |---|---|---|
 | **成员（Member）** | 一种预定义好的 agent 类型：职责、技能、插件、工具集、模型 | **只有设计者**。v2 里它已经**不是库的功能**，就是你代码里的一个对象（见 `examples/09-roster.ts`） |
-| **分身（Instance）** | 一个 `createAgent` 出来的运行实例；同一成员可有多个分身 | 由**设计者的代码**在运行时调 `createAgent` 起（见 `examples/10-spawn.ts`） |
+| **分身（Instance）** | 一个 `lab.createAgent` 出来的运行实例；同一成员可有多个分身 | 由**设计者的代码**在运行时调 `lab.createAgent` 起（见 `examples/10-spawn.ts`） |
 | **花名册（members）** | 设计者声明的全部成员 | 设计者。v1 里它是 `createAgentHost({ members })` 的入参，**v2 已把它移出库** |
 
 **红线同理**：v1 里「agent 不能设计、不能配置 agent」是焊在库里的；v2 把它降成一条**可被推翻的假设**，
@@ -37,10 +37,17 @@
 
 ## 库有什么
 
-对外只有两个函数（`src/index.ts` 是唯一入口，不做逻辑）：
+对外只有一个函数（`src/index.ts` 是唯一入口，不做逻辑）：
 
-- `createAgent(spec, deps?)` → `Agent` —— **唯一**的 agent 创建入口
-- `inspectEnv(spec?, deps?)` → `EnvReport` —— 环境自检：这套环境里实际生效了什么（模型 / 扩展 / 技能 / 警告），只读
+- `createLab(opts)` → `Lab` —— **唯一**的启动入口：环境在这里声明一次（`agentDir` / `cwd` 必填），本实验室起的全部分身共用
+
+`Lab` 上只有四个成员：
+
+| 成员 | 管什么 |
+|---|---|
+| `lab.agentDir` / `lab.cwd` | 这个实验室的环境（两个目录，起 agent 时不再逐个传） |
+| `lab.createAgent(spec?)` → `Agent` | **唯一**的 agent 创建入口；`spec`（`AgentSpec`）只说「这个 agent 用哪些」 |
+| `lab.inspectEnv()` → `EnvReport` | 环境自检：这套环境里实际生效了什么（模型 / 扩展 / 技能 / 警告），只读 |
 
 `Agent` 上是**七个面**：
 
@@ -73,12 +80,12 @@
 ## 仓库地图
 
 ```
-src/index.ts     唯一导出入口（不做逻辑）：createAgent / inspectEnv + 全部对外类型
-src/agent/       create-agent.ts（唯一的创建路径）· bridge.ts（面 = pi 钩子的分组封装）· env.ts（inspectEnv）· loader.ts（skills / extensions / role 的注入与解析）· types.ts（对外类型）· usage.ts（用量累计）
+src/index.ts     唯一导出入口（不做逻辑）：createLab + 全部对外类型
+src/agent/       lab.ts（createLab：环境所有者与唯一启动入口）· create-agent.ts（agent 的创建路径，只经 lab.createAgent 到达）· bridge.ts（面 = pi 钩子的分组封装）· env.ts（环境自检的实现）· loader.ts（skills / extensions / role 的注入与解析）· types.ts（对外类型）· usage.ts（用量累计）
 src/surfaces/    七个面：io.ts · context.ts · tools.ts（tools + permissions）· resources.ts（extensions + skills）· model.ts
 test/            node:test，本机假 provider，零 API 成本
 examples/        11 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码）；离线基建在 examples/lib/
-demo/            安装自检：demo/check.ts（七项，不需要 key）+ demo/agent-team.ts（多 agent 协作写报告）
+demo/            安装自检：demo/check.ts（八项，不需要 key）+ demo/agent-team.ts（多 agent 协作写报告）
 docs/DESIGN.md   宏观设计（唯一设计源）
 docs/GUIDE.md    用法讲解（面向设计者；代码引用 examples/lib/snippets.ts 的同源片段）
 docs/FACTS.md    已实测核对的实现决策（v1 段 + v2 段）

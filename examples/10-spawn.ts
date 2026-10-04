@@ -16,9 +16,9 @@
 // 全程真起了 1 个子 agent，父 agent 拿到的是子 agent 的文本。
 //
 // 若要用真模型：光换 model ref 不够 —— 临时 agentDir 里只有假 provider 的 models.json，
-// 换没有声明的模型会被 aiteam 当错误抛（不是警告）。请把 makeOfflineAgent 的 agentDir 和
-// model 都换成你自己的（真 key 在 ~/.pi/），并去掉 examples/lib/harness.ts 里钉死的
-// PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
+// 换没有声明的模型会被 aiteam 当错误抛（不是警告）。改成自己 createLab({ agentDir, cwd })
+// 起一个实验室（agentDir 指你自己的环境，真 key 在 ~/.pi/agent），模型在 lab.createAgent 的
+// spec 里换，并去掉 examples/lib/harness.ts 里钉死的 PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Agent, AgentTool } from "../src/index.ts";

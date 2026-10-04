@@ -54,11 +54,11 @@ node demo/check.ts        # 八项，不需要 API key，全程离线，零成�
 失败了不要紧，输出会告诉你**哪一步 + 原始错误 + 最可能的三个原因**，例如：
 
 ```
-[4/7] createAgent 能起 agent        … 失败
+[4/8] 用实验室起 agent                 … 失败
     原始错误：模型「nope/nope」解析失败：Model "nope/nope" not found. …
     最可能的三个原因与怎么补：
       1. 第 2 项已经告诉你 pi 版本不对（那一步先修）…
-      2. 模型 ref 解析不到… ⇒ 删 `demo/env/agent/` 再重跑
+      2. 模型 ref 解析不到… ⇒ 删 `demo/run/faux/` 再重跑
       3. `demo/work/` 不可写或被别的进程占着…
 ```
 
@@ -158,13 +158,14 @@ AITEAM_DEMO_REAL=1 node demo/agent-team.ts # 或换成真模型
 ## 5. 动手改：从哪读起
 
 ```
-src/index.ts          唯一导出入口（不做逻辑）：createAgent / inspectEnv + 类型
+src/index.ts          唯一导出入口（不做逻辑）：createLab + 类型
 src/agent/
-  create-agent.ts     唯一的创建路径（七个面在这里装配）
+  lab.ts              createLab：环境所有者与唯一启动入口（agentDir / cwd / createAgent / inspectEnv）
+  create-agent.ts      agent 的创建路径（只经 lab.createAgent 到达）
   bridge.ts           面 = pi 扩展钩子的分组封装（派发器、专属槽位、reload）
-  types.ts            对外契约（AgentInit / Agent / 七个 Surface）
+  types.ts            对外契约（AgentSpec / Agent / 七个 Surface）
   loader.ts           skills / extensions / role 的注入与解析
-  env.ts              inspectEnv：环境自检（只读）
+  env.ts              环境自检的实现（lab.inspectEnv，只读）
 src/surfaces/         七个面的实现
 docs/DESIGN.md        **宏观设计（唯一设计源）**：为什么是这样
 docs/GUIDE.md         用法讲解：每个面怎么用（不贴代码，指向 snippets.ts）
@@ -180,7 +181,7 @@ docs/FACTS.md         已实测核对的 pi 行为（这个文件必须准）
 ## 6. 日常开发命令
 
 ```bash
-npm test              # 114 例断言，本机假 provider，零 API 成本
+npm test              # 120 例断言，本机假 provider，零 API 成本
 npm run typecheck     # tsc --noEmit（含 src / test / demo / examples）
 
 node demo/check.ts                    # 安装自检（离线）
@@ -221,11 +222,11 @@ AITEAM_DEMO_REAL=1 node demo/check.ts # 安装自检（真模型）
 **Q：一定要有 API key 吗？**
 不要。默认全部离线、零成本。只有 `AITEAM_DEMO_REAL=1` 才用真凭证。
 
-**Q：`demo/env/` 和 `demo/work/` 是什么？**
-`demo/env/agent/` 是 demo 自己写的模型配置（假 provider 模式），`demo/work/` 是产物目录。**两者都不进 git**（`demo/env/auth.json` 可能含真实密钥）。删掉它们再跑，`ensureEnv()` 会重建。
+**Q：`demo/run/` 和 `demo/work/` 是什么？**
+`demo/run/faux/` 是 demo 自己写的模型配置（假 provider 模式；真模式是 `demo/run/real/`），`demo/work/` 是产物目录。**两者都不进 git**（`demo/env/` 是你给的配置源，那份 `auth.json` 可能含真实密钥，同样不进 git）。删掉它们再跑，`ensureEnv()` 会重建。
 
 **Q：改坏了怎么办？**
-`rm -rf demo/env demo/work && node demo/check.ts`——环境是幂等重建的。
+`rm -rf demo/run demo/work && node demo/check.ts`——环境是幂等重建的。
 
 **Q：`audit/` 去哪了？**
 那是 v1 的能力与极限审计（208 文件），库的机制层在 v2 重写过，其结论多数不再成立，已删除。需要时从 git 历史 `043dea3` 检出。

@@ -13,28 +13,32 @@ node demo/check.ts
 
 ```text
 $ PI_OFFLINE=1 node demo/check.ts
-[1/7] Node 与原生 .ts               … 通过（v24.18.0）
+[1/8] Node 与原生 .ts                  … 通过（v24.18.0）
         node=D:\Develop\nodejs\node.exe
-[2/7] pi-coding-agent 可解析        … 通过（0.99.1）
+[2/8] pi-coding-agent 可解析           … 通过（0.99.1）
         入口=D:\space\aiteam\test\node_modules\@earendil-works\pi-coding-agent\dist\index.js
-[3/7] agentDir 可写、模型可读       … 通过（agentDir 可写；读到 2 个模型）
-        D:\space\aiteam\test\demo\env\agent\models.json → faux: echo、echo-alt（离线，modelNetwork:false）
-[4/7] 用实验室起 agent              … 通过（id=demo-check，model=echo/off）
-        agentDir=D:\space\aiteam\test\demo\env\agent
+[3/8] agentDir 可写、模型可读          … 通过（agentDir 可写；读到 2 个模型）
+        D:\space\aiteam\test\demo\run\faux\models.json → faux: echo、echo-alt（离线，modelNetwork:false）
+[4/8] 用实验室起 agent                 … 通过（id=demo-check，model=echo/off）
+        agentDir=D:\space\aiteam\test\demo\run\faux
         cwd=D:\space\aiteam\test\demo\work
-        假 provider=http://127.0.0.1:30096/v1
-[5/7] 一轮 io.prompt 拿到非空文本   … 通过（拿到 18 字符）
-        模型说：echo:自检第 5 项：请回一句话
-[6/7] 工具真被模型执行              … 通过（demo_probe 的执行体真跑了 1 次）
+        假 provider=http://127.0.0.1:16768/v1
+[5/8] 一轮 io.prompt 拿到非空文本      … 通过（拿到 26 字符）
+        模型说：echo:自检第 5 项：请回一句话（任意内容即可）
+[6/8] 工具真被模型执行                 … 通过（demo_probe 的执行体真跑了 1 次）
         模型这一轮回读：echo:probe 收到：自检工具链
         对照（不判别）：pi 注册表里有它的定义 = 有
-[7/7] 七面各至少一次读写            … 通过（7 个面各至少一次读写）
+[7/8] 环境隔离：只认自己的技能与插件   … 通过（只看得到自己的 1 个技能、1 个扩展）
+        自己的：skills=[env-style] extensions=[./extensions/env-tools.ts]
+        宿主的（一个都没读进来）：skills=[0] extensions=[0] —— 对照目录 C:\Users\Holder\.pi\agent
+        自己的扩展注册的工具：env_checklist
+[8/8] 七面各至少一次读写               … 通过（7 个面各至少一次读写）
         io（读 pending=0 / isRunning=false；写 queue + waitIdle）
         context（读 history=8、autoCompact=false；写 autoCompact + override 并清除；compact：会话太小、无需压缩（Nothing to compact (session too small)）—— 正常路径）
         tools（读 list=0 个；写 add=demo_probe_extra → 1 个）
-        model（读 current=echo/off、thinking、available=2 个；写 set=echo-alt + setThinking=high，再还原为 echo/off）
-        extensions（读 list=1 个 + errors=0；写 add → 2 个）
-        skills（读 list=0 个；写 add=demo-check-skill（真 SKILL.md）→ 1 个）
+        model（读 current=echo/off、thinking、available=2 个；写 set=echo-alt + setThinking=off，再还原为 echo/off）
+        extensions（读 list=2 个 + errors=0；写 add → 3 个）
+        skills（读 list=1 个；写 add=demo-check-skill（真 SKILL.md）→ 2 个）
         permissions（写 gate 且真被调用 1 次；only 后活跃集只剩它，deny/allow 用 tools.list() 读回）
 
 八项全通过 —— 本机可以开始研究 agent 课题了。
@@ -54,7 +58,8 @@ $ PI_OFFLINE=1 node demo/check.ts
 | 4 | 用实验室起 agent（`lab.createAgent`） | 拿到 `agent.id`、`model.current`，没抛错 |
 | 5 | 一轮 `io.prompt` 拿到非空文本 | `RunResult.text` 非空且 `result.error` 为空 |
 | 6 | **一个工具真被模型调用** | 工具**执行体**里的闭包计数器 +1（`tools.list()` 里有它**不**算数：那只说明声明在） |
-| 7 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
+| 7 | **环境隔离：只认自己的技能与插件** | 看得到自己的那份（`env-style` 技能 + `env-tools.ts` 扩展 + 它注册的 `env_checklist`），且读不到宿主 `~/.pi/agent` 里的任何一份 —— 只有一条成立都说明不了问题 |
+| 8 | 七个面各自至少一次读写 | 每个面都真的调用过：io `queue`/`waitIdle`、context `history`/`autoCompact`/`override`/`compact`、tools `list`/`add`、model `set`/`setThinking`、extensions `list`/`errors`/`add`、skills `list`/`add`、permissions `gate`/`only`/`deny`/`allow`，能读回状态的都读回校验 |
 
 ### 环境自动发现的技能与插件：不只是「能看见」，还要「真被用上」
 
@@ -82,7 +87,7 @@ $ PI_OFFLINE=1 node demo/check.ts
 
 `agentDir` 只要没被填过东西，`skills.list()` / `extensions.list()` 返回空**说明不了任何事**——
 空可能是因为隔离做对了，也可能是因为这条发现路径压根没被走到。
-所以 demo 往自己的 agentDir 里 seed 了一份技能（`demo-skill`）和一份扩展（`demo-ext.ts`），判据变成：
+所以 demo 往自己的 agentDir 里 seed 了一份技能（`env-style`）和一份扩展（`env-tools.ts`），判据变成：
 
 1. **看得到自己的** ⇒ 自动发现这条路是通的；
 2. **看不到宿主 `~/.pi/agent` 里的任何一份** ⇒ 隔离真的生效。
@@ -98,7 +103,7 @@ $ PI_OFFLINE=1 node demo/check.ts
 失败时输出是固定三段式 —— **不许只说「失败」**（下面是第 5 项失败时的真实形状，栈略）：
 
 ```text
-[5/7] 一轮 io.prompt 拿到非空文本   … 失败
+[5/8] 一轮 io.prompt 拿到非空文本      … 失败
     原始错误：RunResult.text 是空的：""                                ← 原始错误（含栈，便于贴给维护者）
       at Object.run (file:///.../demo/check.ts:202:25)
       ...
@@ -108,15 +113,15 @@ $ PI_OFFLINE=1 node demo/check.ts
       3. pi 版本变了、SSE 解析不兼容 ⇒ 装回 0.99.1（见第 2 项）
 ```
 
-读法：看 `[i/7]` 是哪一项 → 看原始错误 → 按三个原因里最像的那条动手。
+读法：看 `[i/8]` 是哪一项 → 看原始错误 → 按三个原因里最像的那条动手。
 退出码是 **1**；全通过才是 **0**（适合写进 CI / 脚本）。
 失败信息走 **stderr**、通过信息走 stdout —— 脚本里用 `2>&1` 一起抓，或只把 stderr 当告警。
 
 最常见的两类失败：
 
 - **第 1、2 项**：环境问题。跑 `node --version` 与 `npm ls @earendil-works/pi-coding-agent`；依赖没装就在仓库根目录 `npm install`。
-- **第 3 项之后**：环境产物被改坏。`demo/env/agent/` 与 `demo/work/` 都是**可再生的产物**：
-  `rm -rf demo/env/agent demo/work`（Windows 用资源管理器删掉）再重跑，`ensureEnv()` 会重建。
+- **第 3 项之后**：环境产物被改坏。`demo/run/` 与 `demo/work/` 都是**可再生的产物**：
+  `rm -rf demo/run demo/work`（Windows 用资源管理器删掉）再重跑，`ensureEnv()` 会重建。
 
 ## 跑 agent-team 这个例子：多 agent 分工协作写一份报告
 
@@ -216,7 +221,7 @@ $ PI_OFFLINE=1 node demo/agent-team.ts
 | `demo/work/` | agent 的工作目录与产物落点：`report.md` / `blackboard.jsonl` / `skills/` | 不进（`.gitignore`） |
 
 `demo/env/` 下还有两份 v1 遗留文件（`auth.json` 含**真实 API 密钥**、`models-store.json` 是旧结构缓存）。
-demo **不读**它们（自检用的 `agentDir` 是子目录 `demo/env/agent/`），它们也只是被 gitignore 排除，不会进仓库。
+demo **不读**它们（自检用的 `agentDir` 是脚本生成的产物目录 `demo/run/faux/`），它们也只是被 gitignore 排除，不会进仓库。
 要清理请自行删除，别把它们的内容贴进任何地方。
 
 ## 换成真模型（一个环境变量）
