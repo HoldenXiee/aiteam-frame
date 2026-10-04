@@ -134,6 +134,39 @@ export async function contextCompact(agent: Agent): Promise<void> {
 }
 // #end context.compact
 
+/** 追改 / 抹除历史：改的是**历史**（append-only），不是这一轮。 */
+// #snippet context.editHistory
+export async function contextEditHistory(agent: Agent): Promise<string[]> {
+  // 三层别混：override 改**本轮**（一次性，下一轮就消失，历史分毫未动）；replace / erase 改**历史**
+  // （append-only，永久生效）；**整段重置不在库内**（pi 没有这个 API），要换 session / 新建 agent / 逐条抹。
+  //
+  // 寻址只能用 entries() 的 id，**不要**用 history 的下标：history 不含 system，而 entries() 含
+  // （system 也在里面，用 role 区分），两边从第一条 system 起就错位；而且投影随编辑变化，下标也不稳定。
+  // 不存在的 id 会抛错，不静默 no-op —— 这里静默失败等于「以为改了、其实没改」。
+  const entries = agent.context.entries();
+  // 要抹就按**整轮**抹（相邻的 user + assistant）：只抹一半会留下没有回答的提问 / 悬空的回显。
+  const visible = entries.filter((entry) => entry.role !== "system");
+  const doomed = visible.slice(-2);
+  // 追改的目标取自**更早**那几轮，免得同一条既被 replace 又被 erase（单一轮会话就不演示编辑了）
+  const question = visible.slice(0, -2).find((entry) => entry.role === "user");
+  if (!question || doomed.length < 2) return entries.map((entry) => entry.id);
+
+  // 这两个写成员**不要求 idle**（与 tools.add / permissions.only / compact 不同）：写的是 append-only 的
+  // context_edit entry，不走 reload()，不打断在飞那轮，编辑从**下一次请求**起生效。
+  // 但「不要求」不是「忙时随便用」：pi 会在回合边界从**投影重建** session.messages，而 io 的结算按运行前的
+  // 下标切区间 —— 忙时编辑后下标错位，**在飞那轮的 RunResult.messages / text 就不保证包含本轮产出**
+  // （实测：在飞一轮里抹掉两条 → result.text === ""，而产出其实已持久化）。同一 slice 出来的 usage / error
+  // 同受此限（agent.usage 那个全生命周期累计不受影响）。要准确的本轮结算，就先等它闲下来：
+  await agent.io.waitIdle();
+
+  await agent.context.replace(question.id, "换掉这轮的提问");
+  // erase 就**模型上下文**而言重复抹同一条是 no-op（已抹的不在投影里），但每次都仍 append 一条
+  // context_edit entry —— 会话条目线性增长，别把它当幂等的清理手段。
+  for (const entry of doomed) await agent.context.erase(entry.id);
+  return agent.context.entries().map((entry) => entry.id);
+}
+// #end context.editHistory
+
 // ─────────────── tools：运行期加工具 ───────────────
 
 /** 运行期加一个工具：加完立刻生效，模型下一轮就看得见它。 */
@@ -381,6 +414,7 @@ export const snippets: Record<string, string> = {
   "context.history": pick("context.history"),
   "context.override": pick("context.override"),
   "context.compact": pick("context.compact"),
+  "context.editHistory": pick("context.editHistory"),
   "tools.add": pick("tools.add"),
   "tools.addThenInspect": pick("tools.addThenInspect"),
   "tools.addFactory": pick("tools.addFactory"),

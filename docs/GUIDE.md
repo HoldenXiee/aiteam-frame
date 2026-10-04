@@ -40,7 +40,7 @@ npm test                        # 全部断言，本机假 provider，零 API �
 | 面 | 创建期 `spec` | 运行期（`agent.<面>`） |
 |---|---|---|
 | `io` | ——（创建时不必配） | `prompt` / `queue` / `steer` / `abort` / `waitIdle` + 读数 `pending` / `isRunning` |
-| `context` | `context.autoCompact` | `history` / `usage` / `autoCompact` / `override` / `compact` |
+| `context` | `context.autoCompact` | `history` / `entries` / `replace` / `erase` / `usage` / `autoCompact` / `override` / `compact` |
 | `tools` | `tools.custom` | `list` / `add` / `remove` / `onResult` |
 | `permissions` | `permissions.only` / `deny` / `gate` | `only` / `allow` / `deny` / `gate`（**没有**创建期 `allow`） |
 | `extensions` | `extensions`（路径或内联工厂） | `add` / `remove` / `list` / `errors` |
@@ -91,7 +91,7 @@ io.prompt("…")
 
 ### 3.2 `context` —— 历史 / 本轮覆盖 / 压缩
 
-**能做什么**：`history`（只读快照）、`usage`（上下文占用）、`autoCompact`（自动压缩开关，可读写）、`override`（改**这一轮发给模型的内容**）、`compact`（压缩）。
+**能做什么**：`history`（只读快照）、`entries`（会话条目的**可寻址视图**）、`replace` / `erase`（追改 / 抹除历史）、`usage`（上下文占用）、`autoCompact`（自动压缩开关，可读写）、`override`（改**这一轮发给模型的内容**）、`compact`（压缩）。
 
 **关键取舍**：
 
@@ -100,6 +100,18 @@ io.prompt("…")
 - `compact` **要求空闲**（见 §5）：pi 的压缩首行就是 `abort()`，运行中调用会静默打断在飞那轮。
 
 → 片段：`context.history`、`context.override`、`context.compact`。示例：`examples/03-context.ts`。
+
+#### 改历史：`entries` / `replace` / `erase`
+
+**三层别混**：`override` 改**本轮**（一次性，下一轮就消失，历史分毫未动）／`replace`、`erase` 改**历史**（append-only，永久生效）／**整段重置不在库内**——pi 没有这个 API，要重置就得换 session、新建 agent 或逐条抹，三条路怎么选登记在 [`DESIGN-解读.md`](DESIGN-解读.md) §5。
+
+**寻址只能用 `entries()` 的 `id`，不要用 `history` 的下标**：`history` **不含 `system`**，而 `entries()` 含（system 也在里面，用 `role` 区分），两个数组从第一条 system 起就错位；而且投影会随编辑变化，下标本身也不稳定。不存在的 id 会抛错，不静默 no-op——在这里静默失败等于「以为改了、其实没改」。
+
+**这两个写成员不要求空闲**（与 `tools.add` / `permissions.only` / `compact` 不同）：它们写的是 append-only 的 `context_edit` entry，不走 `reload()`，不打断在飞那轮，编辑**从下一次请求起生效**。但「不要求 idle」不是「忙时可以随便用」：pi 会在回合边界从**投影重建** `session.messages`，而 `io` 的结算按运行前的下标切区间——忙时编辑后下标错位，**在飞那轮的 `RunResult.messages` / `text` 就不保证包含本轮产出**（实测：在飞一轮里抹掉两条 → `result.text === ""`，而产出其实已经落进持久化历史）。同一个 slice 出来的 `RunResult.usage` / `RunResult.error` 同受此限（`agent.usage` 那个**全生命周期累计**不受影响）。**要拿准确的本轮结算，先 `await agent.io.waitIdle()` 再编辑。**
+
+**`erase` 不是幂等的清理手段**：就**模型上下文**而言，重复抹同一条是 no-op（已抹的不在投影里），但每次仍会 append 一条 `context_edit` entry——会话条目会线性增长。
+
+→ 片段：`context.editHistory`。
 
 ### 3.3 `tools` —— 有哪些工具存在
 
@@ -184,7 +196,7 @@ io.prompt("…")
 | 要求空闲 | 不要求 |
 |---|---|
 | `context.compact` | `io.prompt` / `queue` / `steer` / `abort` / `waitIdle` |
-| `tools.add` / `tools.remove` | `context.override` / `autoCompact` / `tools.onResult` / `permissions.gate` |
+| `tools.add` / `tools.remove` | `context.override` / `replace` / `erase` / `autoCompact` / `tools.onResult` / `permissions.gate` |
 | `permissions.only` / `allow` / `deny` | `model.set` / `model.setThinking`（改动从下一次请求起生效） |
 | `extensions.add` / `remove`、`skills.add` / `remove` | |
 
