@@ -161,6 +161,24 @@ test("entries() 与 history 下标的对齐关系（entry.id，不是数组下�
   a.dispose();
 });
 
+test("压缩之后 entries() 仍与 history 逐项对齐（compaction entry 投影出 system + 摘要两条）", async () => {
+  const a = await makeAgent();
+  try {
+    // 必须先攒够可压历史，否则 pi 认为 session too small、压根不产生 compaction entry（该文件上面的用例同理）
+    await a.io.prompt("[[huge:200000]] one");
+    await a.io.prompt("two");
+    await a.context.compact("压成一句");
+    assert.equal(a.context.history[0].role, "compactionSummary", "压缩确实发生了（否则这条用例什么都没钉住）");
+    assert.deepEqual(
+      a.context.entries().filter((e) => e.role !== "system").map((e) => e.role),
+      a.context.history.map((m) => m.role),
+      "压缩后 entry 与 history 必须逐项同序同角色 —— 不能拿 role === system 当过滤口径",
+    );
+  } finally {
+    a.dispose();
+  }
+});
+
 test("dispose 之后 context 面不许再用", async () => {
   const a = await makeAgent();
   a.dispose();

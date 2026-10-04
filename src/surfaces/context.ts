@@ -38,15 +38,23 @@ export function createContext(deps: ContextDeps): ContextSurface {
     },
     entries() {
       deps.assertAlive();
-      // 数据源是 session 的投影：它是**压绪感知 + 上下文编辑后**的模型可见结果，与 `history` 同源同序。
+      // 数据源是 session 的投影：它是**压缩感知 + 上下文编辑后**的模型可见结果，与 `history` 同源同序。
+      //
+      // 「过滤掉 role === 'system' 之后与 history 一一对应」成立的理由：除压缩 entry 外，每个 entry 恰好投影出一条消息；
+      // 压缩 entry 在有 systemMessage 时投影出两条 `[systemMessage, summary]`（pi `sessionEntryToContextMessages`），
+      // 多出的那条**恒为 system**，而 `history` 本就不含 system —— 所以两边各少一条，基数是配的。
+      // 据此 role 必须取**第一条非 system**：若取 `messages[0]`，压缩 entry 会被贴上 system 标签而在「role !== 'system'」
+      // 这类口径下被整条丢掉，但它的 summary 在 history 里是**非 system**、不会被丢 —— 对齐关系就此破掉。
+      // 要保留的语义：只有 system 消息的 entry（独立的 system 条目）仍然出现，用 role 区分。
       // `messages` 为空的项是状态型 entry（model 切换 / thinking 档 / context_edit 这类），对模型上下文没有贡献，
-      // 所以不在这里出现 —— 这也保证了「非 system 部分与 history 一一对应」这条对齐关系。
+      // 所以不在这里出现。
       return sessionManager
         .buildSessionProjection()
         .entries.filter((entry) => entry.messages.length > 0)
         .map((entry) => ({
           id: entry.sourceEntry.id,
-          role: entry.messages[0].role,   // 一条 entry 可能投影出多条消息，角色以第一条为准
+          // 第一条非 system；整个 entry 全是 system 时回退到第一条
+          role: (entry.messages.find((m) => m.role !== "system") ?? entry.messages[0]).role,
           preview: entry.messages.map(textOf).join("").slice(0, 60),
         }));
     },
