@@ -31,7 +31,7 @@
 //
 // 想用自己的 key：写进 `demo/env/auth.json`，或设 `AITEAM_DEMO_AUTH=/path/to/auth.json`
 // （那份文件会被**复制**进 `demo/run/real/`，原件只读）。**别指向宿主** —— 见上面第 1 条。
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   FAUX_MODEL_ALT_ID,
@@ -107,94 +107,7 @@ async function setupReal(): Promise<DemoEnv> {
   copyIfAbsent(join(envDir(), "models-store.json"), join(agentDir, "models-store.json"));
   // pi 会 ensure 这两个文件；先建空的，省得它在别处建
   copyIfAbsent(join(envDir(), "settings.json"), join(agentDir, "settings.json"));
-  seedOwnResources(agentDir);   // 同上：真模式也要有自己的技能与扩展
   return { agentDir, cwd, real: true, model: REAL_MODEL_REF, altModel: REAL_MODEL_REF };
-}
-
-/**
- * 往 agentDir 里塞**这个环境自己的**技能与扩展。
- *
- * 为什么要有这一步：demo 的 agentDir 如果只有 `models.json`，那 `skills.list()` / `extensions.list()`
- * 返回空**并不能证明隔离做对了** —— 空可能是因为「隔离成功」，也可能是因为「这条发现路径根本没被走到」。
- * 塞一份自己的进去之后，判据变强了：
- *   - 能看到**自己的**那一份 ⇒ 自动发现这条路是通的；
- *   - 看不到宿主的那些 ⇒ 隔离真的生效（宿主 `~/.pi/agent` 里有 2 个技能 4 个插件，见 `check.ts` 第 8 项）。
- *
- * 两边都要成立才叫「只有自己的」。只有一条的话，另一步照样可能出问题却看不出来。
- */
-function seedOwnResources(agentDir: string): void {
-  // ── 技能：**有实际用途**的一条写作规范（不是只为「证明路径通」而存在的空壳）──
-  // pi 要求 filePath 指向真文件（虚拟路径会 ENOENT），所以真写一个 SKILL.md。
-  const skillDir = join(agentDir, "skills", "env-style");
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(
-    join(skillDir, "SKILL.md"),
-    [
-      "---",
-      "name: env-style",
-      "description: 报告写作规范（来自环境自动发现，不在 spec 里声明）。每条小节标题必须以「## 」开头，小节末尾必须有一行「依据：<语料 id>」。",
-      "---",
-      "",
-      "# env-style —— 报告写作规范",
-      "",
-      "这是**这个 agentDir 里自动发现**的技能，只有这个环境有。",
-      "",
-      "写报告小节时遵守：",
-      "",
-      "1. 每个小节标题以 `## ` 开头；",
-      "2. 每个小节末尾单独一行 `依据：C1、C2`（列出该小节引用的语料 id）；",
-      "3. 不要编造语料里没有的 id。",
-      "",
-      "**要检验它有没有生效**：删掉这个文件再跑，报告小节末尾的「依据：」那行就没有了——",
-      "技能是**软约束**（靠模型读了照做），不是代码强制的。",
-      "",
-    ].join("\n"),
-  );
-
-  // ── 扩展：注册一个**真用得上**的工具 ──
-  // 注意一个真实的取舍：**环境自动发现的扩展，它的工具名不会被并入 `permissions.only` 白名单**
-  // （R41 刻意如此：白名单不该被环境里碰巧存在的扩展悄悄撑开）。
-  // 所以这个工具只在**不用 only** 的 agent 上可见 —— 写作员就是那种 agent，demo 里专门演示这一点。
-  const extDir = join(agentDir, "extensions");
-  mkdirSync(extDir, { recursive: true });
-  writeFileSync(
-    join(extDir, "env-tools.ts"),
-    [
-      "// demo 环境自带的扩展：只在这个 agentDir 里，因此能证明「环境自动发现」这条路是通的。",
-      "// 它注册的工具名**不会**被并入 `permissions.only` 白名单（R41）—— 所以只在没写 only 的",
-      "// agent 上可见。demo 里的写作员正是没写 only 的那个，它用这个工具给报告加一份「交付清单」。",
-      "import { defineTool } from \"@earendil-works/pi-coding-agent\";",
-      "import { Type } from \"typebox\";",
-      "",
-      "const NL = String.fromCharCode(10);",
-      "",
-      "export default function (pi) {",
-      "  pi.registerTool(",
-      "    defineTool({",
-      "      name: \"env_checklist\",",
-      "      label: \"Env Checklist\",",
-      "      description:",
-      "        \"给报告追加一份交付清单（由环境扩展提供，不在 spec 里声明）。参数 items 是要列出的条目。\",",
-      "      parameters: Type.Object({ items: Type.Array(Type.String()) }),",
-      "      execute: async (_id, p) => ({",
-      "        content: [",
-      "          {",
-      "            type: \"text\",",
-      "            text: [",
-      "              \"交付清单：\",",
-      "              ...p.items.map((x, i) => `  ${i + 1}. ${x}`),",
-      "              \"（这一份由环境扩展 env-tools.ts 提供 —— 它不在 spec 的 extensions 里）\",",
-      "            ].join(NL),",
-      "          },",
-      "        ],",
-      "        details: {},",
-      "      }),",
-      "    }),",
-      "  );",
-      "}",
-      "",
-    ].join("\n"),
-  );
 }
 
 /** 假 provider：写一份指向本机服务的 models.json，全程离线、零成本。 */
@@ -205,7 +118,6 @@ async function setupFaux(): Promise<DemoEnv> {
   const faux = await startFaux();
   // 两个模型：echo 给普通轮次，echo-alt（reasoning:true）给 setThinking 这类要合法档位的检查
   writeModelsJson(agentDir, faux.baseUrl, [FAUX_MODEL_ID, FAUX_MODEL_ALT_ID]);
-  seedOwnResources(agentDir);   // 这个环境自己的技能与扩展（隔离判据要靠它们才是活的）
   return {
     agentDir,
     cwd,
