@@ -86,6 +86,9 @@ const workDir = (): string => join(import.meta.dirname, "work");
  * 判「已在位」用 `hasCredentials()` 而不是 `existsSync()`：pi 会在**任何** agentDir 里 ensure
  * 一个 `{}` 空壳（`auth-storage.js` 的 `ensureFileExists`，跑过一次假模式就有）。只判存在的话，
  * 那个空壳会把「三处都没有凭证 ⇒ 明确报错」这条路堵死，变成后面读不到模型。
+ *
+ * 来源优先级：`AITEAM_DEMO_AUTH`（显式指定，**总是赢**，坏了就报错）> `demo/agent/auth.json`
+ * 里已在位的那份 > 迁移遗留的 `demo/env/auth.json`。
  */
 async function setupReal(): Promise<DemoEnv> {
   const cwd = workDir();
@@ -94,11 +97,22 @@ async function setupReal(): Promise<DemoEnv> {
   mkdirSync(dir, { recursive: true });
 
   const target = join(dir, "auth.json");
-  if (!hasCredentials(target)) {
-    // AITEAM_DEMO_AUTH 优先级最高；否则用环境目录里那份；再否则迁移 v1 遗留的 demo/env/auth.json
-    const explicit = process.env.AITEAM_DEMO_AUTH;
+  const explicit = process.env.AITEAM_DEMO_AUTH;
+  if (explicit && !hasCredentials(explicit)) {
+    // 显式指定的那份永远赢 —— 所以它坏掉时不能静默退回别的来源，那会变成「按 README 换了 key，{
+    // 烧的却是旧账号」。
+    throw new Error(
+      `AITEAM_DEMO_AUTH 指的那份不可用：${explicit}\n` +
+        `  · 它必须是一个**含凭证的 JSON 对象**（pi 的空壳 \`{}\` 不算）\n` +
+        `  · 或干脆不设 AITEAM_DEMO_AUTH，改用 ${target}（推荐）或 demo/env/auth.json（遗留）`,
+    );
+  }
+  if (explicit) {
+    copyFileSync(explicit, target);
+  } else if (!hasCredentials(target)) {
+    // 顺序：env 变量（已处理）> 环境目录里那份 > 迁移 v1 遗留的 demo/env/auth.json
     const legacy = join(import.meta.dirname, "env", "auth.json");
-    const source = explicit ?? (existsSync(legacy) ? legacy : undefined);
+    const source = existsSync(legacy) ? legacy : undefined;
     if (!source || !existsSync(source)) {
       throw new Error(
         `真模式需要 demo 自己的凭证，但三处都没有：\n` +
