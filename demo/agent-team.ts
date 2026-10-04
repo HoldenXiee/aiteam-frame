@@ -445,9 +445,9 @@ async function main(): Promise<void> {
       model: env.model, // 也用便宜档起，写作阶段再运行期升档（model 面）
       role:
         "写作员：把黑板上的材料组织成一份报告；不查新资料、不改别人的记录、不动黑板。" +
-        // 这条技能**不在 spec 里**，来自 agentDir 的自动发现（demo/env.ts 里 seed 的 env-style）。
+        // 这条技能**不在 spec 里**，来自 agentDir 的自动发现（demo/agent/skills/env-style/SKILL.md —— 环境里那份真文件）。
         // 把它写进 role 是为了让「技能被真的用上」可观察：报告小节末尾会出现「依据：」那行。
-        // 要检验它是不是技能带来的：删掉 demo/run/*/skills/env-style/SKILL.md 再跑，那行就没有了。
+        // 要检验它是不是技能带来的：删掉 demo/agent/skills/env-style/SKILL.md 再跑，那行就没有了。
         "按环境里的 env-style 技能写：每个小节标题以 ## 开头，小节末尾单独一行「依据：<语料 id>」。",
       skills: [join(skillsRoot, "writing-style")], // 写作员的技能与检索员不同（这一条是显式声明的）
       tools: {
