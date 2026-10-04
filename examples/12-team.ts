@@ -1,7 +1,7 @@
-// demo/agent-team.ts —— 完整例子：多 agent 分工协作，产出一份真报告（产物落在 demo/work/）。
+// examples/12-team.ts —— 完整例子：多 agent 分工协作，产出一份真报告（产物落在临时 cwd，跑完即弃）。
 //
-// 跑法：PI_OFFLINE=1 node demo/agent-team.ts        产物：demo/work/report.md
-//      （PI_OFFLINE 加不加都行：离线由 demo/env.ts 钉死，见那里的注释。）
+// 跑法：node examples/12-team.ts        产物：临时 cwd（`fauxCwd`）里的 report.md
+//      （离线由 `examples/lib/harness.ts` 钉死：本机假 provider + 临时 agentDir/cwd，零成本、不需要 key。）
 //
 // 它是什么：**一个可改造的起点，不是推荐架构**。「几个 agent、怎么分工、要不要护栏、门拦什么」
 // 全部是下面这些使用者代码 —— 库里没有一条这样的政策。每一处设计决策旁边都有一行
@@ -12,28 +12,28 @@
 //   - 报告里的**每一句话都由本文件的代码拼出**（`writeReport()`：黑板 + 语料）；
 //   - 「模型」在这里负责的是**调用顺序与取舍**（查什么、采信哪几条、报告分几节），它们经工具参数
 //     落进黑板，再由代码兑现成文 —— 所以下面那些「取舍」是脚本转录的，不是模型判断的。
-//     想让它真的写字：换真模型（`demo/env.ts` 顶部两行 + 下面的 model
-//     ref），并把 `writeReport()` 里「按 id 取语料正文」换成「取模型写的段落」；
+//     想让它真的写字：换真模型（自己 `createLab` 一个带真 key 的 agentDir，改法与注意项见
+//     `examples/01-first-agent.ts` 头部注释 + 下面的 model ref），并把 `writeReport()` 里「按 id 取语料正文」换成「取模型写的段落」；
 //   - 每一步 prompt 里那些 `[[…]]` 是**假 provider 的脚本约定**，不是提示词写法示范。
 //
 // 七个面各至少出场一次，跑完打印一张自证表（数的是**真调用次数**）并断言每项 ≥ 1。
+//
+// 环境：与其它示例一致（`examples/lib/harness.ts` 的临时 agentDir/cwd），**不读 `demo/`**。所以原 demo 期
+// 的四条 mutation 判据（M1–M4）不再判本文件：它们的新家里，删技能 ⇒ `demo/lab.ts` 仍 exit 0（S3），
+// 删环境扩展 ⇒ `demo/check.ts` 第 7 项红（S4）。想看看得见的那个环境目录（技能与扩展是仓库里的真文件），
+// 去 `demo/`。本文件自己的可证伪形式是反过来的：**删掉 `demo/agent/` 下任何东西，本文件照样跑通**。
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createLab, type Agent, type AgentMessage, type AgentTool } from "../src/index.ts";
-import { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF } from "../examples/lib/faux-models.ts";
-import { ensureEnv } from "./env.ts";
+import { type Agent, type AgentMessage, type AgentTool } from "../src/index.ts";
+import { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF, fauxAgentDir, fauxCwd, lab } from "./lib/harness.ts";
 
 // ═══════════════ 0. 环境与语料 ═══════════════
 
-const env = await ensureEnv();
-/** 实验室：环境（agentDir / cwd / 离线开关）只声明一次，下面三个分身都从这里起 */
-const lab = await createLab({
-  agentDir: env.agentDir,
-  cwd: env.cwd,
-  modelNetwork: env.real ? undefined : false, // 假模式离线是默认；真模式才需要联网
-});
+// 环境：与其它示例一致（本机假 provider + 临时 agentDir/cwd，跑完即弃）；`real` 恒为 false。
+// 想看「环境是仓库里看得见的目录」那件事，去 demo/（那份脚手架用它讲环境规范）。
+const env = { agentDir: fauxAgentDir, cwd: fauxCwd, real: false as const, model: FAUX_MODEL_REF, altModel: FAUX_MODEL_ALT_REF };
 const reportPath = join(env.cwd, "report.md");
 const boardPath = join(env.cwd, "blackboard.jsonl");
 const skillsRoot = join(env.cwd, "skills");
@@ -126,7 +126,7 @@ function render(docs: Doc[]): string {
 }
 
 // ═══════════════ 1. 黑板：协作痕迹的唯一事实 ═══════════════
-// 产物之一（demo/work/blackboard.jsonl）。工具写它、审批门写它、报告从它拼 —— 一处记录，多处读。
+// 产物之一（临时 cwd 里的 blackboard.jsonl）。工具写它、审批门写它、报告从它拼 —— 一处记录，多处读。
 
 interface BoardEntry {
   seq: number;
@@ -445,19 +445,20 @@ async function main(): Promise<void> {
       model: env.model, // 也用便宜档起，写作阶段再运行期升档（model 面）
       role:
         "写作员：把黑板上的材料组织成一份报告；不查新资料、不改别人的记录、不动黑板。" +
-        // 这条技能**不在 spec 里**，来自 agentDir 的自动发现（demo/agent/skills/env-style/SKILL.md —— 环境里那份真文件）。
-        // 把它写进 role 是为了让「技能被真的用上」可观察：报告小节末尾会出现「依据：」那行。
-        // 要检验它是不是技能带来的：删掉 demo/agent/skills/env-style/SKILL.md 再跑，那行就没有了。
-        "按环境里的 env-style 技能写：每个小节标题以 ## 开头，小节末尾单独一行「依据：<语料 id>」。",
+        // 这条要求写进 role，而不是靠环境技能：本文件的环境是**临时 agentDir**（harness），里面没有
+        // `demo/agent/skills/env-style` 那份技能 —— 「环境自动发现」那一路由 demo/ 演示（check 第 7 项 + lab.ts）。
+        "报告每个小节标题以 ## 开头，小节末尾单独一行「依据：<语料 id>」。",
       skills: [join(skillsRoot, "writing-style")], // 写作员的技能与检索员不同（这一条是显式声明的）
       tools: {
         custom: [readBoardTool("写作员"), draftTool("写作员"), clearBoardTool("写作员")],
       },
-      // **刻意不写 `only`** —— 这是 demo 里唯一没写白名单的 agent，因为要演示一件事：
-      // 环境自动发现的扩展（env-tools.ts）注册的工具，**只在没写 only 时可见**。
-      // 写了 only 就会被硬过滤掉：白名单不该被环境里碰巧存在的扩展悄悄撑开（R41，见 src/agent/loader.ts）。
+      // **刻意不写 `only`** —— 这是本文件里唯一没写白名单的 agent，用来说明两件事：
+      //   1. 不写 only ⇒ pi 的默认工具（read/write/edit/bash…）全在，再加上下面声明的自定义工具；
+      //   2. 写了 only 就被**硬过滤**，连环境自动发现的扩展工具也一并挡掉（R41，见 src/agent/loader.ts）。
+      // 临时 agentDir 里没有扩展，所以上面那行 `extensions=` 初始是 0，运行期 add 一个之后才变 1
+      // —— 「环境自动发现」那条路要看 demo/check.ts 第 7 项。
       // 要检验这条，改成 X 再跑：给写作员加上 `only: ["read_blackboard","draft_section","clear_blackboard"]` ——
-      // env_checklist 立刻从工具集里消失（下面打印的活跃工具列表能看出来）。
+      // 上面打印的活跃工具白名单会立刻缩到那三个。
       // 另一条：把 only 里加上 "search"、再给写作员 searchExtension —— 写作员会自己查资料、
       // 跳过两个检索分身；同一份报告两条路的结果可直接对比。
     }),
@@ -595,15 +596,14 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── 环境自动发现这条路：技能 + 插件（都不在 spec 里）──
-  // 技能 env-style 靠 role 里那句话被用上 ⇒ 报告小节的「依据：」那行（下面 writeReport 会读它）。
-  // 插件 env-tools 注册的 env_checklist 工具：让写作员真的调一次，证明环境插件这条路是通的。
-  // 注意它只在**没写 only** 的 agent 上可见 —— 写作员正是那个（见上面创建它的注释）。
+  // ── 环境自动发现（技能 + 插件）那条路本来由 demo/agent/ 演示；本文件的 agentDir 是临时的，两者都没有 ──
+  // 所以下面那行是**如实呈现**：临时环境里没有 env-style 技能、也没有 env-tools 插件。
+  // 要真看这两个「自动发现」生效：`demo/check.ts` 第 7 项 + `demo/lab.ts`（环境 = demo/agent/ 那份真目录）。
   const envToolVisible = writer.io.raw.getActiveToolNames().includes("env_checklist");
   const envSkillVisible = writer.skills.list().some((sk) => sk.name === "env-style");
   console.log(
-    `    环境自动发现：技能 env-style=${envSkillVisible ? "可见" : "不可见"}` +
-      `，扩展工具 env_checklist=${envToolVisible ? "可见" : "不可见（写了 only 就会这样，见创建那里的注释）"}`,
+    `    环境自动发现（本文件用临时 agentDir，所以两边都是「不可见」）：技能 env-style=${envSkillVisible ? "可见" : "不可见"}` +
+      `，扩展工具 env_checklist=${envToolVisible ? "可见" : "不可见"}`,
   );
   if (envToolVisible) {
     // 用**新建的** agent 调这个工具，而不是复用写作员 —— 实测教训：
@@ -672,7 +672,7 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log("[5] 汇总：报告由代码拼（黑板 + 语料），写到 demo/work/report.md");
+  console.log("[5] 汇总：报告由代码拼（黑板 + 语料），写到临时 cwd 的 report.md");
   const report = writeReport(tally);
   console.log(`    ${reportPath}：${report.trimEnd().split("\n").length} 行；采信语料 ${new Set(notes().flatMap((n) => n.ids)).size} 条；黑板流水 ${entries.length} 条`);
 
@@ -683,7 +683,7 @@ async function main(): Promise<void> {
     process.exitCode = 1; // 不 process.exit()：Windows 上它会把退出码变成 127（见 demo/check.ts 的注释）
     return;
   }
-  console.log("全部跑通 —— 报告在 demo/work/report.md。改一处设计决策、再跑一次，就能检验那条假设。");
+  console.log(`全部跑通 —— 报告在 ${reportPath}（临时 cwd，跑完即弃）。改一处设计决策、再跑一次，就能检验那条假设。`);
 }
 
 /** 黑板里最近一条 search 的命中（打印用） */
@@ -715,10 +715,10 @@ function writeReport(counts: Record<SurfaceName, number>): string {
   const out: string[] = [
     "# 七个操控面，撑起一次多 agent 协作",
     "",
-    "> 本文件由 `demo/agent-team.ts` 的 `writeReport()` 从**黑板 + 语料**拼出 —— 假 provider 不会写字。",
+    "> 本文件由 `examples/12-team.ts` 的 `writeReport()` 从**黑板 + 语料**拼出 —— 假 provider 不会写字。",
     "> 「模型」在这次协作里决定的是**调用顺序与取舍**（查什么、采信哪几条、报告分几节），它们经工具参数",
-    "> 落进黑板，再由代码兑现成文。想让它真的写字：换真模型（`demo/env.ts` 顶部两行）并把这里「按 id",
-    "> 取语料正文」换成「取模型写的段落」。",
+    "> 落进黑板，再由代码兑现成文。想让它真的写字：换真模型（自己 `createLab` 一个带真 key 的 agentDir，见本文件头部）",
+    "> 并把这里「按 id 取语料正文」换成「取模型写的段落」。",
     "",
     "## 这次协作的账",
     "",
