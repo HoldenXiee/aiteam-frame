@@ -7,3 +7,6 @@ demo/env/*
 # demo 的**运行时产物**：脚本生成，可整个删掉重建
 demo/run/
 demo/work/*
+
+# 执行账本：SDD 过程文件与 review diff。不在设计源之内（设计源只有 docs/DESIGN.md），不入库
+.superpowers/
