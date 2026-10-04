@@ -4,14 +4,16 @@
 
 一句话：**环境即目录、目录即配置**。一个 agent 的「身份与装备」——有哪些技能、能加载哪些扩展、用哪份凭证、看得见哪些模型——不写在代码里，就是这个目录里有哪些文件。想改环境，改目录；想让改动可复现、可 review，就把文件签进仓库。
 
-`demo/` 下的三个脚本都读同一个环境：`demo/env.ts` 按需补上动态文件（假模式写 `models.json`），`demo/check.ts` 与 `demo/agent-team.ts` 再用它起 agent。
+`demo/` 下的脚本都读同一个环境：`demo/env.ts` 解析出「环境在哪」（假模式再补上动态文件 `models.json`），`demo/lab.ts`（实验起点）与 `demo/check.ts`（环境自检）用同一套路径起 agent。
+
+**复制 `demo/` 会把本目录一起复制走**：环境跟着实验走，副本用副本自己的 `agent/`（机关是 `demo/env.ts` 里那个「相对本文件解析」的 `agentDir()`）。
 
 ## 每一档管什么
 
 | 档 | 进 git | 谁写 | 管什么 · 删掉的后果 |
 |---|---|---|---|
 | `README.md` | ✅ | 人 | 就是本文件：环境规范。删掉只是少一份文档，不影响运行 |
-| `skills/<名>/SKILL.md` | ✅ | 人 | 技能。文件名目录名随你，**技能名取自 frontmatter 的 `name`**。删掉：靠它约束的行为（如报告的「依据：」行）失去依据——技能是**软约束**，靠模型读了照做，不是代码强制的 |
+| `skills/<名>/SKILL.md` | ✅ | 人 | 技能。文件名目录名随你，**技能名取自 frontmatter 的 `name`**。删掉：靠它约束的行为失去依据 —— 技能是**软约束**（靠模型读了照做，不是代码强制）：`demo/lab.ts` 少掉 `env-style` 后照样 exit 0（这就是 S3 那条 mutation） |
 | `extensions/<名>.ts` | ✅ | 人 | 扩展。`export default (pi: ExtensionAPI) => …`，在函数体里 `pi.registerTool(...)` / `pi.on(...)`。删掉：它注册的工具与钩子消失（`demo/check.ts` 第 7 项会因此变红） |
 | `auth.json` | ❌ gitignored | 人（或 `AITEAM_DEMO_AUTH`） | **真模式唯一读的凭证**。删掉：`AITEAM_DEMO_REAL=1` 会明确报错（四条出路），不会静默 |
 | `models.json` | ❌ gitignored | `demo/env.ts`（假模式） | 本机假 provider 的地址 + 两个模型。**端口是随机的，所以它只能是生成物**，不能签进仓库。删掉：下次跑 `env.ts` 重新生成 |
@@ -26,7 +28,7 @@
 
 `SYSTEM.md` 不是「追加」，是**整体替换**系统提示词——连 pi 自己注入的 `<tools>` / `<rules>` 段一起消失。放一份进去：
 
-- `demo/agent-team.ts` 的模型行为会变（工具声明没了，调用顺序与取舍跟着变）；
+- `demo/lab.ts` 的模型行为会变（系统提示词里的工具声明与规则段没了，调用顺序跟着变）；
 - `demo/check.ts` 第 7 项「只看得到自己的技能与扩展」的判据会被带偏（它验的是发现与隔离，不是提示词）。
 
 这一档是真实存在的、也确实有这个后果——但要看它的效果，得**单独开一个环境**（另建一个 agentDir 放 `SYSTEM.md`），别把它混进 demo 这个「七面全出场」的环境里。
@@ -41,9 +43,18 @@
 
 ## 两条环境事实
 
-**R41：环境自动发现的扩展，其工具名不并入 `permissions.only` 白名单。** 白名单是「精确就是这些」的硬过滤，不该被环境里碰巧存在的扩展悄悄撑开。所以 `extensions/env-tools.ts` 注册的 `env_checklist` **只在没写 `only` 的 agent 上可见**——`demo/agent-team.ts` 里的写作员就是那个没写 `only` 的 agent，demo 专门演示这一点。
+**R41：环境自动发现的扩展，其工具名不并入 `permissions.only` 白名单。** 白名单是「精确就是这些」的硬过滤，不该被环境里碰巧存在的扩展悄悄撑开（实现见 `src/agent/loader.ts`）。
 
-**`agentDir` 与 `cwd` 分工不同。** `agentDir` 是**身份与装备**（技能 / 扩展 / 凭证 / 模型），跨 agent 共享、位置由 `createLab` 声明一次；`cwd` 是**在哪干活**（会话落点、工具的相对路径根），agent 的产物如 `report.md` 落在那里。这个 demo 里两者分别是 `demo/agent/` 与 `demo/work/`。
+实测对照（同一个 `demo/agent/`，只差一行 `only`）：
+
+| 写作员 | 活跃工具 |
+|---|---|
+| `only: ["read", "write", "bash"]`（`demo/lab.ts` 里就是这个） | `read,write,bash` |
+| 不写 `only` | `read,bash,edit,write,env_checklist` |
+
+**要检验这条**：把 `demo/lab.ts` 里写作员那行 `only: ["read", "write", "bash"]` 删掉再跑 —— `env_checklist` 就会出现。
+
+**`agentDir` 与 `cwd` 分工不同。** `agentDir` 是**身份与装备**（技能 / 扩展 / 凭证 / 模型），跨 agent 共享、位置由 `createLab` 声明一次；`cwd` 是**在哪干活**（会话落点、工具的相对路径根），agent 的产物如 `notes.md` 落在那里。这个 demo 里两者分别是 `demo/agent/` 与 `demo/work/`。
 
 ## 两种模式共用一个环境目录：已知代价
 
