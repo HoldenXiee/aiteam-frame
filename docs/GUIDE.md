@@ -105,7 +105,7 @@ io.prompt("…")
 
 #### 改历史：`entries` / `replace` / `erase`
 
-**三层别混**：`override` 改**本轮**（一次性，下一轮就消失，历史分毫未动）／`replace`、`erase` 改**历史**（append-only，永久生效）／**整段重置不在库内**——pi 没有这个 API，要重置就得换 session、新建 agent 或逐条抹，三条路怎么选登记在 [`DESIGN-解读.md`](DESIGN-解读.md) §5。
+**三层别混**：`override` 改**本轮**（一次性，下一轮就消失，历史分毫未动）／`replace`、`erase` 改**历史**（append-only，永久生效）／**整段重置用 `reset()`**——逐条抹除、仍是同一个 agent，不可编辑条目（system / 压缩摘要）进返回值的 `skipped`。pi 没有「真清空」的 API，压缩摘要是硬天花板；三条候选路与最终选择见 [`DESIGN-解读.md`](DESIGN-解读.md) §4.4。
 
 **寻址只能用 `entries()` 的 `id`，不要用 `history` 的下标**：`history` **不含 `system`**，而 `entries()` 含（system 也在里面，用 `role` 区分），两个数组从第一条 system 起就错位；而且投影会随编辑变化，下标本身也不稳定。不存在的 id 会抛错，不静默 no-op——在这里静默失败等于「以为改了、其实没改」。**system 与压缩 / 分支摘要条目只可寻址、不可编辑**（对它们的 id 调 `replace` / `erase` 会抛中文错并带上 id）。
 

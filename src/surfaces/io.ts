@@ -164,9 +164,15 @@ export function createIo(deps: IoDeps): IoSurface {
      */
     async interrupt(text, opts) {
       deps.assertAlive();
-      if (!isRunning()) return run(text, opts, nextRunId());   // 空闲：等价 prompt，abort 也不需要
-      await session.abort();
-      await waitIdle();
+      // 循环而不是「判一次忙」：连打两次 interrupt（用户连按两下「停止并发送」）时，先到的那次刚投出
+      // 新的一轮，后到的若只判一次就会撞 run() 的忙判据、抛「agent 正在运行」—— 那是把一次合法输入
+      // 直接丢掉，还给出与真实原因无关的补救建议（queue）。忙时不抛错是这个方法写下的契约。
+      // 语义：后到的那刀砍掉先到的那一轮（先到者以 abort 结算，调用方可以 catch 掉）。
+      // 空闲时循环一次都不进，等价于 prompt —— abort 也不需要。
+      while (isRunning()) {
+        await session.abort();
+        await waitIdle();
+      }
       return run(text, opts, nextRunId());
     },
     async abort() {

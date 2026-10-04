@@ -116,6 +116,7 @@ export interface IoSurface {
    * 改向（`agent-session.js:1665` 只 push 进队列）。要「现在就停、就发这句」只能 abort。
    *
    * 空闲时等价于 `prompt`（不抛错）。忙时**不抛错** —— 这正是它存在的理由，`prompt` 忙时会拒。
+   * 连打两次也**不抛错**：后到的那刀砍掉先到的那一轮（先到者可被 `catch` 掉），不是丢掉后一次输入。
    */
   interrupt(text: string, opts?: { images?: ImageContent[] }): Promise<RunResult>;
   abort(): Promise<void>;

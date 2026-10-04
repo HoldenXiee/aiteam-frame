@@ -138,7 +138,8 @@ export async function contextCompact(agent: Agent): Promise<void> {
 // #snippet context.editHistory
 export async function contextEditHistory(agent: Agent): Promise<string[]> {
   // 三层别混：override 改**本轮**（一次性，下一轮就消失，历史分毫未动）；replace / erase 改**历史**
-  // （append-only，永久生效）；**整段重置不在库内**（pi 没有这个 API），要换 session / 新建 agent / 逐条抹。
+  // （append-only，永久生效）；整段重置用 agent.context.reset() —— 逐条抹除、仍是同一个 agent，
+  // 抹不掉的条目（system / 压缩摘要）进返回值的 skipped。
   //
   // 寻址只能用 entries() 的 id，**不要**用 history 的下标：history 不含 system，而 entries() 含
   // （system 也在里面，用 role 区分），两边从第一条 system 起就错位；而且投影随编辑变化，下标也不稳定。

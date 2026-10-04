@@ -179,3 +179,21 @@ test("dispose 之后 interrupt 抛错（R48）", async () => {
   a.dispose();
   await assert.rejects(() => a.io.interrupt("x"), /disposed/);
 });
+
+test("interrupt 连打两次：后到的那次不抛「正在运行」（契约：忙时不抛错）", async () => {
+  const a = await makeAgent();
+  try {
+    const slow = a.io.prompt("[[sleep:1500]] 慢").catch(() => {});
+    const results = await Promise.allSettled([a.io.interrupt("第一刀"), a.io.interrupt("第二刀")]);
+    for (const r of results) {
+      if (r.status === "rejected") {
+        assert.doesNotMatch(String(r.reason), /正在运行/, `interrupt 契约是忙时不抛错：${r.reason}`);
+      }
+    }
+    assert.ok(
+      results.some((r) => r.status === "fulfilled" && r.value.text.startsWith("echo:")),
+      `两次 interrupt 至少有一次投递成功：${JSON.stringify(results.map((r) => r.status))}`,
+    );
+    await slow;
+  } finally { a.dispose(); }
+});
