@@ -179,9 +179,9 @@ async function main(): Promise<void> {
             );
           }
           return {
-            detail: `agentDir 可写；宿主凭证下读到 ${env.model}`,
+            detail: `agentDir 可写；demo 自己的凭证下读到 ${env.model}`,
             evidence: [
-              `agentDir=${env.agentDir}（宿主默认，凭证未复制）`,
+              `agentDir=${env.agentDir}（凭证在 demo/agent/auth.json，或由 AITEAM_DEMO_AUTH 复制而来）`,
               `${provider}: ${group.available.length} 个可用，含 ${id}`,
             ],
           };
@@ -201,9 +201,9 @@ async function main(): Promise<void> {
         };
       },
       hints: [
-        "`demo/run/` 不可写（权限位、只读挂载、杀软拦住新建目录）⇒ 给目录写权限，或把仓库挪到可写盘",
+        "`demo/agent/` 不可写（权限位、只读挂载、杀软拦住新建目录）⇒ 给目录写权限，或把仓库挪到可写盘",
         "磁盘满 / Windows 路径过长（MAX_PATH）⇒ 清磁盘，或把仓库挪到短路径（如 D:\\aiteam）",
-        "`models.json` 被改坏或结构过时（手工编辑、上一版 demo 留下的）⇒ 删掉 `demo/run/` 整个目录再重跑，ensureEnv 会重建",
+        "`models.json` 被改坏或结构过时（手工编辑、上一版 demo 留下的）⇒ 删掉 `demo/agent/models.json` 与 `demo/work/` 再重跑，ensureEnv 会重建",
       ],
     },
     {
@@ -224,13 +224,13 @@ async function main(): Promise<void> {
           evidence: [
             `agentDir=${env.agentDir}`,
             `cwd=${env.cwd}`,
-            env.real ? `真模型（凭证来自宿主 ~/.pi）` : `假 provider=${env.baseUrl}`,
+            env.real ? `真模型（凭证来自 demo/agent/auth.json）` : `假 provider=${env.baseUrl}`,
           ],
         };
       },
       hints: [
         "第 2 项已经告诉你 pi 版本不对（那一步先修）⇒ 版本不一致时创建参数形状可能已变",
-        "模型 ref 解析不到（`models.json` 被改过/被别的 demo 覆盖）⇒ 删 `demo/run/` 再重跑",
+        "模型 ref 解析不到（`models.json` 被改过/被别的 demo 覆盖）⇒ 删 `demo/agent/models.json` 再重跑",
         "`demo/work/` 不可写或被别的进程占着（会话要落在这里）⇒ 关掉占用它的进程，或删掉 `demo/work/` 让 demo 重建",
       ],
     },
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
       // 这一项**不跑模型**：纯粹查「环境里到底有什么」，所以它便宜、确定、不需要 provider。
       // 存在理由：agentDir 只要没被填过东西，skills/extensions 返回空**说明不了任何事** ——
       // 空可能是隔离做对了，也可能是这条发现路径压根没被走到。所以判据要**两边都成立**：
-      //   ① 看得到**自己的**（env.ts 里 seedOwnResources 放进去的那份）⇒ 自动发现这条路是通的；
+      //   ① 看得到**自己的**（demo/agent/ 里那份真文件）⇒ 自动发现这条路是通的；
       //   ② 看不到**宿主的** ⇒ 隔离真的生效。
       // 宿主 ~/.pi/agent 里通常有技能与插件，只满足①不满足②就是「用了电脑的设置」。
       name: "环境隔离：只认自己的技能与插件",
@@ -357,9 +357,9 @@ async function main(): Promise<void> {
         };
       },
       hints: [
-        "看不到自己的技能/扩展 ⇒ demo/run/ 被手工清过或写失败：删掉 demo/run/ 再重跑（ensureEnv 会重建并 seed）",
-        "混进了宿主的技能/扩展 ⇒ agentDir 指错了（检查 demo/env.ts 的 runDir()，或有没有别的环境变量把它带偏）",
-        "技能报 ENOENT ⇒ pi 要求 filePath 指向真文件：确认 demo/run/*/skills/env-style/SKILL.md 真在磁盘上",
+        "看不到自己的技能/扩展 ⇒ demo/agent/ 被清过：skills/env-style/SKILL.md 或 extensions/env-tools.ts 不在磁盘上",
+        "混进了宿主的技能/扩展 ⇒ agentDir 指错了（检查 demo/env.ts 的 agentDir()，或有没有别的环境变量把它带偏）",
+        "技能报 ENOENT ⇒ pi 要求 filePath 指向真文件：确认 demo/agent/skills/env-style/SKILL.md 真在磁盘上",
       ],
     },
     {
