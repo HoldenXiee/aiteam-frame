@@ -15,9 +15,8 @@
 // （放着就生效，不用写进 spec），所以「改环境 = 改文件」「review 环境 = 看 diff」。
 // 每一档管什么见 `demo/agent/README.md`。
 //
-// `demo/env/` 与 `demo/run/` 是**遗留**：前者是 v1 的配置源（其 auth.json 首次真模式运行时会被
-// **复制**过来，原件保留）；后者是 v2 早先的运行时产物目录，**不再写入**（旧 checkout 的残留
-// 由 .gitignore 与 tsconfig 的 exclude 忽略）。
+// `demo/run/` 是**遗留**：v2 早先的运行时产物目录，**不再写入**（旧 checkout 的残留由 .gitignore
+// 与 tsconfig 的 exclude 忽略）。
 //
 // ── 真模式的两条硬约束（都是血教训，见 demo/README.md）──
 //
@@ -30,7 +29,7 @@
 // 想用自己的 key：写进 `demo/agent/auth.json`（推荐，gitignored），或设
 // `AITEAM_DEMO_AUTH=/path/to/auth.json`（那份文件会被**复制**进 `demo/agent/auth.json`，原件只读）。
 // **别指向宿主** —— 见上面第 1 条。
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   FAUX_MODEL_ALT_ID,
@@ -88,7 +87,7 @@ const workDir = (): string => join(import.meta.dirname, "work");
  * 那个空壳会把「三处都没有凭证 ⇒ 明确报错」这条路堵死，变成后面读不到模型。
  *
  * 来源优先级：`AITEAM_DEMO_AUTH`（显式指定，**总是赢**，坏了就报错）> `demo/agent/auth.json`
- * 里已在位的那份 > 迁移遗留的 `demo/env/auth.json`。
+ * 里已在位的那份。
  */
 async function setupReal(): Promise<DemoEnv> {
   const cwd = workDir();
@@ -104,28 +103,20 @@ async function setupReal(): Promise<DemoEnv> {
     throw new Error(
       `AITEAM_DEMO_AUTH 指的那份不可用：${explicit}\n` +
         `  · 它必须是一个**含凭证的 JSON 对象**（pi 的空壳 \`{}\` 不算）\n` +
-        `  · 或干脆不设 AITEAM_DEMO_AUTH，改用 ${target}（推荐）或 demo/env/auth.json（遗留）`,
+        `  · 或干脆不设 AITEAM_DEMO_AUTH，改用 ${target}（推荐）`,
     );
   }
   if (explicit) {
     copyFileSync(explicit, target);
   } else if (!hasCredentials(target)) {
-    // 顺序：env 变量（已处理）> 环境目录里那份 > 迁移 v1 遗留的 demo/env/auth.json
-    const legacy = join(import.meta.dirname, "env", "auth.json");
-    const source = existsSync(legacy) ? legacy : undefined;
-    if (!source || !existsSync(source)) {
-      throw new Error(
-        `真模式需要 demo 自己的凭证，但三处都没有：\n` +
-          `  · ${target}（推荐：把 auth.json 放这里，gitignored）\n` +
-          `  · 或 AITEAM_DEMO_AUTH=/path/to/auth.json\n` +
-          `  · 或干脆不设 AITEAM_DEMO_REAL，跑离线假 provider（默认，零成本）\n` +
-          `  · 注意：别指向宿主 ~/.pi/agent —— pi 会整文件写回，把那里别的 provider 凭证抹掉`,
-      );
-    }
-    copyFileSync(source, target);
-    if (source === legacy) {
-      console.log(`[demo] 已把凭证从 demo/env/auth.json 迁到 demo/agent/auth.json（原文件保留，可自行删除）`);
-    }
+    // 顺序：env 变量（已处理）> 环境目录里那份
+    throw new Error(
+      `真模式需要 demo 自己的凭证，但两处都没有：\n` +
+        `  · ${target}（推荐：把 auth.json 放这里，gitignored）\n` +
+        `  · 或 AITEAM_DEMO_AUTH=/path/to/auth.json\n` +
+        `  · 或干脆不设 AITEAM_DEMO_REAL，跑离线假 provider（默认，零成本）\n` +
+        `  · 注意：别指向宿主 ~/.pi/agent —— pi 会整文件写回，把那里别的 provider 凭证抹掉`,
+    );
   }
   return { agentDir: dir, cwd, real: true, model: REAL_MODEL_REF, altModel: REAL_MODEL_REF };
 }
