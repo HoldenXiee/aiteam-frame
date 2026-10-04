@@ -36,20 +36,16 @@ npm install        # 需要 Node ≥ 24（原生跑 .ts，无需构建）
 
 ---
 
-## 2. 第一件事：跑安装自检
+## 2. 第一件事：跑第一窗口
 
 ```bash
-node demo/check.ts        # 八项，不需要 API key，全程离线，零成本
+node demo/agent-team.ts   # 多 agent 协作写一份报告：七个操控面全出场，离线、零成本
+node demo/check.ts        # 环境自检（八项）：确认这台机器具备研究条件
 ```
 
-预期结尾：
+**`agent-team` 才是「第一件事」**：新人第一条命令该看到的是**这个库能操控什么**（七个面各出场 ≥ 1 的自证表、黑板流水、报告由代码拼）。它跑完会把报告写在 `demo/work/report.md`。
 
-```
-八项全通过 —— 本机可以开始研究 agent 课题了。
-退出码=0
-```
-
-**这一步的价值**：它检查的是「**你这台机器具备研究条件**」——Node 与原生 `.ts`、pi 版本、环境可写、模型可读、能起 agent、**工具真能被模型调用**、七个面各自能读写。
+`check` 是**环境出问题时的诊断入口**（不是新人的第一步）：它检查的是「**你这台机器具备研究条件**」——Node 与原生 `.ts`、pi 版本、环境可写、模型可读、能起 agent、**工具真能被模型调用**、七个面各自能读写。退出码 0 = 八项全过。
 
 失败了不要紧，输出会告诉你**哪一步 + 原始错误 + 最可能的三个原因**，例如：
 
@@ -184,8 +180,9 @@ docs/FACTS.md         已实测核对的 pi 行为（这个文件必须准）
 npm test              # 144 例断言，本机假 provider，零 API 成本
 npm run typecheck     # tsc --noEmit（含 src / test / demo / examples）
 
-node demo/check.ts                    # 安装自检（离线）
-AITEAM_DEMO_REAL=1 node demo/check.ts # 安装自检（真模型）
+node demo/agent-team.ts               # 第一窗口（离线）
+node demo/check.ts                    # 环境自检（离线）
+AITEAM_DEMO_REAL=1 node demo/check.ts # 环境自检（真模型）
 ```
 
 **测试不需要 API key、不联网、零成本。** 全部断言跑在本机假 provider 上（`examples/lib/faux-server.ts`）——它按提示词里的脚本约定回话：

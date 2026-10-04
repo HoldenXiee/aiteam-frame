@@ -7,7 +7,8 @@
 理想是一个 agent 身上的每个面都能被设计者的代码操控；v2 里**机制层已经补齐**（七个面，逐面见 [`docs/GUIDE.md`](docs/GUIDE.md)），**策略层刻意留空**。完整的操控面清单与对外接口见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
 > **第一次接手这个项目？** 读 [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md)——30 分钟跑起来、看懂、开始研究。
-> **只想验证这台机器能不能跑？** `npm install && node demo/check.ts`（一条命令，不需要 key）。
+> **想看这个库能操控什么？** `npm install && node demo/agent-team.ts`（一条命令，不需要 key，七个面全出场）。
+> **只想验证这台机器能不能跑？** `node demo/check.ts`（八项环境自检，同样不需要 key）。
 
 ## 核心模型
 
@@ -91,7 +92,8 @@ node demo/check.ts                   # 环境自检：八项，不需要 key，�
 两种模式**同一个 demo、同一套流程**，差别只在 provider：
 
 ```bash
-AITEAM_DEMO_REAL=1 node demo/check.ts        # 安装自检走真模型
+AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 第一窗口走真模型
+AITEAM_DEMO_REAL=1 node demo/check.ts        # 环境自检走真模型
 AITEAM_DEMO_REAL=1 node demo/agent-team.ts   # 完整例子走真模型
 ```
 

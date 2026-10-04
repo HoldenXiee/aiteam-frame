@@ -16,7 +16,7 @@
 | `auth.json` | ❌ gitignored | 人（或 `AITEAM_DEMO_AUTH`） | **真模式唯一读的凭证**。删掉：`AITEAM_DEMO_REAL=1` 会明确报错（四条出路），不会静默 |
 | `models.json` | ❌ gitignored | `demo/env.ts`（假模式） | 本机假 provider 的地址 + 两个模型。**端口是随机的，所以它只能是生成物**，不能签进仓库。删掉：下次跑 `env.ts` 重新生成 |
 | `models-store.json` | ❌ gitignored | pi（真模式联网时） | 模型目录缓存。假模式离线，不会写它。删掉：pi 下次联网重建 |
-| `settings.json` | ❌ gitignored | pi | pi 会自己 ensure 它；demo 全用默认值，不签入。删掉：pi 重建为空默认 |
+| `settings.json` | ❌ gitignored | pi（**只在你改过设置时才写** —— `FileSettingsStorage` 的 `fn` 返回 `undefined` 就不写文件） | pi 设置。demo 不动设置，所以跑完这里**通常没有它**；`demo/` 全用默认值，不签入。删掉：下次改设置时重建 |
 | `SYSTEM.md` | **本目录不放** | —— | 见下节 |
 | `APPEND_SYSTEM.md` | **本目录不放** | —— | 与 `SYSTEM.md` 同一族；放进去会改变系统提示词，同样会污染 demo 的判据 |
 

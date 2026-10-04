@@ -8,7 +8,7 @@
 //   进 git（人写的，可手改）：  skills/<名>/SKILL.md · extensions/<名>.ts · README.md（环境规范）
 //   动态（本脚本或 pi 写）：    models.json（假 provider 地址；端口随机 ⇒ 只能是生成物，不能签入）
 //                              auth.json（真模式唯一凭证，gitignored）
-//                              models-store.json · settings.json（pi 自己 ensure / 联网时写）
+//                              models-store.json · settings.json（pi 自己写：前者联网时，后者只在你改过设置时）
 //   cwd：                       demo/work/（agent 在哪干活、产物落哪）
 //
 // 为什么把环境做成仓库里的真目录：环境即目录、目录即配置。技能与扩展走 pi 的**自动发现**
