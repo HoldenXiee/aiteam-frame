@@ -28,7 +28,14 @@ export type AgentMessage = AgentSession["messages"][number];
 
 // ─────────────── 创建期 ───────────────
 
-/** 交给 loader 的那部分声明：技能 / 扩展 / 角色 */
+/** 交给 loader 的那部分声明：技能 / 扩展 / 角色。
+ *
+ * `skills` / `extensions` 是**精确白名单**（R48），三档语义：
+ *   - **字段不写** → 环境（`agentDir`）自动发现的全部生效；
+ *   - **写了** → 集合就是这些：环境里其他的一律不进这个 agent（这是「环境是材料池，spec 是选哪些」的实现）；
+ *   - **写了 `[]`** → 一个都没有。
+ * 白名单**只裁环境自动发现的那部分**；运行期 `skills.add` / `extensions.add` 追加的照常生效。
+ */
 export interface ResourceSpec {
   skills?: (string | Skill)[];
   extensions?: (string | InlineExtension)[];

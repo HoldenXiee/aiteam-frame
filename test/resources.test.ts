@@ -466,3 +466,100 @@ test("extensions.add 第二趟 reload 失败 → 注入表回滚，不留半应�
   assert.equal(factories().length, 0, "第一趟 push 的工厂要撤回去（半应用状态）");
   assert.deepEqual([...allowed], ["read"], "并入的白名单名也要摘回去");
 });
+
+// ─────────────── R48：skills / extensions 的精确白名单 ───────────────
+//
+// 语义三档（与 permissions.only 同构）：不写 = 环境全给；写了 = 就这些；`[]` = 一个都没有。
+// 白名单只裁**环境自动发现**的那部分（base），不裁注入表 —— 所以运行期 add 照常生效。
+//
+// 判别力：这些用例在实现之前**必须红**（旧语义下 base 无条件全进）。
+
+/** 一个临时 cwd：`.pi/skills/<name>/SKILL.md` 是 pi 的环境发现路径 */
+function cwdWithEnvSkills(names: string[]): string {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-env-skills-"));
+  for (const n of names) {
+    const dir = join(cwd, ".pi", "skills", n);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), `---\nname: ${n}\ndescription: 环境技能\n---\n\n正文\n`);
+  }
+  return cwd;
+}
+
+test("R48：skills 不写 → 环境自动发现的技能全给（向后兼容）", async () => {
+  const a = await makeAgentIn(cwdWithEnvSkills(["env-a", "env-b"]));
+  try {
+    const names = a.skills.list().map((s) => s.name).filter((n) => n.startsWith("env-"));
+    assert.deepEqual(names.sort(), ["env-a", "env-b"]);
+  } finally { a.dispose(); }
+});
+
+test("R48：skills 写了 → 精确：环境里没写进来的不进这个 agent", async () => {
+  const a = await makeAgentIn(cwdWithEnvSkills(["env-a", "env-b"]), { skills: ["env-a"] });
+  try {
+    const names = a.skills.list().map((s) => s.name);
+    assert.ok(names.includes("env-a"), "写进来的要在");
+    assert.ok(!names.includes("env-b"), "没写进来的要被裁掉 —— 旧语义下它会无条件跟着环境进来");
+  } finally { a.dispose(); }
+});
+
+test("R48：skills: [] → 一个技能都没有", async () => {
+  const a = await makeAgentIn(cwdWithEnvSkills(["env-a", "env-b"]), { skills: [] });
+  try {
+    assert.deepEqual(a.skills.list().map((s) => s.name), []);
+  } finally { a.dispose(); }
+});
+
+test("R48：技能名解析不到 → 抛错（白名单是精确的，写错必须响）", async () => {
+  await assert.rejects(
+    () => makeAgentIn(cwdWithEnvSkills(["env-a"]), { skills: ["nope"] }),
+    /找不到技能「nope」/,
+  );
+});
+
+test("R48：extensions 不写 → 环境扩展全给；写了 → 只留声明的那个", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-env-exts-"));
+  const dir = join(cwd, ".pi", "extensions");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "env-a.ts"), extSource("env_tool_a"));
+  writeFileSync(join(dir, "env-b.ts"), extSource("env_tool_b"));
+
+  const all = await makeAgentIn(cwd);
+  try {
+    const tools = all.io.raw.getActiveToolNames();
+    assert.ok(tools.includes("env_tool_a") && tools.includes("env_tool_b"), "不写时环境扩展全给");
+  } finally { all.dispose(); }
+
+  const onlyA = await makeAgentIn(cwd, { extensions: [join(dir, "env-a.ts")] });
+  try {
+    const tools = onlyA.io.raw.getActiveToolNames();
+    assert.ok(tools.includes("env_tool_a"), "声明的要在");
+    assert.ok(!tools.includes("env_tool_b"), "没声明的扩展连工具都不该注册进来");
+  } finally { onlyA.dispose(); }
+});
+
+test("R48：extensions: [] → 环境扩展一个都不加载，但库的桥接还在", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "aiteam-env-exts-"));
+  const dir = join(cwd, ".pi", "extensions");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "env-a.ts"), extSource("env_tool_a"));
+
+  const a = await makeAgentIn(cwd, { extensions: [] });
+  try {
+    assert.ok(!a.io.raw.getActiveToolNames().includes("env_tool_a"));
+    // 桥接（`<inline:1>`）不许被裁：裁掉它等于把工具表/事件接线一起拆了
+    assert.ok(a.extensions.list().some((e) => e.path === "<inline:1>"), "库的桥接扩展必须永远在");
+    // 会话仍可用：`read` 这类 pi 自带工具与库的接线都不受扩展白名单影响
+    assert.ok(a.io.raw.getActiveToolNames().includes("read"));
+  } finally { a.dispose(); }
+});
+
+test("R48：白名单只裁环境发现，不裁运行期 add（与 only 后再 allow 同理）", async () => {
+  const cwd = cwdWithEnvSkills(["env-a", "env-b"]);
+  const a = await makeAgentIn(cwd, { skills: [] });
+  const dir = skillDir("runtime-skill");
+  try {
+    assert.deepEqual(a.skills.list().map((s) => s.name), [], "前提：白名单是空的");
+    await a.skills.add(dir);
+    assert.ok(a.skills.list().some((s) => s.name === "runtime-skill"), "运行期 add 不受创建期白名单限制");
+  } finally { a.dispose(); }
+});
