@@ -127,6 +127,8 @@ io.prompt("…")
 
 → 片段：`tools.add`、`tools.addThenInspect`、`tools.addFactory`。示例：`examples/04-tools.ts`。
 
+**工具的高级用法见 [`TOOLS.md`](TOOLS.md)**：`ctx.executeTool()` 编排别的工具、`promptSnippet` 进 system 清单、`prepareArguments` 兼容旧参数、`onResult` 改写给模型的内容、`exposure`/`executionMode` 等。
+
 ### 3.4 `permissions` —— 哪些允许被调用
 
 **能做什么**：`gate(fn)`（审批门）、`only(names)`（精确）、`allow(names)`（并集）、`deny(names)`（差集）。

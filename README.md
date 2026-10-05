@@ -223,6 +223,7 @@ npm run typecheck   # tsc --noEmit
 | 对外类型（无运行时逻辑） | `src/agent/types.ts` |
 | 对外导出（唯一入口，不做逻辑） | `src/index.ts` |
 | 设计 / 实测事实 / 用法 | `docs/DESIGN.md` / `docs/FACTS.md` / `docs/GUIDE.md` |
+| 自定义工具的高级用法 | `docs/TOOLS.md` |
 
 相对 import **必须带 `.ts` 后缀**；只能用**可擦除**的 TS 语法（无 `enum` / `namespace` / 装饰器 / 参数属性）。
 
