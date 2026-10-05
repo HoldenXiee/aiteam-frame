@@ -117,7 +117,7 @@ cp -r demo demo-exp1        # 复制：环境（demo/agent/）跟着一起走
 node demo-exp1/lab.ts       # 跑
 ```
 
-`lab.ts` 是**一份实验一个文件**：环境声明 → 模板 → 起分身 → 自定义工具 → 交办 → 观测 → 打印。它**跑真模型**（默认 `opencode-go/space-bunny-free` 免费档），凭证放 `demo/agent/auth.json` 或 `AITEAM_DEMO_AUTH` 指一份；换模型用 `AITEAM_DEMO_MODEL`。
+`lab.ts` 是**一份实验一个文件**：环境声明 → 模板 → 起分身 → 自定义工具 → 交办 → 观测 → 打印。它**跑真模型**（`demo/env.ts` 里 `MODEL` 那一行直接赋值，默认 `opencode-go/space-bunny-free` 免费档），凭证放 `demo/agent/auth.json`；换模型、换凭证都是改 `demo/env.ts`，不走环境变量。
 
 - **环境跟着副本走**：`demo/env.ts` 里的 `agentDir()` 相对本文件解析，所以 `demo-exp1/` 用 `demo-exp1/agent/`，不是原 demo 的。
 - **真模型下不保证调工具**：提示词是自然语言（`[[tool:…]]` 那套是假 provider 的脚本约定，真模型只会当正文回你），所以「它一定调了某工具」不能当断言用。想看它实际调了什么，用 `on("tool_call")` 观测——那是一等接口。

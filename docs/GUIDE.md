@@ -43,8 +43,8 @@ npm test                        # 全部断言，本机假 provider，零 API �
 | `context` | `context.autoCompact` | `history` / `entries` / `replace` / `erase` / `reset` / `usage` / `autoCompact` / `override` / `compact` |
 | `tools` | `tools.custom` | `list` / `add` / `remove` / `onResult` |
 | `permissions` | `permissions.only` / `deny` / `gate` | `only` / `allow` / `deny` / `gate`（**没有**创建期 `allow`） |
-| `extensions` | `extensions`（路径或内联工厂） | `add` / `remove` / `list` / `errors` |
-| `skills` | `skills`（路径或 `Skill` 对象） | `add` / `remove` / `list` |
+| `extensions` | `extensions`（路径或内联工厂，**精确白名单**） | `add` / `remove` / `list` / `errors` |
+| `skills` | `skills`（名字 / 路径 / `Skill` 对象，**精确白名单**） | `add` / `remove` / `list` |
 | `model` | `model` / `thinking` | `set` / `setThinking` + 读数 `current` / `thinking` / `available` |
 
 其余 `spec` 字段：`id`（不写则自动生成）、`role`（追加到系统提示词尾部，不替换）。**`agentDir` / `cwd` / `modelNetwork` / `catalogBaseUrl` 不在 `spec` 里**——它们归实验室（`createLab`），写进 `spec` 会被拒。
@@ -145,6 +145,8 @@ io.prompt("…")
 
 **能做什么**：`add(工厂 | 路径)`、`remove(path)`、`list()`、`errors()`。
 
+**创建期 `spec.extensions` 是精确白名单（R48）**：不写 = 环境自动发现的扩展全给；写了 = 集合就是这些；`[]` = 一个都不加载（库自己的桥接扩展例外，它永远在）。白名单**只裁环境自动发现的**那一部分，运行期 `add` 追加的照常生效。
+
 **关键取舍**：
 
 - 加载失败**不静默**：`errors()` 里读得到（路径不存在、扩展自己抛错都在这里）。但运行期钩子抛错走的是另一条路（`console.error`），不在 `errors()` 里。
@@ -157,9 +159,11 @@ io.prompt("…")
 
 **能做什么**：`add(路径 | Skill 对象)`、`remove(path)`、`list()`。
 
+**创建期 `spec.skills` 是精确白名单（R48）**：不写 = 环境自动发现的技能全给；写了 = 集合就是这些（可以写**技能名**，也可以写路径/`Skill` 对象）；`[]` = 一个技能都没有。这是「环境是材料池，spec 是选哪些」的实现——两个 agent 共用一个 `agentDir`，各自拿不同的技能集。
+
 **关键取舍**：
 
-- **只接受路径**（技能目录或 `SKILL.md`）或 `Skill` 对象：技能是被环境发现的，按名字注册没有意义，会直接抛错（避免「写了却什么都没发生」）。
+- **只接受路径**（技能目录或 `SKILL.md`）或 `Skill` 对象：技能是被环境发现的，按名字注册没有意义，会直接抛错（避免「写了却什么都没发生」）。创建期白名单里的**裸名字**是例外——它指向环境已发现的那个技能，找不到就抛错。
 - 路径加载不出任何技能会**抛错并把注入撤掉**，不静默降级。
 - 技能要求空闲（同 `extensions`）。
 

@@ -44,8 +44,8 @@ cp -r demo demo-exp1      # 开始你自己的实验：环境（demo/agent/）�
 node demo/check.ts        # 环境自检（八项）：确认这台机器具备研究条件
 ```
 
-**`demo/` 跑真模型**（默认 `opencode-go/space-bunny-free` 免费档）：凭证放 `demo/agent/auth.json`，
-或 `AITEAM_DEMO_AUTH=/path/to/auth.json`；换模型用 `AITEAM_DEMO_MODEL`。没凭证会**明确报错**，不静默。
+**`demo/` 跑真模型**（环境在 `demo/env.ts` 里声明：`MODEL` 那一行默认 `opencode-go/space-bunny-free` 免费档）：
+凭证放 `demo/agent/auth.json`。换模型、换凭证都是改 `demo/env.ts`，不走环境变量。没凭证会**明确报错**，不静默。
 
 **`demo/` 是实验脚手架，用法是「复制、改、跑」**：`demo/lab.ts` 七段各有一个「改这里」的锚点（环境、模板、自定义工具、交办、观测、打印），改完 `node demo-exp1/lab.ts` 就能看结果。环境 = 仓库里那个看得见的目录 `demo/agent/`，副本用副本自己的。
 
@@ -60,7 +60,7 @@ node demo/check.ts        # 环境自检（八项）：确认这台机器具备�
     原始错误：模型「nope/nope」解析失败：Model "nope/nope" not found. …
     最可能的三个原因与怎么补：
       1. 第 2 项已经告诉你 pi 版本不对（那一步先修）…
-      2. 模型 ref 解析不到… ⇒ 检查 `demo/agent/auth.json` 与 AITEAM_DEMO_MODEL
+      2. 模型 ref 解析不到… ⇒ 检查 `demo/agent/auth.json` 与 `demo/env.ts` 里的 `MODEL`
       3. `demo/work/` 不可写或被别的进程占着…
 ```
 
@@ -72,7 +72,7 @@ node demo/check.ts        # 环境自检（八项）：确认这台机器具备�
 node demo/check.ts     # 用 demo 自己的凭证（demo/agent/auth.json）+ 默认免费模型
 ```
 
-默认用 `opencode-go/space-bunny-free`（免费）。想换别的：`AITEAM_DEMO_MODEL=provider/id`。
+默认用 `opencode-go/space-bunny-free`（免费）。想换别的：改 `demo/env.ts` 里 `MODEL` 那一行（`provider/id`）。
 
 **demo 用它自己的 key**（`demo/agent/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
 之所以强调这点：最初真模式直接指宿主目录，而 pi 的 auth 存储是**读-改-写整个 `auth.json`**，实测把宿主另外两个 provider 的凭证抹掉了。改过两次才对，细节见 `demo/README.md`。
