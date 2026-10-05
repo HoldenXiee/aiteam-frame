@@ -14,7 +14,9 @@ import { join } from "node:path";
 import { loadSkillsFromDir, SettingsManager, type AgentSession, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { buildLoader } from "../src/agent/loader.ts";
 import { createExtensions } from "../src/surfaces/resources.ts";
-import { makeAgent, makeAgentIn, sentTools, echoTool, fauxAgentDir, fauxCwd } from "./helpers.ts";
+import { makeAgent, makeAgentIn, sentTools, echoTool, fauxAgentDir, fauxCwd, FAUX_MODEL_REF, faux } from "./helpers.ts";
+import { createLab } from "../src/index.ts";
+import { writeModelsJson } from "./faux-models.ts";
 
 /** 造一个只含一个技能文件的临时目录；返回目录路径 */
 function skillDir(name: string, description = "探路技能"): string {
@@ -561,5 +563,98 @@ test("R48：白名单只裁环境发现，不裁运行期 add（与 only 后再 
     assert.deepEqual(a.skills.list().map((s) => s.name), [], "前提：白名单是空的");
     await a.skills.add(dir);
     assert.ok(a.skills.list().some((s) => s.name === "runtime-skill"), "运行期 add 不受创建期白名单限制");
+  } finally { a.dispose(); }
+});
+
+/** 一个自带假 provider 配置的临时 agentDir（R49 用例要自定义环境目录，不能复用 fauxAgentDir） */
+function ownAgentDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "aiteam-bound-agent-"));
+  writeModelsJson(dir, faux.baseUrl);
+  return dir;
+}
+
+// ─────────────── R49：实验室边界（环境 = {agentDir} ∪ {cwd 子树}）───────────────
+//
+// 判据来自 DESIGN.md：「必须使用自定义的环境，电脑中的 pi Agent 的环境是不能使用的」。
+// pi 的 DefaultResourceLoader 默认会**往上游、往宿主找**（cwd 祖先链的 AGENTS.md、
+// $HOME/.agents/skills、git 根一路上去的 .agents/skills），这些都实验室从未声明。
+//
+// 判别力：这些用例在 R49 之前必须红。
+
+test("R49：cwd 祖先目录的 AGENTS.md 不进系统提示词，cwd 自己的保留", async () => {
+  const root = mkdtempSync(join(tmpdir(), "aiteam-bound-"));
+  const agentDir = ownAgentDir();
+  const cwd = join(root, "sub", "work");
+  mkdirSync(cwd, { recursive: true });
+  writeFileSync(join(root, "AGENTS.md"), "ANCESTOR-BOUNDARY-MARKER\n");
+  writeFileSync(join(cwd, "AGENTS.md"), "CWD-BOUNDARY-MARKER\n");
+
+  const a = await (await createLab({ agentDir, cwd, modelNetwork: false })).createAgent({ model: FAUX_MODEL_REF });
+  try {
+    const sys = a.io.raw.systemPrompt;
+    assert.ok(!sys.includes("ANCESTOR-BOUNDARY-MARKER"), "实验室外的祖先 AGENTS.md 不该进 system");
+    assert.ok(sys.includes("CWD-BOUNDARY-MARKER"), "cwd 自己的 AGENTS.md 属实验室范围，要保留");
+  } finally { a.dispose(); }
+});
+
+test("R49：祖先目录的 .agents/skills 不进实验室，cwd 子树内的保留", async () => {
+  const root = mkdtempSync(join(tmpdir(), "aiteam-bound-"));
+  const agentDir = ownAgentDir();
+  const hostProj = join(root, "hostproj");
+  const cwd = join(hostProj, "sub", "work");
+  mkdirSync(cwd, { recursive: true });
+
+  // 实验室外：祖先项目的 .agents/skills（pi 的 collectAncestorAgentsSkillDirs 会收）
+  const outside = join(hostProj, ".agents", "skills", "outside-skill");
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, "SKILL.md"), "---\nname: outside-skill\ndescription: d\n---\n\nb\n");
+  // 实验室内：cwd 子树的 .pi/skills
+  const inside = join(cwd, ".pi", "skills", "inside-skill");
+  mkdirSync(inside, { recursive: true });
+  writeFileSync(join(inside, "SKILL.md"), "---\nname: inside-skill\ndescription: d\n---\n\nb\n");
+
+  const a = await (await createLab({ agentDir, cwd, modelNetwork: false })).createAgent({ model: FAUX_MODEL_REF });
+  try {
+    const names = a.skills.list().map((s) => s.name);
+    assert.ok(!names.includes("outside-skill"), "祖先 .agents/skills 是实验室外的，不该进来");
+    assert.ok(names.includes("inside-skill"), "cwd 子树内的技能属实验室范围");
+  } finally { a.dispose(); }
+});
+
+test("R49：agentDir/prompts 的模板不加载（模板正文本来会随 prompt 展开发给模型）", async () => {
+  const agentDir = ownAgentDir();
+  mkdirSync(join(agentDir, "prompts"), { recursive: true });
+  writeFileSync(join(agentDir, "prompts", "leaky.md"), "---\nname: leaky\ndescription: d\n---\nLEAKY_BODY\n");
+
+  const a = await (await createLab({ agentDir, cwd: fauxCwd, modelNetwork: false })).createAgent({ model: FAUX_MODEL_REF });
+  try {
+    const templates = (a.io.raw as unknown as { promptTemplates?: unknown[] }).promptTemplates ?? [];
+    assert.equal(templates.length, 0, "模板默认不该加载（要就自己拼提示词）");
+  } finally { a.dispose(); }
+});
+
+test("R49：agentDir/APPEND_SYSTEM.md 生效，不再被恒传的空数组静默吃掉", async () => {
+  const agentDir = ownAgentDir();
+  writeFileSync(join(agentDir, "APPEND_SYSTEM.md"), "APPEND-BOUNDARY-MARKER\n");
+
+  const lab = await createLab({ agentDir, cwd: fauxCwd, modelNetwork: false });
+  const a = await lab.createAgent({ model: FAUX_MODEL_REF });
+  try {
+    assert.ok(a.io.raw.systemPrompt.includes("APPEND-BOUNDARY-MARKER"), "环境的 APPEND_SYSTEM.md 该进 system");
+    const files = (await lab.inspectEnv()).appendSystemPromptFiles;
+    assert.ok(files.some((f) => f.endsWith("APPEND_SYSTEM.md")), "inspectEnv 也要报出它（旧的零信号）");
+  } finally { a.dispose(); }
+});
+
+test("R49：role 与环境 APPEND_SYSTEM.md 并存，互不挤掉", async () => {
+  const agentDir = ownAgentDir();
+  writeFileSync(join(agentDir, "APPEND_SYSTEM.md"), "APPEND-BOTH-MARKER\n");
+
+  const a = await (await createLab({ agentDir, cwd: fauxCwd, modelNetwork: false }))
+    .createAgent({ model: FAUX_MODEL_REF, role: "ROLE-BOTH-MARKER" });
+  try {
+    const sys = a.io.raw.systemPrompt;
+    assert.ok(sys.includes("APPEND-BOTH-MARKER"), "环境的那份要在");
+    assert.ok(sys.includes("ROLE-BOTH-MARKER"), "role 也要在（旧实现在这条分支上把环境那份挤掉了）");
   } finally { a.dispose(); }
 });

@@ -188,6 +188,20 @@ export async function buildLoader(spec: ResourceSpec, deps: LoaderDeps): Promise
     }
   }
 
+  /**
+   * **实验室边界**（R49）：一个资源路径在不在这个实验室里。
+   *
+   * 边界 = `{agentDir}` ∪ `{cwd, cwd 的子孙}`。两个目录都是 `createLab` 必填的实验室声明，
+   * 所以边界内的资源是「研究员自己放的」，边界外的是「宿主机器状态」。
+   *
+   * 为什么需要它：pi 的 `DefaultResourceLoader` 默认会**往上游、往宿主找**（cwd 祖先链的
+   * AGENTS.md、`$HOME/.agents/skills`、git 根一路上去的 `.agents/skills`）。那些路径实验室从未声明过，
+   * 却会静默进每个 agent 的 system prompt。DESIGN.md 说「电脑中的 pi Agent 的环境是不能使用的」——
+   * 那就是说：不是「不主动指过去」，而是「挡住它」。
+   */
+  const inLab = (p: string): boolean =>
+    under(p, deps.agentDir, deps.cwd) || under(p, deps.cwd, deps.cwd);
+
   /** 这个技能路径是不是**注入表带来**的（创建期声明或运行期 add）—— 白名单不管这些，只裁环境发现 */
   const injectedSkill = (filePath: string): boolean =>
     state.skillPaths.some((p) => samePath(filePath, p, deps.cwd) || under(filePath, p, deps.cwd));
@@ -203,39 +217,58 @@ export async function buildLoader(spec: ResourceSpec, deps: LoaderDeps): Promise
     ...(extensionFactories.length ? { extensionFactories } : {}),
     additionalExtensionPaths: state.extensionPaths,
     additionalSkillPaths: state.skillPaths,
-    // 扩展的精确白名单（R48）。base 是**环境自动发现**的全部；白名单不写就整个放行。
+    // 扩展：R49 边界 + R48 白名单。两者合并到一个 override 里（它**永远**装，否则边界过滤会因无白名单而失效）。
     // ⚠️ `<inline:N>` 有两类，不能一律归一类：`<inline:1>` 是**库自己的桥接工厂**
     // （`create-agent.ts` 的 `extensionFactories: [bridge.factory]`，工具/事件全靠它接线）—— 裁掉它
-    // 等于把库拆了；设计者自己的内联工厂是 `<inline:2>` 起。所以只白名单自己的不能裁桥梁。
-    ...(extAllow
-      ? {
-          extensionsOverride: (base) => ({
-            ...base,
-            extensions: base.extensions.filter((e: Extension) => {
-              if (e.path === BRIDGE_EXTENSION_PATH) return true; // 库的桥接，永远在
-              // 注入表里的（`state.extensionPaths`）一律放行 —— 理由同 skills：白名单只管环境发现
-              if (injectedExt(e.path)) return true;
-              if (e.path.startsWith("<inline:")) return extAllow.names!.has("<inline>");
-              return allowed(extAllow, undefined, e.path);
-            }),
-          }),
-        }
-      : {}),
+    // 等于把库拆了；设计者自己的内联工厂是 `<inline:2>` 起。
+    extensionsOverride: (base) => ({
+      ...base,
+      extensions: base.extensions.filter((e: Extension) => {
+        if (e.path === BRIDGE_EXTENSION_PATH) return true; // 库的桥接，永远在
+        if (injectedExt(e.path)) return true; // 注入表（创建期声明 / 运行期 add）一律放行
+        if (e.path.startsWith("<inline:")) return extAllow ? extAllow.names!.has("<inline>") : true;
+        if (!inLab(e.path)) return false; // R49：边界外的环境发现一律挡掉
+        return extAllow ? allowed(extAllow, undefined, e.path) : true; // R48：白名单不写就全放
+      }),
+    }),
+    // ── R49：上下文文件（AGENTS.md / CLAUDE.md 链）──
+    // pi 从 cwd 沿 `dirname` **一路走到盘根**（`resource-loader.js:184-187`），也没有任何「实验室边界」概念；
+    // 于是仓库根、家目录、盘根上的 AGENTS.md 都会全文进 system prompt（实测：本仓库根的 AGENTS.md
+    // 逐字进了 demo agent 的 `<project_context>` 段）。
+    // 这里只留实验室边界内的：cwd 子树（含 cwd 自己的 AGENTS.md）与 agentDir 下的。
+    agentsFilesOverride: (base) => ({
+      agentsFiles: base.agentsFiles.filter((f) => inLab(f.path)),
+    }),
     skillsOverride: (base) => ({
       skills: [
         // 两边都是 pi 解析过的文件路径（`b.filePath` 来自磁盘发现 / `o.filePath` 是设计者原样给的、
         // 由 `existsSync` 按 process.cwd() 校验过的），所以这里保留 process.cwd() 基准。
         ...base.skills
           .filter((b) => !state.skillObjects.some((o) => samePath(o.filePath, b.filePath)))
-          // 技能白名单：名字或路径命中就放行（`b.filePath` 的解析基准是 process.cwd()，见 R21）。
-          // 注入表里的（`state.skillPaths`）一律放行：白名单只管「环境自动发现了什么」，
-          // 不管「运行期 add 了什么」—— 否则 add 进去的技能会立刻被自己的 override 裁掉。
+          // ① R49 边界：挡掉 `$HOME/.agents/skills` 与 cwd 祖先链上的 `.agents/skills`
+          //    （pi 的 `collectAncestorAgentsSkillDirs` 只排掉 HOME 那一条，其余祖先全收）。
+          // ② R48 白名单：名字或路径命中就放行（`b.filePath` 的解析基准是 process.cwd()，见 R21）。
+          // ③ 注入表里的（`state.skillPaths`）一律放行：白名单只管「环境自动发现了什么」，
+          //    不管「运行期 add 了什么」—— 否则 add 进去的技能会立刻被自己的 override 裁掉。
+          .filter((b) => injectedSkill(b.filePath) || inLab(b.filePath))
           .filter((b) => !skillAllow || injectedSkill(b.filePath) || allowed(skillAllow, b.name, b.filePath)),
         ...state.skillObjects,
       ],
       diagnostics: base.diagnostics,
     }),
-    appendSystemPrompt: spec.role ? [spec.role] : [],
+    // ── R49：prompt 模板 ──
+    // `agentDir/prompts/` 与 `cwd/.pi/prompts/` 里的模板会被自动挂到 session 上，而 pi 的
+    // `expandPromptTemplates` 默认 **true**（`agent-session.js:1454`）⇒ `io.prompt("/name")` 会把**模板正文**
+    // 展开发给模型（实测三条投递通道全中）。spec 里连 `prompts` 字段都没有（`assertSpec` 直接拒）。
+    // 实验室要模板，就该自己传进 `spec.prompts`（当前未开放）或自己拼提示词 —— 默认一个不收。
+    noPromptTemplates: true,
+    // ── R49：APPEND_SYSTEM.md ──
+    // 原写法 `appendSystemPrompt: spec.role ? [spec.role] : []` 有个真 bug：pi 判的是
+    // `if (!appendSources)`（`resource-loader.js:475-479`），而**空数组是 truthy** ⇒ 恒传 options
+    // 会让 pi 的 `discoverAppendSystemPromptFile()` 永远不跑，环境里的 APPEND_SYSTEM.md
+    // 被静默吃掉（实测：inspectEnv 的 appendSystemPromptFiles 恒为 []，且无任何 warning）。
+    // 改法：`role` 用 `appendSystemPromptOverride` 合并到环境发现的结果之后，这样两者都不丢。
+    ...(spec.role ? { appendSystemPromptOverride: (base: string[]) => [...base, spec.role!] } : {}),
   });
   injections.set(loader, state);
 
