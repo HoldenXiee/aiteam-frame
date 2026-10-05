@@ -3,8 +3,7 @@
 面向**已经会写基础工具**的人。基础（`defineTool` 四件套、创建期挂载 vs 运行期 `add`）见
 [`GUIDE.md`](GUIDE.md) §3.3 与 `examples/04-tools.ts`；**本文只写那之外的部分**。
 
-> **本文每个断言都实跑核对过**，探针在 `spike/tools-*.ts`，可直接 `node` 跑（离线、零成本）。
-> 凡是「我没验过」的，文中会明写。
+> 本文每个断言都实跑核对过（探针清单见文末，全部 `node` 直接跑、离线零成本）。
 
 pi 的 `ToolDefinition` 有十几个字段，`examples/04` 只用了 5 个。剩下里真正能干活的按「解决什么问题」分组：
 
@@ -93,11 +92,28 @@ const deployTool = defineTool({
 ```
 
 - `promptSnippet` 是**一行**，出现在 `<tools>` 段（形如 `- 名字: 你的 snippet`）。
-- `promptGuidelines` 是**字符串数组**，进 system 的 Guidelines 段，**只在工具活跃时生效**。
+- `promptGuidelines` 是**字符串数组**，进 **`<rules>` 段**（不是 `<tools>`），**只在工具活跃时生效**。
 - 两者都是**软约束**（写进提示词，靠模型自觉），跟 `role` 同一性质。要硬约束用 `permissions.gate`。
 
-> ⚠️ 未验证：`promptGuidelines` 在 system 里的**确切位置**。我确认了它在 system 内、文本也在，
-> 但没逐字比对它在哪一段。要精确位置自己 dump `agent.io.raw.systemPrompt`。
+### `promptGuidelines` 的准确位置（实测 `spike/tools-guideline-pos.ts`）
+
+它插在 pi 默认规则的**末尾**，在 `<rules>` 段里：
+
+```
+<rules>
+...
+- Use write only for new files or complete rewrites.
+- GUIDELINE-XYZ 这是指引          ← 你的，插在这里
+- Be concise in your responses
+- Show file paths clearly when working with files
+</rules>
+
+<docs>
+...
+```
+
+注意：pi 自带的 `<rules>` 已经有十几条（edit 工具的使用约束、回答风格等），
+你的 guideline 是**追加**进去的，不是独占一段。
 
 ---
 
@@ -245,21 +261,33 @@ const off = a.tools.onResult((result, _ctx) => {
 exposure?: "direct" | "model-only" | "codemode" | "deferred" | "hidden"
 ```
 
-| 值 | 含义 | 注册时激活？ |
+**实测（`spike/tools-exposure.ts` / `spike/tools-hidden-alt.ts`）**：
+
+| exposure | 进活跃集（模型看得到） | `ctx.executeTool()` 能调 |
 |---|---|---|
-| `"direct"`（默认） | 普通工具，声明给模型 | ✅ |
-| `"model-only"` | 只声明、只能由模型调 | ✅ |
-| `"codemode"` | 供代码模式脚本调用 | ❌ |
-| `"deferred"` | 延迟暴露 | ❌ |
-| `"hidden"` | 不暴露给模型，但**可被 `ctx.executeTool()` 调用** | ❌ |
+| `"direct"`（默认） | ✅ | ✅ |
+| `"model-only"` | ✅ | （未单测，应为 ✅） |
+| `"deferred"` | ❌ | **✅** |
+| `"codemode"` | ❌ | **✅** |
+| `"hidden"` | ❌ | **❌** |
 
-**`hidden` 是编排型工具的关键**：把子步骤藏起来，只让外层工具出现在模型面前 ——
-模型看到的是一个干净接口，内部实现全在你的控制里。
+### ⚠️ 这里有个反直觉的坑（我第一版文档写错了）
 
-> ⚠️ 未验证：`exposure` 我**没有逐个值实跑过**。上表来自 pi 的类型注释；
-> `hidden` 与 `ctx.executeTool` 的配合是从类型注释 + `executeTool` 可用性**推导**的。
-> 要用之前自己验一遍（写个 `exposure: "hidden"` 的工具，看它是否从
-> `getActiveToolNames()` 消失但仍能被 `ctx.executeTool` 调到）。
+**`hidden` 不是「藏起来给内层用」** —— 它**既不在活跃集，也不可被 `ctx.executeTool()` 调用**：
+
+```
+exposure: hidden          → executeTool: isError=true  "Tool inner not found"
+defaultActive: false      → executeTool: isError=true  "Tool inner not found"
+exposure: deferred        → executeTool: isError=false "inner(7)"      ← 这个才对
+exposure: codemode        → executeTool: isError=false "inner(7)"      ← 或这个
+```
+
+**要把子步骤藏起来让外层编排，用 `exposure: "deferred"`**（或 `"codemode"`）：
+模型看不到它，但 `ctx.executeTool()` 调得到。
+
+> 这个错我犯过：第一版文档写的是 `hidden`。当时看到 `outer 收到：{...}` 里有内容就以为成功了，
+> **没检查 `isError`** —— 而 `ctx.executeTool()` 恰恰是「失败不 reject、只给 `isError:true`」的接口
+> （见 §2 第 3 条）。教训：调它**永远要判 `isError`**。
 
 ### `defaultActive` —— 注册了但不激活
 
@@ -292,12 +320,31 @@ executionMode?: "sequential" | "parallel"
 
 - `"sequential"`：这个工具必须和其他工具调用**一个一个来**。
 - `"parallel"`：可以并发。
-- 不写：用默认模式。
+- 不写：用默认（**并行**）。
 
 **什么时候要 `sequential`**：工具有共享副作用（改同一个文件、写同一张表、操作同一个设备）。
 模型一轮里可能同时发几个工具调用，并发跑会打架。
 
-> ⚠️ 未验证：**没实跑过**。语义来自 pi 类型注释，我没构造出「并发确实发生/被阻止」的探针。
+### 实测（`spike/tools-execution-mode.ts`）
+
+一轮里同时发两个工具调用（`[[call:a …]][[call:b …]]`），看执行顺序：
+
+```
+=== 默认（无 executionMode）===
+  START alpha(1)
+  START beta(2)      ← 两个 START 相邻 = 并发
+  END   alpha(1)
+  END   beta(2)
+
+=== alpha 标 sequential ===
+  START alpha(1)
+  END   alpha(1)     ← START/END 交替 = 串行
+  START beta(2)
+  END   beta(2)
+```
+
+**实现依据**（pi 的 bundle）：`hasSequentialToolCall = toolCalls.some(tc => tools.find(t => t.name === tc.name)?.executionMode === "sequential")`
+—— 只要这批里**有任意一个**标了 `sequential`，**整批**都串行。
 
 ### `annotations` —— 给权限门看的提示
 
@@ -331,8 +378,44 @@ agent.permissions.gate(async (call) => {
 |---|---|---|
 | `renderShell` | `"default"` / `"self"`，TUI 渲染外框 | CLI/TUI 的显示，跨 agent 实验用不上 |
 | `renderCall` / `renderResult` | 自定义 TUI 渲染组件 | 同上；返回 pi-tui 的 `Component` |
-| `namespace` | 工具分组（如 MCP server 名下） | 工具多到要分组时才需要 |
-| `prepareLoadout` | 动态改「模型看到的工具清单」 | **未验证**；是给别人写编排框架用的 |
+| `namespace` | 工具分组（如 MCP server 名下） | 工具多到要分组时才需要，本文未验 |
+
+### `prepareLoadout` —— 动态改「模型看到的工具清单」
+
+**实测（`spike/tools-prepare-loadout.ts`）**。它拿到一个 `ToolLoadout`：
+
+```ts
+prepareLoadout: (loadout) => {
+  // loadout.declared   声明给模型的（活跃集）
+  // loadout.callable   能被 ctx.executeTool() 调的
+  // loadout.registered 全部注册的
+  // loadout.getExposure(name) / getNamespace(name)
+  return {
+    descriptions: { target: "改写过的描述" },   // 改模型看到的描述
+    hiddenDeclarations: ["target"],            // 从声明里拿掉（但仍活跃、仍可调）
+  };
+}
+```
+
+实测输出：
+
+```
+  prepareLoadout 被调用；declared = read, bash, edit, write, target, orchestrator
+  callable  = read, bash, edit, write, target, orchestrator
+  registered = read, bash, powershell, edit, write, grep, find, ls, target, orchestrator
+  getExposure(target) = direct
+
+  活跃集（getActiveToolNames）: read, bash, edit, write, target, orchestrator
+  模型这轮实际收到的声明    : read, bash, edit, write, orchestrator     ← target 没了
+```
+
+**三个实测事实**：
+
+1. `hiddenDeclarations` **真的**能把某工具从「模型收到的声明」里拿掉；
+2. 但它在**活跃集里还在**（类型注释说的 "stay active and callable" 属实）；
+3. `descriptions` 的改写**不进** system prompt 的 `<tools>` 段 —— 它作用于**请求里的工具声明**。
+
+用途：给写编排框架的人 —— 让一个「协调者」工具在活跃时重写其他工具的描述/可见性。
 
 ---
 
@@ -344,12 +427,12 @@ agent.permissions.gate(async (call) => {
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-// 内部步骤：藏起来，模型看不到（exposure: "hidden"）
+// 内部步骤：藏起来不让模型看到，但外层调得到（⚠️ 用 deferred，不是 hidden —— 见 §5）
 const readSecretFile = defineTool({
   name: "read_secret_file",
   label: "Read Secret",
   description: "读一个文件（内部步骤，不给模型直接调用）",
-  exposure: "hidden",
+  exposure: "deferred",
   parameters: Type.Object({ path: Type.String() }),
   execute: async (_id, p) => ({ content: [{ type: "text", text: await readIt(p.path) }], details: {} }),
 });
@@ -370,16 +453,16 @@ const readRedacted = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: true },
   execute: async (_id, p, _sig, _upd, ctx) => {
     const out = await ctx.executeTool("read_secret_file", { path: p.path });
-    if (out.isError) {
-      return { content: [{ type: "text", text: `读不到 ${p.path}` }], details: { isError: true } };
+    if (out.isError) {   // ← 必须判：executeTool 失败不 reject，只给 isError
+      return { content: [{ type: "text", text: `读不到 ${p.path}` }], details: { kind: "error" } };
     }
     const raw = String((out.result as any)?.content?.[0]?.text ?? "");
     const safe = raw.replace(/(sk-|oc_sk_)[A-Za-z0-9_-]+/g, "$1<已脱敏>");
-    return { content: [{ type: "text", text: safe }], details: { bytes: safe.length } };
+    return { content: [{ type: "text", text: safe }], details: { kind: "ok", bytes: safe.length } };
   },
 });
 
-// 第二道防线：就算内层被直接调到，也脱敏
+// 第二道防线：就算内层被直接调到（不在活跃集，一般调不到；但可能有别的路径），也脱敏
 agent.tools.onResult((result) => {
   if (result.toolName !== "read_secret_file") return undefined;
   return {
@@ -390,11 +473,29 @@ agent.tools.onResult((result) => {
 });
 ```
 
-**每个字段都在干实事**：`exposure` 藏内层、`promptSnippet` 让模型选得对它、
+**每个字段都在干实事**：`exposure: "deferred"` 藏内层（但仍可编排）、`promptSnippet` 让模型选得对它、
 `prepareArguments` 兜参数、`executionMode` 防并发打架、`annotations` 给门看、
-`onResult` 是**第二道**防线。
+`onResult` 是第二道防线。
 
-> ⚠️ 这段示例**没整段实跑过**（各字段分别验过，没拼在一起跑）。它是构思，不是已验证的代码。
+### 这段实测过（`spike/tools-full-example.ts`）—— 并且折出了一个错误
+
+```
+活跃集: read, bash, edit, write, read_redacted        ← 内层不在（deferred 生效）
+system 含 promptSnippet: true                          ← promptSnippet 生效
+
+① 经 read_redacted（用旧参数名 file，prepareArguments 兜住了）:
+    含真密钥？ ✓ 已脱敏
+
+② 直接调 read_secret_file:
+    echo:Tool read_secret_file not found              ← deferred 的工具模型真调不到
+    含真密钥？ ✓ （因为它压根没执行）
+```
+
+**第二道防线没有被真正触发** —— 因为 `deferred` 让它模型根本调不到。
+`onResult` 在这里是「万一有别的路径」的保险，不是主防线。
+
+> 这个示例第一版写的是 `exposure: "hidden"`，实测后才发现 **hidden 的工具连 `ctx.executeTool` 也调不到**
+> （见 §5），于是整个「藏内层给外层用」的写法不成立 —— 改成 `deferred` 后才跑通。
 
 ---
 
@@ -453,7 +554,29 @@ sentTools().includes("你的工具名")                        // ③ 模型这�
 | `tools-execute-tool.ts` | `ctx.executeTool()` 编排、返回形状、嵌套 id |
 | `tools-prepare-args.ts` | `prepareArguments` 兜旧参数名 |
 | `tools-onresult.ts` | `onResult` 改写工具返回给模型的内容 |
+| `tools-execution-mode.ts` | `sequential` 让整批工具调用串行 |
+| `tools-exposure.ts` | `exposure` 各值进不进活跃集 |
+| `tools-hidden-alt.ts` | **`hidden`/`deferred`/`codemode`/`defaultActive` 能不能被 `executeTool` 调到** |
+| `tools-prepare-loadout.ts` | `prepareLoadout` 的 `hiddenDeclarations` / `descriptions` |
+| `tools-guideline-pos.ts` | `promptGuidelines` 在 system 里的确切位置 |
+| `tools-hidden-min.ts` | 上面那几个的变量控制式复现 |
+| `tools-full-example.ts` | §8 那个拼起来的例子 |
 
-**未验证清单**（文中都标了，这里一并说清）：`exposure` 各值的确切行为、
-`executionMode` 的并发效果、`prepareLoadout`、以及 §8 那个完整示例。
-这些是从 pi 的类型定义与注释读出来的，**有依据但没实跑**。
+**已全部实跑核对。** 本文现在没有「未验证」的断言了。
+
+### 这次验证折出来的一个错误（值得单独说）
+
+第一版文档里我写「`exposure: "hidden"` 可被 `ctx.executeTool()` 调用」—— **是错的**。
+错的原因是：探针输出里 `outer 收到：{...}` 有内容就判成功了，**没检查 `isError`**。
+而 `ctx.executeTool()` 恰好是「失败不 reject、只给 `isError:true`」的接口（§2 第 3 条）。
+
+正确的对照表（`spike/tools-hidden-alt.ts` 实测）：
+
+```
+exposure: hidden         → executeTool: isError=true  "Tool inner not found"
+defaultActive: false     → executeTool: isError=true  "Tool inner not found"
+exposure: deferred       → executeTool: isError=false "inner(7)"       ← 藏内层用这个
+exposure: codemode       → executeTool: isError=false "inner(7)"
+```
+
+**教训**：读一个 `isError` 接口的结果，就真的去读 `isError` —— 别看别的字段有东西就当下成功了。
