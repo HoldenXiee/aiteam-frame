@@ -18,14 +18,12 @@ export const agentDir = join(here, "agent");
 export const cwd = join(here, "work");
 
 /**
- * 模型 ref —— **这是研究员自己的选择，要收费的**。
+ * 模型 ref —— 研究员没说模型时的默认档（AGENTS.md 规则②）。
  *
- * 注意区别：demo 是**你自己跑**的实验，你知道在花什么钱，所以用收费档没问题。
- * 而「AI 替项目决定默认值」的场合（AGENTS.md 规则②）必须用免费档 ——
- * 否则额度会在没人察觉的时候流走。
- *
- * 当前档位：deepseek-v4.1-flash —— 实测约 $0.0002/轮（input ~1900 tok）。
+ * 当前档位：deepseek-v4.1-flash，实测约 $0.0002/轮（input ~1900 tok）。
  * 想换免费的就改成 "opencode-go/longcat-2.5-preview-free"（实测 cost 恒为 0）。
+ *
+ * ⚠️ 别和「启动 subagent」搞混 —— 那条规则是一律**不传**模型名。
  */
 export const MODEL = "opencode-go/deepseek-v4.1-flash";
 

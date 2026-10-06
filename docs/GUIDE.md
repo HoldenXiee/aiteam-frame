@@ -252,11 +252,13 @@ io.prompt("…")
 
 ## 附：配置 agent 时用什么模型
 
-分两个位置，职责不同：
+**研究员没说用什么模型时，默认用 `(opencode-go) deepseek-v4.1-flash`**（`AGENTS.md` 规则②）。
+这是真实模型档，按量计费（实测约 $0.0002/轮）。
 
-- **`demo/env.ts` 的 `MODEL`（研究员自己跑）** —— 随你。本仓当前钉的是 `opencode-go/deepseek-v4.1-flash`，**收费**，约 $0.0002/轮；
-  想免费就改成 `opencode-go/longcat-2.5-preview-free`。
-- **AI 替项目配默认值（`AGENTS.md` 规则②）** —— 默认必须用 **`(opencode-go) longcat-2.5-preview-free`**（免费档）。
-  理由：那是 AI 在替你决定，你不知道今天跑了几个 agent，不能让额度在没人察觉时流走。
+研究员**自己跑**的 `demo/env.ts` 的 `MODEL` 也钉的它 —— 他想换就直接改那一行（要免费的就改
+`opencode-go/longcat-2.5-preview-free`，实测 cost 恒为 0）。
+
+> 注意：这只管「**配置 agent 的模型**」。**启动 subagent 是另一条规则（①）** —— 一律**不传**模型名，
+> 用会话默认。那是「替使用者做他没要求的事」的反面。
 
 `examples/` 与 `test/` 里的 `faux/*`（`faux/echo`、`faux/echo-alt`）是**本机假 provider**——离线、零成本、有判别力的测试基建，不要换成真模型。
