@@ -37,7 +37,7 @@ const lab = await createLab({
 
 const agent = await lab.createAgent({          // 唯一的 agent 创建入口
   id: "检索员",
-  model: "opencode-go/space-bunny-free",
+  model: "opencode-go/deepseek-v4.1-flash",   // demo 用的（收费）；见下文「模型怎么选」
   tools: { custom: [mySearchTool] },           // 自定义工具
   permissions: { only: ["my_search"] },        // 能力裁剪
 });
@@ -117,7 +117,17 @@ cp -r demo demo-exp1        # 复制：环境（demo/agent/）跟着一起走
 node demo-exp1/lab.ts       # 跑
 ```
 
-`lab.ts` 是**一份实验一个文件**：环境声明 → 模板 → 起分身 → 自定义工具 → 交办 → 观测 → 打印。它**跑真模型**（`demo/env.ts` 里 `MODEL` 那一行直接赋值，默认 `opencode-go/space-bunny-free` 免费档），凭证放 `demo/agent/auth.json`；换模型、换凭证都是改 `demo/env.ts`，不走环境变量。
+`lab.ts` 是**一份实验一个文件**：环境声明 → 模板 → 起分身 → 自定义工具 → 交办 → 观测 → 打印。它**跑真模型**（`demo/env.ts` 里 `MODEL` 那一行直接赋值，当前是 `opencode-go/deepseek-v4.1-flash`，**收费档约 $0.0002/轮**），凭证放 `demo/agent/auth.json`；换模型、换凭证都是改 `demo/env.ts`，不走环境变量。
+
+**模型怎么选（两个位置，职责不同）**：
+
+| 位置 | 谁定 | 该用什么 |
+|---|---|---|
+| `demo/env.ts` 的 `MODEL` | **研究员自己** | 随你。收费也行 —— 你自己跑、自己知道花了多少 |
+| `AGENTS.md` 规则② | **AI 替项目配默认值** | **必须免费档** —— 否则额度会在没人察觉时流走 |
+
+所以示例代码里写 `deepseek-v4.1-flash` 是可以的（那是给人看的演示）；
+但 AI 自己新建 agent 集群 / 示例时，默认得走 `longcat-2.5-preview-free`。
 
 - **环境跟着副本走**：`demo/env.ts` 里的 `agentDir()` 相对本文件解析，所以 `demo-exp1/` 用 `demo-exp1/agent/`，不是原 demo 的。
 - **真模型下不保证调工具**：提示词是自然语言（`[[tool:…]]` 那套是假 provider 的脚本约定，真模型只会当正文回你），所以「它一定调了某工具」不能当断言用。想看它实际调了什么，用 `on("tool_call")` 观测——那是一等接口。

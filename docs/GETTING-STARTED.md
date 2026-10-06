@@ -44,8 +44,13 @@ cp -r demo demo-exp1      # 开始你自己的实验：环境（demo/agent/）�
 node demo/check.ts        # 环境自检（八项）：确认这台机器具备研究条件
 ```
 
-**`demo/` 跑真模型**（环境在 `demo/env.ts` 里声明：`MODEL` 那一行默认 `opencode-go/space-bunny-free` 免费档）：
+**`demo/` 跑真模型**（环境在 `demo/env.ts` 里声明：`MODEL` 那一行当前是 `opencode-go/deepseek-v4.1-flash` —— **收费档，约 $0.0002/轮**）：
 凭证放 `demo/agent/auth.json`。换模型、换凭证都是改 `demo/env.ts`，不走环境变量。没凭证会**明确报错**，不静默。
+
+> **这里为什么敢用收费的**：demo 是**你自己跑**的实验（`node demo/lab.ts`），花了多少你心里有数。
+> 而**给项目写默认值**的场合（`AGENTS.md` 规则②）必须用免费档 —— 那是 AI 在替你决定，
+> 不能让额度在没人察觉的时候流走。两个位置职责不同。
+> 想换成免费的：改 `demo/env.ts` 里 `MODEL` 为 `opencode-go/longcat-2.5-preview-free`。
 
 **`demo/` 是实验脚手架，用法是「复制、改、跑」**：`demo/lab.ts` 七段各有一个「改这里」的锚点（环境、模板、自定义工具、交办、观测、打印），改完 `node demo-exp1/lab.ts` 就能看结果。环境 = 仓库里那个看得见的目录 `demo/agent/`，副本用副本自己的。
 
@@ -72,7 +77,8 @@ node demo/check.ts        # 环境自检（八项）：确认这台机器具备�
 node demo/check.ts     # 用 demo 自己的凭证（demo/agent/auth.json）+ 默认免费模型
 ```
 
-默认用 `opencode-go/space-bunny-free`（免费）。想换别的：改 `demo/env.ts` 里 `MODEL` 那一行（`provider/id`）。
+当前用 `opencode-go/deepseek-v4.1-flash`（**收费**，约 $0.0002/轮）。想换免费的就改 `demo/env.ts` 里 `MODEL` 那一行（`provider/id`）——
+比如 `opencode-go/longcat-2.5-preview-free`。
 
 **demo 用它自己的 key**（`demo/agent/auth.json`，gitignored），**全程不读也不写宿主 `~/.pi/agent`**。
 之所以强调这点：最初真模式直接指宿主目录，而 pi 的 auth 存储是**读-改-写整个 `auth.json`**，实测把宿主另外两个 provider 的凭证抹掉了。改过两次才对，细节见 `demo/README.md`。

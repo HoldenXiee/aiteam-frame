@@ -252,5 +252,11 @@ io.prompt("…")
 
 ## 附：配置 agent 时用什么模型
 
-本仓约定：给示例 / demo / 集群配 agent 时默认用 **`(opencode-go) space-bunny-free`**。
+分两个位置，职责不同：
+
+- **`demo/env.ts` 的 `MODEL`（研究员自己跑）** —— 随你。本仓当前钉的是 `opencode-go/deepseek-v4.1-flash`，**收费**，约 $0.0002/轮；
+  想免费就改成 `opencode-go/longcat-2.5-preview-free`。
+- **AI 替项目配默认值（`AGENTS.md` 规则②）** —— 默认必须用 **`(opencode-go) longcat-2.5-preview-free`**（免费档）。
+  理由：那是 AI 在替你决定，你不知道今天跑了几个 agent，不能让额度在没人察觉时流走。
+
 `examples/` 与 `test/` 里的 `faux/*`（`faux/echo`、`faux/echo-alt`）是**本机假 provider**——离线、零成本、有判别力的测试基建，不要换成真模型。

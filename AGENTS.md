@@ -7,8 +7,15 @@
 > 那是在替使用者做一件他没要求的事，而且会让额度以一种没人察觉的速度流走。
 > 派 subagent 时**只给**任务、文件路径、判据；不给模型。
 >
-> **② 配置 agent 集群 / 示例 / demo 的 agent —— 模型默认用 `(opencode-go) space-bunny-free`。**
-> 这是本项目配置真实模型时的默认选择。
+> **② 配置 agent 集群 / 示例 / demo 的 agent —— 模型默认用 `(opencode-go) longcat-2.5-preview-free`。**
+> 这是本项目**写下默认值**时的选择。（2026-10 更新：原默认 `space-bunny-free` 已不再免费。）
+>
+> **为什么默认得是免费档**：这条规则管的是「**AI 替项目决定**默认值」的场景 —— 你（研究员）不知道
+> 今天跑了几个 subagent、花了多少钱。所以**默认值必须是零成本或免费的**，要用收费模型得由研究员**自己改**。
+>
+> **研究员自己跑 demo 时想用收费模型，随你** —— 改 `demo/env.ts` 里 `MODEL` 那一行就行，
+> 账你自己心里有数。当前本仓自己钉的是 `opencode-go/deepseek-v4.1-flash`（收费，约 $0.0002/轮）。
+> 这两个位置职责不同：**AGENTS.md 是给 AI 看的默认值，`demo/env.ts` 是研究员自己的跑法。**
 >
 > 例外：用**本机假 provider**（`faux/*`，见 `test/faux-models.ts`、`examples/lib/faux-models.ts`）的那些 agent 不在此列 ——
 > 它们是离线、零成本、有判别力的测试基建，**不要**换成真模型。
