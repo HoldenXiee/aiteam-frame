@@ -127,7 +127,7 @@ io.prompt("…")
 
 → 片段：`tools.add`、`tools.addThenInspect`、`tools.addFactory`。示例：`examples/04-tools.ts`。
 
-**工具的高级用法见 [`TOOLS.md`](TOOLS.md)**：`ctx.executeTool()` 编排别的工具、`promptSnippet` 进 system 清单、`prepareArguments` 兼容旧参数、`onResult` 改写给模型的内容、`exposure`/`executionMode` 等。
+**写工具从 [`TOOLS-BASICS.md`](TOOLS-BASICS.md) 开始**（defineTool 四件套、参数 schema、返回值、两条挂载路径、错误处理）；高级用法见 [`TOOLS.md`](TOOLS.md)：`ctx.executeTool()` 编排别的工具、`promptSnippet` 进 system 清单、`prepareArguments` 兼容旧参数、`onResult` 改写给模型的内容、`exposure`/`executionMode` 等。
 
 ### 3.4 `permissions` —— 哪些允许被调用
 
