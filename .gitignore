@@ -16,3 +16,15 @@ demo/run/
 
 # 执行账本：SDD 过程文件与 review diff。不在设计源之内（设计源只有 docs/DESIGN.md），不入库
 .superpowers/
+
+# demom 实验：**运行时产物**可整个删掉重建（语料由 bench/prep.ts 铺，report.md 由 run.ts 生成）
+demom/work/*
+
+# ⚠️ 但 demom/runs/ **不是**运行时产物，是**原始研究数据**，要入库：
+#    48 次运行 × 每次 10–50 分钟 —— 重跑一次是几天的机器时间，且结果不可复现（模型有随机性）。
+#    它们还是「判据改了可以不重跑就重判」的唯一依据（JSONL 里存了产物全文）。
+#    所以这里**故意不忽略** runs/。
+demom/agent/auth.json
+demom/agent/models.json
+demom/agent/models-store.json
+demom/agent/settings.json
