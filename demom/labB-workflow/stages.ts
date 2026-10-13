@@ -342,11 +342,25 @@ export function stagesFor(variant: string): Stage[] {
   if (variant === "mechanical") return MECHANICAL;
   // share / steer 用与 verify **同一张图** —— 差别不在图上，在 runner 的交接/护栏机制
   if (variant === "verify" || variant === "share" || variant === "steer") return VERIFY;
+  if (variant === "board") return BOARD;
   if (variant !== "preserve") return STAGES;
   return STAGES.map((s) => (s.id === "S4-成文" ? { ...s, task: s.task + PRESERVE_INSTRUCTION } : s));
 }
 
-/** preserve 变体给 S4 追加的那段指令（mechanical 也复用） */
+/**
+ * ★ board 变体：把「交接」换成一块**共享工作台** ★
+ *
+ * 这是从本实验的全部分析里长出来的一个**构件**（`bench/workbench.ts`），不是某个功能的用法示例。
+ * 它同时针对两个实测结论：
+ *   · 交接必须有全局视野 + 无损（否则 A/nodup 与 B/base 同一种失败）
+ *   · 但轨迹共享很贵（B/share 注入 ~100k 字符，B/verify 重读 45 份 = 1004k token）
+ *
+ * 做法：每个阶段多一个 `post` 工具，把结论写成**结构化条目**进共享黑板；
+ * 黑板每轮注入**每一个** agent；代码在写入时校验不变量、并在消化后把原文移出上下文。
+ *
+ * 与 verify 的差别：**下游不必重读原文** —— S2 直接在黑板上看到 S1 记下的要点。
+ * 与 share 的差别：**注入的是提炼过的结论，不是原始轨迹** —— 所以便宜。
+ */
 const PRESERVE_INSTRUCTION =
   "\n\n★ 重要（合并保真）★：draft/S2-去重.md 已经判定好了哪些材料是同一件事、合并成哪几组。" +
   "你在报告里**必须保留那个分组**：同一组里的材料只能出现在**同一条 bullet** 里（例如「（M12、M31）」），" +
@@ -455,3 +469,45 @@ const VERIFY: Stage[] = MECHANICAL.map((s) => {
       "判定完用 note 记下结论（含理由），并调用 record_groups 把最终分组落成结构化数据。",
   };
 });
+
+
+const BOARD: Stage[] = VERIFY.map((s) => {
+  if (s.kind === "code") return s;
+  const base = { ...s, tools: [...s.tools, "post"], custom: [...s.custom, "post"] };
+  // S1 的活就是读全部材料（它不读就没人读）—— 其余阶段**从黑板上拿**，不重读
+  if (s.id === "S1-摸底") {
+    return {
+      ...base,
+      task:
+        s.task +
+        "\n\n★ 共享工作台 ★：你读过的每一份材料，**用 post（kind=note）把一句话要点写进去**" +
+        "（ids=[那份的编号]，text=要点）—— 写完那份原文就会被移出你的上下文腾地方。" +
+        "另外把你判定的重复候选用 post（kind=dup）写进去。" +
+        "下游阶段**只能看到你写进黑板的东西**，所以要点要写得足够让它们做判断。",
+    };
+  }
+  if (s.id === "S2-去重" || s.id === "S3-查矛盾") {
+    return {
+      ...base,
+      task:
+        s.task +
+        "\n\n★ 共享工作台 ★：S1 已经把每份材料的**要点**写进黑板了（你每轮都能看到）。" +
+        "**先用黑板上的要点做判断，不要重读一遍全部材料** —— 只有当某两条要点看起来矛盾、" +
+        "你无法从要点判断时，才去 read 那几份原文核对。" +
+        "判定完用 post 写进黑板（kind=dup / kind=contradiction）。",
+    };
+  }
+  if (s.id === "S4-成文") {
+    return {
+      ...base,
+      task:
+        s.task +
+        "\n\n★ 共享工作台 ★：黑板上有全部材料要点、已判定的重复组、已判定的矛盾对。" +
+        "**直接根据黑板写报告**（重复组只能写成一条、矛盾对必须成对）。" +
+        "如果黑板信息不够，可以 read 那几份原文补，但不要盲目重读。",
+    };
+  }
+  return base;
+});
+
+/** preserve 变体给 S4 追加的那段指令（mechanical 也复用） */

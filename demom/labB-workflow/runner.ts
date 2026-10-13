@@ -13,6 +13,7 @@ import { Meter, summarize, type RunRecord } from "../bench/measure.ts";
 import { judge, TASK_BRIEF, type Verdict, REPORT_FILE } from "../bench/task.ts";
 import { STAGES, topoBatches, toolByName, stagesFor, type Stage } from "./stages.ts";
 import { resetScene } from "../bench/prep.ts";
+import { newWorkbench, type Workbench } from "../bench/workbench.ts";
 
 /**
  * 护栏的默认上限（每个阶段可以在 Stage.maxCalls 里覆写）。
@@ -46,6 +47,8 @@ export async function runWorkflow(runNo: number, tag: string, variant = "base"):
   /** 中途纠正记录（库的 io.steer）：什么时侯拉了一把 */
   const steered: string[] = [];
   const useSteer = variant === "steer";
+  /** board 变体：共享工作台（所有阶段共用一块） */
+  const board: Workbench | undefined = variant === "board" ? newWorkbench() : undefined;
   /** 阶段 id → agent（share 变体要拿上游的上下文，所以得留着不 dispose） */
   const agentsById = new Map<string, Agent>();
   /** share 变体：注进下游的轨迹字符数（这是它相对“走文件”的代价） */
@@ -75,8 +78,16 @@ export async function runWorkflow(runNo: number, tag: string, variant = "base"):
             model: MODEL, // ← 与 A 同一个模型（公平性自查表第 1 条）
             role: stage.role,
             permissions: { only: stage.tools },
-            tools: { custom: stage.custom.map((n) => toolByName(n, stage.id)) },
+            tools: {
+              custom: [
+                // `post` 由工作台提供（它需要 board 实例），不走 toolByName
+                ...stage.custom.filter((n) => n !== "post").map((n) => toolByName(n, stage.id)),
+                ...(board ? [board.postTool(stage.id)] : []),
+              ],
+            },
           });
+          // 共享工作台：每轮注入黑板 + 读后即消化
+          board?.attach(agent, stage.id);
           meter.watchAndKeep(agent, { role: stage.id, parent: null, depth: 1 });
           // 键用 agent.id（= `B-<阶段名>-<轮次>`）—— 下面按同一形状查，别用 stage.id
           agentsById.set(agent.id, agent);
@@ -243,5 +254,6 @@ export async function runWorkflow(runNo: number, tag: string, variant = "base"):
     sharedFrom: sharedFrom.length ? sharedFrom : undefined,
     repeatBlocks: repeats.length ? repeats : undefined,
     steered: steered.length ? steered : undefined,
+    workbench: board ? { ...board.snapshot(), rejections: board.rejections } : undefined,
   };
 }

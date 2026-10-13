@@ -116,6 +116,14 @@ export interface RunRecord {
   asks?: string[];
   /** steer 变体：中途纠正（io.steer）拉了几把、什么时侯拉的 */
   steered?: string[];
+  /** board 变体：共享工作台的快照（黑板内容 + 消化了几份 + 注入量 + 被代码拒的写入） */
+  workbench?: {
+    state: unknown;
+    digested: number;
+    posts: number;
+    injectedChars: number;
+    rejections: string[];
+  };
   /** ledger 变体：外部工作台里记下了多少份材料（context.override 注了多少） */
   ledgerReads?: number;
 }
