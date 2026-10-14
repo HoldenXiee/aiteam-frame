@@ -338,6 +338,96 @@ def fig6():
     fig.savefig(os.path.join(OUT, "fig6_architecture.png"))
     plt.close(fig)
 
-for f in (fig1, fig2, fig3, fig4, fig5, fig6):
+
+
+# ══════════════════════════════════════════════════════════════
+# 图 7：交接机制详解 —— 执行者手上到底有什么
+# ══════════════════════════════════════════════════════════════
+def fig7():
+    fig, axes = plt.subplots(4, 1, figsize=(13.5, 11.2))
+
+    def box(ax, x, y, w, h, text, fc, fs=9.2, tc="white", ec="white", lw=1.6, ls="-"):
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.10",
+                                    facecolor=fc, edgecolor=ec, linewidth=lw,
+                                    linestyle=ls, zorder=3))
+        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fs,
+                color=tc, fontweight="bold", zorder=4, linespacing=1.3)
+
+    def arr(ax, p, q, color, lw=1.8, ls="-", style="-|>"):
+        ax.add_patch(FancyArrowPatch(p, q, arrowstyle=style, mutation_scale=13,
+                                     color=color, lw=lw, linestyle=ls, zorder=2))
+
+    def setup(ax, title, sub, col):
+        ax.set_xlim(0, 14); ax.set_ylim(0, 3.4); ax.axis("off")
+        ax.text(0.1, 3.15, title, fontsize=13, fontweight="bold", color=col, va="top")
+        ax.text(0.1, 2.72, sub, fontsize=9.4, color="#666", va="top")
+
+    # ── ① 断流 ──
+    ax = axes[0]
+    setup(ax, "① 断流 —— 只传一段文字（结论在，过程全丢）", "A 断视野 · B 基线　→ 通过率 0% / 50%", C["bad"])
+    box(ax, 0.4, 0.5, 1.9, 1.1, "44 份\n原始材料", "#B0BEC5", 8.6)
+    box(ax, 3.0, 0.5, 2.0, 1.1, "判断者\n(root / S1)", C["bad"], 8.8)
+    box(ax, 5.8, 0.72, 2.2, 0.66, "一段文字摘要", "#F5B7B1", 8.6, "#7B241C", ec=C["bad"], ls="--")
+    box(ax, 8.7, 0.5, 2.0, 1.1, "执行者\n(writer / S2)", C["bad"], 8.8)
+    box(ax, 11.6, 0.5, 2.0, 1.1, "report.md", "#B0BEC5", 8.6, "#37474F")
+    arr(ax, (2.3, 1.05), (3.0, 1.05), "#90A4AE")
+    arr(ax, (5.0, 1.05), (5.8, 1.05), "#90A4AE")
+    arr(ax, (8.0, 1.05), (8.7, 1.05), C["bad"], lw=2.4)
+    arr(ax, (10.7, 1.05), (11.6, 1.05), "#90A4AE")
+    ax.text(7.15, 1.98, "执行者手上：只有结论文字\n（材料原文：无　判断者的推理：无）",
+            ha="center", fontsize=9.2, color=C["bad"], fontweight="bold", linespacing=1.4)
+
+    # ── ② 重建 ──
+    ax = axes[1]
+    setup(ax, "② 重建 —— 执行者自己把原始材料重读一遍", "B 核对原文　→ 通过率 73%，但最贵（1004k token）", C["accent"])
+    box(ax, 0.4, 0.5, 1.9, 1.1, "44 份\n原始材料", "#B0BEC5", 8.6)
+    box(ax, 3.0, 0.5, 2.0, 1.1, "判断者\n(S2)", C["accent"], 8.8)
+    box(ax, 5.8, 0.72, 2.2, 0.66, "结论文字", "#FAD7A0", 8.6, "#7E5109", ec=C["accent"], ls="--")
+    box(ax, 8.7, 0.5, 2.0, 1.1, "执行者\n(S4 写手)", C["accent"], 8.8)
+    box(ax, 11.6, 0.5, 2.0, 1.1, "report.md", "#B0BEC5", 8.6, "#37474F")
+    arr(ax, (2.3, 1.05), (3.0, 1.05), "#90A4AE")
+    arr(ax, (5.0, 1.05), (5.8, 1.05), "#90A4AE")
+    arr(ax, (8.0, 1.05), (8.7, 1.05), "#90A4AE")
+    arr(ax, (10.7, 1.05), (11.6, 1.05), "#90A4AE")
+    # 关键：判断者自己去重读
+    ax.add_patch(FancyArrowPatch((1.35, 1.62), (4.0, 1.62), connectionstyle="arc3,rad=-0.55",
+                                 arrowstyle="-|>", mutation_scale=13, color=C["accent"], lw=2.6, zorder=2))
+    ax.text(2.62, 0.16, "重读 45 份（这就是「重建」）", ha="center", fontsize=9.4,
+            color=C["accent"], fontweight="bold")
+    ax.text(7.15, 1.90, "执行者手上：还是只有结论文字\n但结论是「看过原文之后」得出的 → 更准，代价是重复劳动",
+            ha="center", fontsize=9.2, color="#7E5109", fontweight="bold", linespacing=1.4)
+
+    # ── ③ 合流（不分离） ──
+    ax = axes[2]
+    setup(ax, "③ 合流 · 不分离 —— 判断和执行本来就是同一个人", "A 基线　→ 通过率 67%", C["good"])
+    box(ax, 0.4, 0.5, 1.9, 1.1, "44 份\n原始材料", "#B0BEC5", 8.6)
+    box(ax, 3.0, 0.5, 4.6, 1.1, "root：既判断，也执行\n（读材料 → 判重复 → 自己写报告）", C["good"], 9.4)
+    box(ax, 8.6, 0.5, 2.0, 1.1, "report.md", "#B0BEC5", 8.6, "#37474F")
+    arr(ax, (2.3, 1.05), (3.0, 1.05), "#90A4AE")
+    arr(ax, (7.6, 1.05), (8.6, 1.05), C["good"], lw=2.4)
+    ax.text(5.3, 1.85, "根本没有「交接」这回事 —— 所以也谈不上丢信息",
+            ha="center", fontsize=9.6, color=C["good"], fontweight="bold")
+
+    # ── ④ 合流（送过去） ──
+    ax = axes[3]
+    setup(ax, "④ 合流 · 送过去 —— 判断和执行是两个人，但把上下文搬过去", "B 轨迹共享 · B 共享工作台　→ 通过率 75% / 86%", C["good"])
+    box(ax, 0.4, 0.5, 1.9, 1.1, "44 份\n原始材料", "#B0BEC5", 8.6)
+    box(ax, 3.0, 0.5, 2.0, 1.1, "判断者\n(S2)", C["good"], 8.8)
+    box(ax, 5.8, 0.66, 2.2, 0.78, "完整上下文轨迹\n（读过什么 + 怎么想的）", "#A9DFBF", 8.2, "#145A32", ec=C["good"], ls="--")
+    box(ax, 8.7, 0.5, 2.0, 1.1, "执行者\n(S4 写手)", C["good"], 8.8)
+    box(ax, 11.6, 0.5, 2.0, 1.1, "report.md", "#B0BEC5", 8.6, "#37474F")
+    arr(ax, (2.3, 1.05), (3.0, 1.05), "#90A4AE")
+    arr(ax, (5.0, 1.05), (5.8, 1.05), "#90A4AE")
+    arr(ax, (8.0, 1.05), (8.7, 1.05), C["good"], lw=2.6)
+    arr(ax, (10.7, 1.05), (11.6, 1.05), "#90A4AE")
+    ax.text(7.15, 2.02, "执行者手上：判断者看过的东西（原文 + 推理）\n→ 和 ③ 一样「知道全部」，但靠传递而不是重读",
+            ha="center", fontsize=9.2, color=C["good"], fontweight="bold", linespacing=1.4)
+
+    fig.suptitle("交接机制详解：执行者做决定时，手上到底有什么？", fontsize=15.5, fontweight="bold", y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.975])
+    fig.savefig(os.path.join(OUT, "fig7_handoff_detail.png"))
+    plt.close(fig)
+
+for f in (fig1, fig2, fig3, fig4, fig5, fig6, fig7):
     f(); print("[ok]", f.__name__)
 print("done")
