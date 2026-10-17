@@ -6,7 +6,7 @@
 // 学习方式：**每一段是一个可以改的旋钮**，改完再跑，看输出变了什么。
 // 每段都标了「改这里」。改坏了没关系，git checkout demo/lab.ts 就回来了。
 import { lab, MODEL, agentDir, cwd } from "./env.ts";
-import type { AgentSpec } from "../src/index.ts";
+import type { AgentSpec } from "../../src/index.ts";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 

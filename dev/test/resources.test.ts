@@ -12,10 +12,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadSkillsFromDir, SettingsManager, type AgentSession, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { buildLoader } from "../src/agent/loader.ts";
-import { createExtensions } from "../src/surfaces/resources.ts";
+import { buildLoader } from "../../src/agent/loader.ts";
+import { createExtensions } from "../../src/surfaces/resources.ts";
 import { makeAgent, makeAgentIn, sentTools, echoTool, fauxAgentDir, fauxCwd, FAUX_MODEL_REF, faux } from "./helpers.ts";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { writeModelsJson } from "./faux-models.ts";
 
 /** 造一个只含一个技能文件的临时目录；返回目录路径 */
@@ -449,9 +449,24 @@ test("extensions.add 第二趟 reload 失败 → 注入表回滚，不留半应�
   const allowed = new Set(["read"]);
   let reloads = 0;
   const factories = () => (loader as unknown as { extensionFactories: unknown[] }).extensionFactories;
+  // 假 session：只实现 createExtensions 用到的那四个方法（2026-10-15 定制本地 pi 后的公开 API）。
+  // 旧版这里直接摆一个 `_allowedToolNames` Set 让库 cast 进去 —— 那正是在钉住私有字段。
+  const fakeSession = {
+    hasAllowedToolNames: () => true,
+    setAllowedToolNames: (mode: "add" | "remove" | "replace", entries: string | readonly string[]) => {
+      const list = typeof entries === "string" ? [entries] : [...entries];
+      let changed = false;
+      for (const n of list) {
+        if (mode === "remove") changed = allowed.delete(n) || changed;
+        else changed = !allowed.has(n) ? (allowed.add(n), true) : changed;
+      }
+      return changed;
+    },
+    setExcludedToolNames: () => false,
+  } as unknown as AgentSession;
   const ext = createExtensions({
     loader,
-    session: { _allowedToolNames: allowed } as unknown as AgentSession,
+    session: fakeSession,
     bridge: {
       reload: async () => {
         reloads += 1;

@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
