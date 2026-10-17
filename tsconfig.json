@@ -19,14 +19,18 @@
   },
   "include": [
     "src",
-    "test",
-    "demo",
-    "examples"
+    "dev/test",
+    "dev/demo",
+    "research/demox",
+    "dev/examples"
   ],
   "exclude": [
     "node_modules",
-    "demo/run",
-    "demo/work",
-    "spike"
+    "dev/pi",
+    "dev/demo/run",
+    "dev/demo/work",
+    "dev/spike",
+    "research/demox/lab-1/work",
+    "research/demox/work"
   ]
 }

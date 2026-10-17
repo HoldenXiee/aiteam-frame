@@ -24,16 +24,19 @@ import type { Agent, AgentTool, PermissionsSurface, ToolsSurface } from "../agen
  * 会被静默抹掉（无白名单时扩展工具还会被 `defaultActive !== false` 那条分支推回来）。
  * 导出给 `resources.ts` 用（R41：运行期加的扩展注册的工具名也要进白名单）。
  */
-export function toolFilters(session: AgentSession): {
-  _allowedToolNames?: Set<string>;
-  _excludedToolNames?: Set<string>;
-} {
-  return session as unknown as {
-    _allowedToolNames?: Set<string>;
-    _excludedToolNames?: Set<string>;
-  };
-}
-
+/**
+ * 白名单与排除集的**公开**访问器（2026-10-15 定制本地 pi 后）。
+ *
+ * 背景：pi 0.99.1 里这两张表是私有字段（`_allowedToolNames` / `_excludedToolNames`，Set），
+ * 库只能 cast 进去增删。pi 1.2.0 把它们换成了**不可变匹配器**（支持 `mcp__*` 这类模式），
+ * 且 `reload()` 不重建它们 —— 私有 cast 这条路彻底断了。
+ *
+ * 于是我们**改本地 pi**（`dev/pi`），给 `AgentSession` 加了公开的
+ * `setAllowedToolNames` / `setExcludedToolNames` / `hasAllowedToolNames` / `isExcludedToolName`。
+ * 这是 aiteam「量身定制 pi」的第一例：研究工具需要绝对操控能力，就不该被私有字段卡住。
+ *
+ * 语义没变，仍然是「白名单是硬过滤，扛得过 reload」那一套 —— 只是现在走正门。
+ */
 export interface ToolsDeps {
   session: AgentSession;
   /** 工具表与事件监听表都住在桥接里：reload 会把它们整体接回 pi */
@@ -51,17 +54,17 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
   /** 把名字加进 pi 的 `allowedToolNames`（未设白名单时是 no-op）。
    *  只有一份真相：白名单非空就代表「运行期新登记的也要能注册」，所以 add 加、remove 减。 */
   function registerAllowed(name: string): void {
-    toolFilters(session)._allowedToolNames?.add(name);
+    if (session.hasAllowedToolNames()) session.setAllowedToolNames("add", name);
   }
 
   function unregisterAllowed(name: string): void {
-    toolFilters(session)._allowedToolNames?.delete(name);
+    session.setAllowedToolNames("remove", name);
   }
 
   /** 显式 add 一定让它生效（R37）：同名 deny 必须一起解除，否则工具在 reload 时被硬过滤掉、
    *  停在 `active:false`，模型静默收不到 —— 设计者调了 add 却没生效。返回是否真的摘掉过。 */
   function unexclude(name: string): boolean {
-    return toolFilters(session)._excludedToolNames?.delete(name) ?? false;
+    return session.setExcludedToolNames("remove", name);
   }
 
   return {
@@ -100,7 +103,7 @@ export function createTools(deps: ToolsDeps): ToolsSurface {
         // 白名单只在「这个名字原先没登记过」时才该摘回去：重加同名工具时，此前那次成功的 add 已
         // 合法把它写进白名单，无条件摘掉会留下「表里有、白名单没」→ 模型静默收不到。
         if (previous === undefined) unregisterAllowed(def.name);
-        if (wasExcluded) toolFilters(session)._excludedToolNames?.add(def.name);
+        if (wasExcluded) session.setExcludedToolNames("add", def.name);
         throw err;
       }
       // add 是设计者「我要它」的显式动作，必须真的 active。reload 的隐式激活那条路带
@@ -171,7 +174,6 @@ export interface PermissionsDeps {
  */
 export function createPermissions(deps: PermissionsDeps): PermissionsSurface {
   const { session } = deps;
-  const filters = () => toolFilters(session);
 
   // 与 tools 面的 add/remove 同一条守卫、同一个判据（R29）。必须排在改集合**之前**：
   // 否则改完集合才在 reload 里撞忙，会留下「集合改了、注册表没重建」的半应用状态。
@@ -193,21 +195,19 @@ export function createPermissions(deps: PermissionsDeps): PermissionsSurface {
       deps.assertAlive();
       assertIdle();
       // 「精确就是这些」只有白名单表达得出来：无白名单时 reload 会把扩展工具按 `defaultActive` 推回活跃集。
-      const f = filters();
-      f._allowedToolNames = new Set(names);
+      session.setAllowedToolNames("replace", names);
       // 被排除集点过名的名字永远进不了注册表 —— 与 only 的语义冲突（后一次覆盖前一次）
-      if (f._excludedToolNames) for (const name of names) f._excludedToolNames.delete(name);
+      for (const name of names) session.setExcludedToolNames("remove", name);
       await deps.bridge.reload();
     },
 
     async allow(names) {
       deps.assertAlive();
       assertIdle();
-      const f = filters();
       // 有白名单才需要并进去：没有白名单时 reload 不会筛掉任何名字，硬造一份「当前允许的名字」当白名单
       // 反而会把 pi 扩展后来注册的工具一起静默关掉。
-      if (f._allowedToolNames) for (const name of names) f._allowedToolNames.add(name);
-      if (f._excludedToolNames) for (const name of names) f._excludedToolNames.delete(name);   // allow 覆盖之前的 deny
+      if (session.hasAllowedToolNames()) session.setAllowedToolNames("add", names);
+      for (const name of names) session.setExcludedToolNames("remove", name); // allow 覆盖之前的 deny
       await deps.bridge.reload();
       // reload **不够**这一档（这是 `setActiveToolsByName` 唯一幸存的地方）：无白名单时
       // `_refreshToolRegistry` 只把**扩展工具**按 `defaultActive` 推回活跃集（agent-session.js:2808-2816），
@@ -220,15 +220,13 @@ export function createPermissions(deps: PermissionsDeps): PermissionsSurface {
     async deny(names) {
       deps.assertAlive();
       assertIdle();
-      const f = filters();
-      if (f._allowedToolNames) {
+      if (session.hasAllowedToolNames()) {
         // 白名单层删掉就够；**不**顺手记进排除集 —— 排除集是硬过滤，会让后续的 allow 永远进不来
-        for (const name of names) f._allowedToolNames.delete(name);
+        session.setAllowedToolNames("remove", names);
       } else {
         // 无白名单：只把点名的这几个记进排除集，**不**把当前允许的名字物化成白名单
         // （那会连带关掉 pi 扩展事后注册的工具）。与创建期 `permissions.deny` 走同一个字段。
-        f._excludedToolNames ??= new Set();
-        for (const name of names) f._excludedToolNames.add(name);
+        session.setExcludedToolNames("add", names);
       }
       await deps.bridge.reload();
     },

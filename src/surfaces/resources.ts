@@ -17,7 +17,6 @@ import type { AgentSession, DefaultResourceLoader, InlineExtension, Skill } from
 import type { Bridge } from "../agent/bridge.ts";
 import { loaderInjections, samePath, under } from "../agent/loader.ts";
 import type { ExtensionsSurface, SkillsSurface } from "../agent/types.ts";
-import { toolFilters } from "./tools.ts";
 
 export interface ResourcesDeps {
   loader: DefaultResourceLoader;
@@ -65,14 +64,11 @@ function push<T>(list: T[], item: T): () => void {
 }
 
 /**
- * pi 的 `extensionFactories` 是**私有字段**（`resource-loader.d.ts:133`），且构造期传入的工厂被 pi 拷过
- * （`resource-loader.js:245`）⇒ 库自己持有的数组推什么都没用。真正被读的是 loader 自己那个数组
- * （`:873` `this.extensionFactories.entries()`）。只能 cast —— 与 `session._allowedToolNames`
- * （FACTS #11）同类做法：由用例「extensions.add(工厂)」钉住 + 记进 FACTS。
+ * 背景：pi 的 `extensionFactories` 是**私有字段**，且构造期传入的工厂被 pi `filter()` 拷过一份，库自己持有的数组推什么都没用
+ * （真正被读的是 loader 自己那个数组）。旧做法是 cast 私有字段 —— pi 一改字段名就静默碎掉。
+ * 2026-10-15 定制本地 pi 后，`DefaultResourceLoader` 多了公开的
+ * `mutateExtensionFactories(mode, factory)`，由用例「extensions.add(工厂)」钉住。
  */
-function factoryList(loader: DefaultResourceLoader): InlineExtension[] {
-  return (loader as unknown as { extensionFactories: InlineExtension[] }).extensionFactories;
-}
 
 /**
  * R41：这次 `extensions.add` 声明出来的扩展所提供的工具名。
@@ -117,8 +113,7 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
       // R41：这次 add 的扩展注册的工具名要在**注册表过滤之前**进白名单，否则被 pi 硬过滤掉、无人可知。
       // 但工厂注册了哪些名字只有 reload 之后才知道（工厂在 reload 里被调用；为了取名字先自己调一遍
       // 会让设计者工厂的副作用跑两次，R30b 的教训）⇒ 有白名单时补一趟 reload。
-      const filters = toolFilters(session);
-      const allowed = filters._allowedToolNames;
+      const allowed = session.hasAllowedToolNames();
       const state = loaderInjections(loader);
       const before = new Set(loader.getExtensions().extensions.map((e) => e.path));
       // 留住 commit 的回滚：第二趟 reload（并入白名单那次）失败时，第一趟的注入也要撤掉，
@@ -126,22 +121,26 @@ export function createExtensions(deps: ExtensionsDeps): ExtensionsSurface {
       // 半应用状态」要挡的（与下面 skills.add(路径) 校验失败即回滚同一条自律）。
       const rollback = await (typeof extension === "string"
         ? commit(deps, () => push(state.extensionPaths, extension))
-        : commit(deps, () => push(factoryList(loader), extension)));
+        : commit(deps, () => {
+            loader.mutateExtensionFactories("add", extension);
+            return () => {
+              loader.mutateExtensionFactories("remove", extension);
+            };
+          }));
       const names = declaredToolNames(loader, extension, state.cwd, before);
       // 没有白名单：注册表不做过滤（与 tools.add 的 registerAllowed 同为 no-op），但这**不**豁免 R44 ——
       // 排除集是另一张表（创建期 `permissions.deny` 且无白名单时就是它在挡）。
-      const added = allowed ? names.filter((n) => !allowed.has(n)) : [];
       // R44：更晚的显式声明胜 —— 这次 add 点名的工具名要**同时摘掉排除集**（与 tools.add 的 R37 对称）。
       // 不摘的话「创建期 deny + 更晚的 extensions.add」仍被硬过滤（deny 胜），而「运行期 deny（有白名单时
       // 只摘白名单名、不写排除集）+ 更晚的 add」却是 add 胜 —— 同一个逻辑情形因 deny 来源不同而结果相反。
-      const unexcluded = names.filter((n) => filters._excludedToolNames?.delete(n));
+      const added = allowed ? names.filter((n) => session.setAllowedToolNames("add", n)) : [];
+      const unexcluded = names.filter((n) => session.setExcludedToolNames("remove", n));
       if (!added.length && !unexcluded.length) return;
-      for (const name of added) allowed!.add(name);
       try {
         await deps.bridge.reload();
       } catch (err) {
-        for (const name of added) allowed!.delete(name);
-        for (const name of unexcluded) filters._excludedToolNames?.add(name);
+        for (const name of added) session.setAllowedToolNames("remove", name);
+        for (const name of unexcluded) session.setExcludedToolNames("add", name);
         rollback();
         // 取舍（诚实披露）：注入表先恢复一致，但 loader 上一次 reload 的缓存（`getExtensions()`）要到
         // 下一次 reload 才跟上 ⇒ `extensions.list()` 会**短暂**显示这个已被撤销的扩展。持久层一致比

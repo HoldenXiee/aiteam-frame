@@ -15,6 +15,7 @@ import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
 import { createIo } from "../surfaces/io.ts";
 import { createContext } from "../surfaces/context.ts";
+import { createObserve, type ObserveSurface } from "../surfaces/observe.ts";
 import { createTools, createPermissions } from "../surfaces/tools.ts";
 import { createExtensions, createSkills } from "../surfaces/resources.ts";
 import { createModel } from "../surfaces/model.ts";
@@ -175,11 +176,15 @@ export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Pr
   const need: (what: string) => never = (what) => {
     throw new Error(`桥接：${what} 还没建好`);
   };
+  // ★ 观测面的记帐口：bridge 在 179 行就建好了，而 observe 要等到 subscribe 之后（≈348 行）。
+  //   用一个可变槽位把两者接起来 —— bridge 每次调用时现取，不用关心谁先建。
+  let observeRef: ObserveSurface | undefined;
   const bridge = createBridge({
     session: () => holder.session ?? need("session"),
     agent: () => holder.agent ?? need("agent"),
     // R29：桥接的 reload 守卫与 io / context / tools 共用同一个判据（由 createAgent 注入）
     isBusy: () => isBusy(),
+    note: (name, args, returned) => observeRef?.noteInjection(name, args, returned),
   });
   // 创建期的 gate 就是运行期那个槽位（单槽位，后一次覆盖前一次）
   if (spec.permissions?.gate) bridge.gate = spec.permissions.gate;
@@ -372,6 +377,12 @@ export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Pr
     return subscribe(ANY_EVENT, handler);
   }
 
+  // ─────────────── 观测面（DESIGN「功能二」） ───────────────
+  // ★ 必须建在 subscribe 之后（它要用 subscribe），并在 Object.assign 之前。
+  //   记录「每一轮真正发给模型的 messages」—— 治「它没听劝 vs 它根本没收到」这个区分。
+  const observe: ObserveSurface = createObserve({ subscribe, assertAlive });
+  observeRef = observe;
+
   // ─────────────── 生命周期 ───────────────
   function dispose(): void {
     if (status === "disposed") return;
@@ -404,6 +415,7 @@ export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Pr
     extensions,
     skills,
     model: modelSurface,
+    observe,
     on,
     onAny,
     dispose,

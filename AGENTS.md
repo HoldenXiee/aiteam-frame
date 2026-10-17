@@ -29,7 +29,7 @@ git -c http.proxy=http://127.0.0.1:10809 push origin main
 
 ## 一句话
 
-**aiteam 是一个 Agent 操控库**——基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，给设计者的代码一双手，在运行期**读、改、拦截**一个 agent 的七个面。非常基础、非常底层。
+**aiteam 是一个 Agent 操控库**——基于 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) SDK，给设计者的代码一双手，在运行期**读、改、拦截**一个 agent 的七个面，并**观测**它实际收到了什么。非常基础、非常底层。
 
 **库不含任何策略。** 花名册、委派、护栏、红线都是**使用者代码**——想让 agent 拥有哪种集群形态，那是你的代码的事，不是库的字段。
 
@@ -70,10 +70,21 @@ git -c http.proxy=http://127.0.0.1:10809 push origin main
 | `agent.extensions` | 运行期加载 / 卸载插件，加载错误可读（`errors()`） |
 | `agent.skills` | 运行期按路径注入技能、列出当前技能 |
 | `agent.model` | 换模型 / 换思考档，读当前与可用 |
+| `agent.observe` | ★ **观测面**：每一轮**真正发给模型的 messages**（含 system，`context.history` 看不到）、**每轮 token**、**干预生效计数** |
+
+**沙箱不新增面**：`createSandbox()` 造的是一个**普通工具**（`agent.tools.add()` 加进去，不新增机制）。
+它让**模型**写一小段 JS 把多个 agent 调用编起来 —— 并发、带判断、带过滤，只把结论带回来。
+能力边界由**设计者声明**（`capabilities` 白名单）；沙箱里 spawn 的子 agent **不继承沙箱**（限一层）。
+见 `examples/13-sandbox.ts`。这是 `examples/11-redline.ts` 那条「可被推翻的假设」的正面实现：
+v1 里「agent 不能设计 agent」焊在库上，这里把它做成一个**可声明的能力**。
 
 除七个面之外，只剩三样句柄与观测：
 
 - **句柄** —— `agent.id`（trace 的关联键）/ `agent.usage`（**全生命周期**累计；本次运行看 `RunResult.usage`）/ `agent.status`（`idle` | `running` | `disposed`）/ `agent.dispose()`
+★ **`observe` 是第八个面**（2026-10-16 造）：`measure` 只抓 `tool_call` 时，四次干预里有**三次静默失败**查不出来 ——
+**「它没听劝」与「它没收到」无法区分**。加面之后**当场解开**了 P11 的机制之谜（`override` 只活一轮，`onResult` 进历史）。
+★ 通用判据：**「改的是即将发出的那一次，还是会存进历史的东西？」**
+
 - **观测** —— `agent.on(event, handler)`（**按名收窄** handler 的参数类型）与 `agent.onAny(handler)`（全量，适合 trace / 日志）。两者都**直接镜像 pi 的 `ExtensionEvent`**、返回退订函数；v1 那层「七个归一化事件」已删除
 - **raw 出口** —— 除 `permissions` 外每个面都有 `agent.<面>.raw`，指向对应的 pi 对象。**全权、无护栏**：库的忙判据与结算在这一层不存在
 
@@ -89,15 +100,37 @@ git -c http.proxy=http://127.0.0.1:10809 push origin main
 
 ## 仓库地图
 
+**三层结构**：库本体（`src/`，被两边依赖所以留顶层）· 库开发（`dev/`）· 研究（`research/`）。
+
 ```
-src/index.ts     唯一导出入口（不做逻辑）：createLab + 全部对外类型
-src/agent/       lab.ts（createLab：环境所有者与唯一启动入口）· create-agent.ts（agent 的创建路径，只经 lab.createAgent 到达）· bridge.ts（面 = pi 钩子的分组封装）· env.ts（环境自检的实现）· loader.ts（skills / extensions / role 的注入与解析）· types.ts（对外类型）· usage.ts（用量累计）
-src/surfaces/    七个面：io.ts · context.ts · tools.ts（tools + permissions）· resources.ts（extensions + skills）· model.ts
-test/            node:test，本机假 provider，零 API 成本
-examples/        12 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码，12 是完整案例）；离线基建在 examples/lib/
-demo/            实验脚手架（复制即开始实验）：lab.ts（起点）+ agent/（环境）+ check.ts（八项自检）；完整案例在 examples/12-team.ts
-docs/DESIGN.md   宏观设计（唯一设计源）
-docs/GUIDE.md    用法讲解（面向设计者；代码引用 examples/lib/snippets.ts 的同源片段）
-docs/FACTS.md    已实测核对的实现决策（v1 段 + v2 段）
-docs/research/   研究问题清单 · v1 能力与极限审计报告
+src/              库本体（唯一导出入口 + 七个面）
+src/index.ts      唯一导出入口（不做逻辑）：createLab + 全部对外类型（含 ObserveSurface）
+src/agent/        lab.ts（createLab：环境所有者与唯一启动入口）· create-agent.ts（agent 的创建路径，只经 lab.createAgent 到达）· bridge.ts（面 = pi 钩子的分组封装）· env.ts（环境自检的实现）· loader.ts（skills / extensions / role 的注入与解析）· types.ts（对外类型）· usage.ts（用量累计）
+src/surfaces/     八个面：io.ts · context.ts · tools.ts（tools + permissions）· resources.ts（extensions + skills）· model.ts · observe.ts
+
+dev/              库开发（为 src/ 服务的一切）
+dev/pi/           **克隆的 pi 源码**（上游 1.2.0）。改它 = 拿更底层的能力；改了什么记在 `dev/pi/定制记录.md`
+dev/test/         node:test，本机假 provider，零 API 成本
+dev/examples/     12 个能 node 直接跑的示例（01–08 一面一事，09–11 是 v1 三条假设的使用者代码，12 是完整案例）；离线基建在 examples/lib/
+dev/demo/         实验脚手架（复制即开始实验）：lab.ts（起点）+ agent/（环境）+ check.ts（八项自检）；完整案例在 examples/12-team.ts
+dev/spike/        一次性验证脚本（不在 tsconfig include 里）
+dev/docs/DESIGN.md   宏观设计（唯一设计源）
+dev/docs/GUIDE.md    用法讲解（面向设计者；代码引用 examples/lib/snippets.ts 的同源片段）
+dev/docs/FACTS.md    已实测核对的实现决策（v1 段 + v2 段）
+dev/docs/research/   研究问题清单 · v1 能力与极限审计报告
+
+research/         研究（把库当工具用）
+research/demom/   「系统该怎么搭」：形态 vs 交接机制
+research/demox/   「用代码组织零成本智力」这门生产方式的学问（总纲见 `research/demox/研究规划.md`）
 ```
+
+> **为什么 `src/` 留顶层**：`dev/` 与 `research/` 都 import 它，放哪边都不对。
+> 它也不属于「开发工具链」，它是**产物本身**。
+
+### 本地 pi（`dev/pi/`）
+
+**它是项目的底座，不是「跟着上游升级的对象」** —— 撞到天花板时直接改它。改动的记录、重建方法、
+以及「上游哪些功能值得取」都写在 [`dev/pi/定制记录.md`](dev/pi/定制记录.md)。
+
+已做的定制：运行期可增删的工具白名单（原本是私有字段，库只能 cast；现在有公开 API）。
+

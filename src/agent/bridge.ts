@@ -110,6 +110,12 @@ export function createBridge(deps: {
   agent: () => Agent;
   /** 忙判据（R29）：由 createAgent 注入的**唯一一份**定义，`reload()` 的 idle 守卫用 */
   isBusy: () => boolean;
+  /**
+   * ★ 干预生效性的记帐口（观测面）。bridge 在每个专属槽位被调用时记一笔 ——
+   * 治四次「静默失败」（override 生效 0 次、账本零效果、content 形状错、语料假重复）。
+   * 可选：不传就不记（测试里可以不关心）。
+   */
+  note?: (name: string, args: unknown, returned: unknown) => void;
 }): Bridge {
   const tools = new Map<string, AgentTool>();
   const listeners = new Map<string, Set<Handler>>();
@@ -140,7 +146,12 @@ export function createBridge(deps: {
     let hasResult = false;
     // `context` 钩子拿到的是**不含 system** 的那批消息（S2），override 收到的就是它、原样返回即可
     if (name === "context" && contextOverride) {
-      result = { messages: contextOverride((event as { messages: AgentMessage[] }).messages) };
+      const before = (event as { messages: AgentMessage[] }).messages;
+      const after = contextOverride(before);
+      // ★ 记一笔：调用了几次、最后一次的实参规模与是否真的改动了
+      const changed = after !== before;
+      deps.note?.("context.override", { messages: before.length }, changed ? { messages: after.length } : undefined);
+      result = { messages: after };
       hasResult = true;
     }
     // permissions 的审批门（R26）：与 override 一样是专属槽位，排在监听表**之前**，结果计入同一个守卫。
@@ -158,6 +169,7 @@ export function createBridge(deps: {
         returned = { block: true, reason: String(err) };
       }
       if (returned) {
+        deps.note?.("permissions.gate", { name: call.toolName, input: call.input }, returned);
         if ((returned as { block?: boolean }).block) return returned;   // block 短路，监听表不跑（pi 同构）
         result = returned;
         hasResult = true;

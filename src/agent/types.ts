@@ -19,6 +19,8 @@ import type {
 import type { ImageContent, Model, Usage } from "@earendil-works/pi-ai";
 
 export type { ContextUsage, Extension, ExtensionError, ExtensionEvent, ImageContent, LoadExtensionsResult, ModelRuntime, Skill, Usage };
+import type { ObserveSurface } from "../surfaces/observe.ts";
+export type { ObserveSurface, WireTurn, TurnUsage, InjectionStat } from "../surfaces/observe.ts";
 
 /** 直接取会话自己的思考档类型（含 "off"），不自己重定义 */
 export type ThinkingLevel = AgentSession["thinkingLevel"];
@@ -76,6 +78,17 @@ export interface Agent {
   readonly extensions: ExtensionsSurface;
   readonly skills: SkillsSurface;
   readonly model: ModelSurface;
+  /**
+   * ★ 观测面（DESIGN「功能二：为分析研究提供材料」）—— 与「功能一：绝对操控」并列的那一半。
+   *
+   * `agent.observe.wire` = **每一轮真正发给模型的 messages**（含 system）。
+   * 存在的理由：没有它就无法区分「它没听劝」与「它根本没收到」——
+   * A1（override 生效 0 次）与 P11（账本挂错位置）两次都栽在这个区分上。
+   *
+   * `agent.observe.injections` = 每个干预点被调用几次、最后一次的实参 / 返回值。
+   * 存在的理由：四次「静默失败」——干预没生效，却没有任何报错。
+   */
+  readonly observe: ObserveSurface;
 
   /** 原始事件，按名收窄（镜像 pi 的 on 重载）。返回值类型按事件收窄 */
   on<E extends ExtensionEvent["type"]>(
@@ -250,3 +263,45 @@ export type ToolGate = (
   call: { name: string; input: unknown; callId: string },
   ctx: AgentContext,
 ) => Promise<{ block: true; reason?: string } | undefined>;
+
+// ─────────────── 沙箱（模型写代码编排 agent） ───────────────
+
+/**
+ * 沙箱里能碰的能力（设计者声明白名单）。
+ *
+ * 定位：普通情况下模型一次只能选一个工具，串行、逐个。有了沙箱，它能写一段代码把多个调用编起来
+ * ——并发、带判断、带过滤，只把结论带回来。这是「通过代码使用大语言模型」的模型侧那一半。
+ */
+export type SandboxCapability =
+  | "spawn" | "prompt" | "queue" | "interrupt" | "wait_idle"
+  | "read_context" | "read_usage" | "list_agents"
+  | "tools_add" | "tools_remove" | "perm_only" | "dispose";
+
+export interface SandboxOptions {
+  /** 宿主 agent：spawn 出来的子 agent 挂在它所在的实验室下 */
+  agent: Agent;
+  /** 能力白名单：`[]` = 什么都不给（沙箱只剩纯计算）；`["*"]` = 全给 */
+  capabilities: SandboxCapability[] | ["*"];
+  /** 每次执行的墙钟上限（ms）。默认 300_000 */
+  timeoutMs?: number;
+  /** 造子 agent 时的 spec 模板（`id` 会被覆盖） */
+  template?: Partial<AgentSpec>;
+  /** 子 agent 最多几个。默认 8 */
+  maxSpawn?: number;
+}
+
+/**
+ * 沙箱面：**不是第八个面**，它是工具面里的一种工具。
+ *
+ * `createSandbox()` 返回一个普通 `AgentTool`，用 `agent.tools.add(...)` 加进去 —— 不新增机制。
+ * 边界由设计者声明（`capabilities`），库不预设策略。
+ *
+ * ★ **限一层**：模型在沙箱里 spawn 出来的子 agent **不继承沙箱** ——
+ * 子 agent 只能像普通 agent 那样逐个调工具。这避免无限递归，也让「有沙箱 / 无沙箱」成为可对照的实验条件。
+ */
+export interface SandboxSurface {
+  /** 能力白名单（已展开 `"*"`） */
+  readonly capabilities: readonly SandboxCapability[];
+  /** 沙箱里当前活着的子 agent */
+  children(): { id: string; status: string }[];
+}

@@ -1,30 +1,70 @@
 node_modules/
 *.log
 
-# demo 的**运行时产物**：脚本生成，可整个删掉重建
-demo/work/*
+# ── 目录结构（2026-10-15 整理后） ──────────────────────────────────────
+#   src/        库本体（被 dev/ 与 research/ 两边依赖，所以留顶层）
+#   dev/        库开发：pi/（克隆的 SDK 源码）+ test · examples · demo · spike · docs
+#   research/   研究：demom/ · demox/
+#
+# 下面每条忽略都按新路径写。旧路径（demo/、demom/）已不再产生新文件。
 
-# demo 环境（demo/agent 就是 agentDir）：只有动态文件不进仓库，技能与扩展是仓库里的真文件
-demo/agent/auth.json
-demo/agent/models.json
-demo/agent/models-store.json
-demo/agent/settings.json
+# ── dev/demo：运行时产物与环境 ─────────────────────────────────────────
+# 脚本生成，可整个删掉重建
+dev/demo/work/*
+
+# demo 环境（dev/demo/agent 就是 agentDir）：只有动态文件不进仓库，技能与扩展是仓库里的真文件
+dev/demo/agent/auth.json
+dev/demo/agent/models.json
+dev/demo/agent/models-store.json
+dev/demo/agent/settings.json
 
 # 遗留：v1 的配置源目录与 v2 早先的运行产物目录（旧 checkout 可能还在，仍可能含 key，保留忽略）
-demo/env/*
-demo/run/
+dev/demo/env/*
+dev/demo/run/
 
-# 执行账本：SDD 过程文件与 review diff。不在设计源之内（设计源只有 docs/DESIGN.md），不入库
+# 执行账本：SDD 过程文件与 review diff。不在设计源之内（设计源只有 dev/docs/DESIGN.md），不入库
 .superpowers/
 
-# demom 实验：**运行时产物**可整个删掉重建（语料由 bench/prep.ts 铺，report.md 由 run.ts 生成）
-demom/work/*
+# ── research：实验的运行时产物 vs 原始数据 ─────────────────────────────
+# 运行时产物可整个删掉重建（语料由 bench/prep.ts 铺，report.md 由 run.ts 生成）
+research/demom/work/*
+research/demox/work/*
 
-# ⚠️ 但 demom/runs/ **不是**运行时产物，是**原始研究数据**，要入库：
-#    48 次运行 × 每次 10–50 分钟 —— 重跑一次是几天的机器时间，且结果不可复现（模型有随机性）。
-#    它们还是「判据改了可以不重跑就重判」的唯一依据（JSONL 里存了产物全文）。
-#    所以这里**故意不忽略** runs/。
-demom/agent/auth.json
-demom/agent/models.json
-demom/agent/models-store.json
-demom/agent/settings.json
+# ⚠️ 但 runs/ **不是**运行时产物，是**原始研究数据**，要入库：
+#    demom 48 次运行 × 每次 10–50 分钟 —— 重跑一次是几天的机器时间，且结果不可复现（模型有随机性）。
+#    demox 的 runs/ 同理（100+ 轮）。它们还是「判据改了可以不重跑就重判」的唯一依据
+#    （JSONL 里存了产物全文）。所以这里**故意不忽略** runs/。
+
+# 各实验环境的凭证（每个实验目录自带 agentDir）
+research/demom/agent/auth.json
+research/demom/agent/models.json
+research/demom/agent/models-store.json
+research/demom/agent/settings.json
+research/demox/agent/auth.json
+research/demox/agent/models.json
+research/demox/agent/models-store.json
+research/demox/agent/settings.json
+
+# ── dev/pi：克隆的 pi 源码（2026-10-15 加入） ──────────────────────────
+# 这是**上游源码的完整副本**（含 packages/*/src、test、docs、schemas），
+# 目的是「撞到天花板时能直接改 SDK，拿更底层的能力」。
+# 它**不是**我们的产物，是 vendor 的一份拷贝。
+#
+# 入库的理由：改了什么必须可追溯 —— 实验结论要能引用「用的是哪版 pi + 我改了什么」。
+#
+# 但**不**入库下面两类（可重装/可重建，共 ~440M）：
+dev/pi/node_modules/
+dev/pi/packages/*/node_modules/
+dev/pi/apps/*/node_modules/
+# 构建产物：`npx tsc -p packages/<p>/tsconfig.build.json` 可重建
+dev/pi/packages/*/dist/
+dev/pi/apps/*/dist/
+# 上游自己的运行时产物
+dev/pi/**/.vitest-cache/
+dev/pi/**/coverage/
+
+# ── research/demox/lab-1：研究员集群的**独立仓库**（2026-10-17） ──────────
+# 它是第一层集群的实验空间，**自己是一个 git 仓库**（设计者审查它的历史用）。
+# 父仓库不能索引它（"does not have a commit checked out"），
+# 所以这里显式排除；它的成果经设计者审查后，以**复制**的方式进本仓库。
+research/demox/lab-1/
