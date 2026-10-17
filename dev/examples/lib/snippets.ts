@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Agent, ThinkingLevel } from "../../src/index.ts";
+import type { Agent, ThinkingLevel } from "../../../src/index.ts";
 
 // ─────────────── io：驱动与结算 ───────────────
 

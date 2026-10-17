@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { fauxAgentDir } from "./helpers.ts";
 
 function makeSkill(root: string, name: string): void {

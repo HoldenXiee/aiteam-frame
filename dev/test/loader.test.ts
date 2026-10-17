@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SettingsManager, type Skill } from "@earendil-works/pi-coding-agent";
-import { buildLoader } from "../src/agent/loader.ts";
+import { buildLoader } from "../../src/agent/loader.ts";
 import { captureSystemPrompt, fauxAgentDir, fauxCwd } from "./helpers.ts";
 
 const deps = () => ({ cwd: fauxCwd, agentDir: fauxAgentDir, settingsManager: SettingsManager.inMemory({}) });

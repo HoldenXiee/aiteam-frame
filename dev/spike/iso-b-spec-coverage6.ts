@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { buildLoader } from "../src/agent/loader.ts";
+import { buildLoader } from "../../src/agent/loader.ts";
 const root = mkdtempSync(join(tmpdir(), "aiteam-isoB6-"));
 const agentDir = join(root, "agent"); const cwd = join(root, "work");
 const w=(p:string,c:string)=>{mkdirSync(dirname(p),{recursive:true});writeFileSync(p,c)};

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DefaultResourceLoader, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { buildLoader } from "../src/agent/loader.ts";
+import { buildLoader } from "../../src/agent/loader.ts";
 import { writeModelsJson } from "../test/faux-models.ts";
 
 const root = mkdtempSync(join(tmpdir(), "aiteam-isoB-"));

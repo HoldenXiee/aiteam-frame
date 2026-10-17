@@ -3,7 +3,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { faux, fauxAgentDir, sentTools, FAUX_MODEL_REF } from "../test/helpers.ts";
 
 process.env.PI_OFFLINE = "1";

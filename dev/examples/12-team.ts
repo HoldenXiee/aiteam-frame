@@ -26,7 +26,7 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Agent, type AgentMessage, type AgentTool } from "../src/index.ts";
+import { type Agent, type AgentMessage, type AgentTool } from "../../src/index.ts";
 import { FAUX_MODEL_ALT_REF, FAUX_MODEL_REF, fauxAgentDir, fauxCwd, lab } from "./lib/harness.ts";
 
 // ═══════════════ 0. 环境与语料 ═══════════════

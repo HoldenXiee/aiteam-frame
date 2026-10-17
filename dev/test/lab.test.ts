@@ -2,8 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join, sep } from "node:path";
-import { createLab } from "../src/agent/lab.ts";
-import { getSharedRuntime } from "../src/agent/create-agent.ts";
+import { createLab } from "../../src/agent/lab.ts";
+import { getSharedRuntime } from "../../src/agent/create-agent.ts";
 import { fauxAgentDir, fauxCwd, FAUX_MODEL_REF } from "./helpers.ts";
 
 test("实验室必填两个目录：缺失与空串都拒绝", async () => {

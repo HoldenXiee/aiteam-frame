@@ -3,7 +3,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { FAUX_MODEL_REF, makeFauxRuntime } from "../test/faux-models.ts";
 import { startFaux } from "../test/faux-server.ts";
 

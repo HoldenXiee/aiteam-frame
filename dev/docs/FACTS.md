@@ -153,6 +153,23 @@
 | 15 | 除白名单外还有一张**排除集** `_excludedToolNames`（创建期参数 `excludeTools`，`sdk.js:146`）；两集合在 `_refreshToolRegistry` 里合成同一个 `isAllowedTool`（`agent-session.js:2747` 定义，`:2755/2757/2787` 过滤注册表、`:2799` 过滤活跃集）⇒ 运行期 `deny` 要抗过 reload，要么从白名单里删（有白名单时）要么把名字记进排除集（无白名单时）——后者比「把当前允许的名字物化成白名单」安全：不会连带关掉别的扩展事后注册的工具。 | v2 任务 5 实现（源码行 + 用例判别力） |
 | 16 | `setActiveToolsByName` **只在注册表里找**名字（`_applyToolLoadout`，`agent-session.js:1098-1102`）⇒ 被创建期白名单筛掉的名字（连注册表都没有）无法靠它立即启用。**pi 事实不变；但库不再暴露这个天花板**：R38 把 `permissions.only/allow/deny` 从「同步只改活跃集」改成 async + `reload()`（reload 重建注册表 + 重算活跃集，一步到位），同步语义连同天花板一起删了。 | v2 任务 5 实现（实测：`only:["read"]` 创建后再 `allow(["bash"])`，改 reload 前立即不生效、reload 后才生效；任务 5 审查后按 R38 改契约，天花板消失） |
 | 17 | 三个「注入点」在 pi 里的**拷贝行为不同**（`dist/core/resource-loader.js`）：`additionalExtensionPaths` / `additionalSkillPaths` 构造期 `?? []` **存引用**（`:253-254`）且每次 reload 重读（`:364`/`:409`、`:420-424`）⇒ 库长期持有自己的数组并 push/splice 即生效；但 `extensionFactories` 被 `factories.filter(...)` **拷成新数组**（`:245`），库自己的数组推什么都没用，真正被读的是 loader 自己那个数组（`:873` `this.extensionFactories.entries()`，即 `<inline:N>` 的 N = 下标+1）⇒ 运行期加内联工厂只能 cast 私有字段（`resource-loader.d.ts:133`），与 #11 同类：由用例「extensions.add(工厂)」钉住（mutation：push 进副本 → 恰好该用例 + list 用例红）。 | v2 任务 6 实现（源码行 + mutation 判别力） |
+
+### ⚠️ #11 / #16 / #17 的现状（2026-10-15 定制本地 pi 之后）
+
+上面三条都是**「pi 没给公开 API，库只能 cast 私有字段」** 这一类。
+项目现已接管本地 pi 源码（`dev/pi/`），**这三处天花板已被打开**：
+
+| # | 原天花板 | 现在 |
+|---|---|---|
+| #11 | `_allowedToolNames` 私有，无公开增删 API | `AgentSession.setAllowedToolNames("add"/"remove"/"replace", …)` + `setExcludedToolNames` + `hasAllowedToolNames` + `isExcludedToolName` |
+| #17 | `extensionFactories` 私有且被 `filter()` 拷贝 | `DefaultResourceLoader.mutateExtensionFactories("add"/"remove", …)` + `listExtensionFactories()` |
+| #16 | `setActiveToolsByName` 只在注册表里找名字 | 不变（R38 的 async + reload 已经绕过），但现在白名单也能在运行期重建，天花板更远了 |
+
+**这些行仍然有效** —— 它们记的是**上游 pi 的事实**。只是本项目的 pi 不再是纯上游版。
+改了什么、怎么重建、上游哪些值得取：见 [`dev/pi/定制记录.md`](../pi/定制记录.md)。
+
+**顺带的后果**：库现在**零私有字段依赖**（`grep "as unknown as {" src/` 为空），
+并且跑在 pi **1.2.0** 上（原来是 npm 的 0.99.1）。
 | 18 | `skillsOverride` 是**每次 reload 都调用**的（`resource-loader.js:632`，`updateSkillsFromPaths` 里）⇒ 运行期加 `Skill` 对象只需让 override 读一张可变表；只在「创建期有 Skill 对象」时才装 override 会让运行期加第一个对象**无路可走**（mutation：改回条件安装 → 恰好「skills.add(Skill 对象)」用例红）。库因此**永远**装它。 | v2 任务 6 实现（源码行 + mutation 判别力） |
 | 19 | `LoadExtensionsResult.errors`（`{path, error}`）是**加载**错误：除扩展自身加载失败外，`additionalExtensionPaths` 里不存在的路径每次 reload 都会被记一条（`resource-loader.js:409-417`）。它与 pi 的 `ExtensionError`（`{extensionPath, event, error, stack?}`，运行期钩子异常，见 #1/#10）是两回事 ⇒ `extensions.errors()` 只能返回前者（R40 更正了契约里写错的那个类型）。 | v2 任务 6 实现（R40 + 实测：坏路径创建成功、errors 恰 1 条） |
 | 20 | pi 的 `reload()` 每次都会做：`session_shutdown(reason:"reload")` + 丢弃旧 runner（全部扩展工厂**重跑**）+ `settingsManager.reload()` + `resetApiProviders()` + `_buildRuntime` + 有绑定时再发 `session_start(reason:"reload")`（`agent-session.js:2866-2890`）⇒ **一次库内 add 调用可能让工厂与生命周期事件跑两遍**（R41 双趟 reload）。`<inline:N>` 的 N 是稳定下标（`resource-loader.js:874` `index + 1`），不会漂移；`extensionsResult` 每次 reload 整体重建（`:418`），故 `list()` 无重复项。 | v2 任务 6 审查（逐行核实安装包源码） |
@@ -171,3 +188,33 @@
 | 33 | **pi 的 `DefaultResourceLoader` 会自动往上游、往宿主找资源**（不止 `agentDir`）：①`loadProjectContextFiles` 从 cwd 沿 `dirname` **一路走到盘根**（`resource-loader.js:184-187`），祖先链上的 `AGENTS.md`/`CLAUDE.md` 全文进 system prompt；②`collectAncestorAgentsSkillDirs`（`package-manager.js:291-308`）从 cwd 到 git 根收每一级的 `.agents/skills`，**只排除 HOME 那一条**；③`userAgentsSkillsDir = join(getHomeDir(), ".agents", "skills")`（`:2056/2064`）走宿主 `HOME`，与 agentDir 无关（注意旁边的 `userDirs` 走 `globalBaseDir = this.agentDir`，**唯独这条走 HOME**）；④`agentDir`/`cwd` 的 `prompts/` 自动挂上 session，而 pi 的 `expandPromptTemplates` 默认 **true**（`agent-session.js:1454`）⇒ `io.prompt("/name")` 把**模板正文**展开发给模型（三条投递通道实测全中）。 | 环境泄漏审计（17 agent workflow，每条独立复现；探针在 `spike/iso-*.ts` / `spike/verify*.ts`） |
 | 34 | **R49：实验室边界 = `{agentDir} ∪ {cwd, cwd 子树}`**。以上四条默认发现路径全部用 pi 现成的 override/开关挡在边界外：`agentsFilesOverride`（裁祖先 AGENTS.md）、`skillsOverride` 里加 `inLab()` 路径过滤（裁 HOME 与祖先的 `.agents/skills`）、`noPromptTemplates: true`、`extensionsOverride` 里加同样的边界过滤。**不需要 fork pi** —— `DefaultResourceLoaderOptions` 已提供全部钩子（`resource-loader.d.ts`：`noExtensions`/`noSkills`/`noPromptTemplates`/`noThemes`/`noContextFiles` + 五个 `*Override` + `systemPromptOverride`/`appendSystemPromptOverride`）。 | 本次实现（4 处 mutation 判别力实测，每个恰好命中对应用例） |
 | 35 | **`appendSystemPrompt: spec.role ? [spec.role] : []` 是真 bug**：pi 判 `if (!appendSources)`（`resource-loader.js:475-479`），而**空数组是 truthy** ⇒ 恒传这个 options 会让 `discoverAppendSystemPromptFile()` 永不执行 ⇒ 环境里的 `APPEND_SYSTEM.md` 被**静默吃掉**（实测：inspectEnv 的 `appendSystemPromptFiles` 恒为 `[]` 且无 warning）。修法：`role` 改走 `appendSystemPromptOverride: (base) => [...base, role]`，两条分支都不丢。 | R49 实现（修前/修后对拍） |
+
+
+---
+
+## v2 段：观测面（`agent.observe`，2026-10-16）
+
+**为什么加**：`DESIGN.md` 把「功能二：为分析研究提供材料」写成与「功能一：绝对操控」**并列的一半**。
+而实际研究中，量具只抓了 `tool_call` 一个字段（`research/demox/bench/measure.ts:160`），`onAny` 用了 **0 次**。
+后果 —— 十几轮实验反复缺的就是这块：
+
+| 实验 | 当时需要什么 | 结果 |
+|---|---|---|
+| A1（override） | 模型实际收到的消息里原文还在不在 | **判据写错、生效 0 次都不知道** |
+| P11（账本） | 它有没有真的看见那条账本 | **挂错位置，26→26 才发现** |
+| O3（316 倍） | 每一轮花了多少 | **拿不到**（只有全生命周期累计） |
+
+**实现**（`src/surfaces/observe.ts`）：
+
+| 成员 | 底层 | 回答什么 |
+|---|---|---|
+| `wire` / `lastWire` | `context_with_system` 事件 | ★ **每一轮真正发给模型的 messages**（含 system，`history` 看不到） |
+| `injections` | `bridge` 在专属槽位处记帐 | ★ **干预生效性**：override/gate 各调用几次、`changed` 几次、最后一次实参/返回值 |
+| `clear()` | — | 分段分析（配合 `context.reset()`） |
+
+**实测抓到的第一件事**（[`../../research/demox/观测面-第一用.md`](../../research/demox/观测面-第一用.md)）：
+`context.override` **只对当轮有效**（下一轮 pi 从原始历史重建 → 注入消失），
+而 `tools.onResult` 的结果**会成为一条消息进历史，持续存在**。
+⇒ 这两者的差别不是"埋得深不深"，是**"改的是即将发出的那一次，还是会存进历史的东西"**。
+
+**测试**：`dev/test/observe.test.ts` 5 项；全量 167/167。

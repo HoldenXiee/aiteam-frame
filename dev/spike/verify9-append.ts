@@ -2,7 +2,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { writeModelsJson } from "../test/faux-models.ts";
 
 const root = mkdtempSync(join(tmpdir(), "aiteam-verify9-"));

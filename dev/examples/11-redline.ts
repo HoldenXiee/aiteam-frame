@@ -22,7 +22,7 @@
 // spec 里换，并去掉 examples/lib/harness.ts 里钉死的 PI_OFFLINE=1。（运行期换模型走 agent.model.set(...)，见 07-model.ts。）
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Agent } from "../src/index.ts";
+import type { Agent } from "../../src/index.ts";
 import { faux, FAUX_MODEL_REF, lab, makeOfflineAgent } from "./lib/harness.ts";
 
 // ─────────────── 使用者代码：红线 ───────────────

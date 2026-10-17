@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { startFaux } from "../test/faux-server.ts";
 import { FAUX_MODEL_REF, makeFauxRuntime } from "../test/faux-models.ts";
 

@@ -16,7 +16,7 @@ import { join } from "node:path";
 // 必须在任何 ModelRuntime 建起来之前设
 process.env.PI_OFFLINE = "1";
 
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 import { startFaux } from "../test/faux-server.ts";
 import { FAUX_MODEL_REF, writeModelsJson } from "../test/faux-models.ts";
 

@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLab } from "../src/agent/lab.ts";
+import { createLab } from "../../src/agent/lab.ts";
 import { FAUX_MODEL_ID, FAUX_MODEL_REF, writeModelsJson } from "./faux-models.ts";
 import { FAUX_CATALOG_MODEL_ID, FAUX_CATALOG_PROVIDER } from "./faux-server.ts";
 import { faux } from "./helpers.ts";

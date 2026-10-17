@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createLab } from "../src/index.ts";
+import { createLab } from "../../src/index.ts";
 
 process.env.PI_OFFLINE = "1";
 const root = mkdtempSync(join(tmpdir(), "tools-"));

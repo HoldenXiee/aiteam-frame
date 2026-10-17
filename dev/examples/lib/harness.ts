@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createLab, type Agent, type AgentSpec, type AgentTool } from "../../src/index.ts";
+import { createLab, type Agent, type AgentSpec, type AgentTool } from "../../../src/index.ts";
 import { FAUX_MODEL_ALT_ID, FAUX_MODEL_ALT_REF, FAUX_MODEL_ID, FAUX_MODEL_REF, writeModelsJson } from "./faux-models.ts";
 import { startFaux } from "./faux-server.ts";
 
