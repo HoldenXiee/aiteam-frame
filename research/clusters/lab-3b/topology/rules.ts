@@ -39,6 +39,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { LAB } from "../paths.ts";
+import { convergedMtime, countFreshFiles, hasProgress, workLatestMtime } from "./progress.ts";
 import type { ExpertName } from "../prompts/index.ts";
 
 // ─────────────── 参数（★ 全部来自微实验实测，不是拍的）───────────────
@@ -60,8 +61,22 @@ export const THROTTLE_N = 15;
  *   （同族：`P11`「用什么当判据，就等于让它服从什么」）
  */
 export const THROTTLE_MS = 5 * 60_000;
-/** 平台期阈值：连续几"看"没有新东西。★ 取值理由：一审一换视角的节奏（微实验 C 用 3） */
+/** 平台期阈值：连续几"看"没有进展。★ 取值理由：一审一换视角的节奏 */
 export const PLATEAU_ROUNDS = 3;
+/**
+ * ★★★ v3（2026-10-19）：一个 tick 周期内 `work/` 里**新出多少文件**才算"在干活"。
+ *
+ * ★ 为什么要有这个数（两次被推翻的教训，见 `topology/progress.ts` 的头注释）：
+ *   · 光看"有没有动" ⇒ 跑同一条线的第 20 轮永远判为健康（v1 的病）
+ *   · 光看"outbox 份数" ⇒ **跑实验的 15 分钟被判为卡住**（v2 的病，研究员自己抓到的）
+ * ★★ 用**体量**区分：跑实验会产出**大批量**文件（corpus/runs/每轮产物）；
+ *   原地打转（反复改同一个脚本）只产出**零星几个**。
+ *
+ * ★ 取值依据：它一轮实验落盘 `corpus/` 就有几十上百个文件；
+ *   而"改脚本"一轮通常 <5 个。⇒ 取 **10** 作为分界（留足余量）。
+ * ★★ 这个数**要在长跑里回看 `rule:tick` 的 fresh 分布再调**。
+ */
+export const FRESH_FILES_THRESHOLD = 10;
 /** 同一专家的冷却时间（防刷屏） */
 export const COOLDOWN_MS = 20 * 60_000;
 
@@ -91,39 +106,6 @@ export function listOutbox(): string[] {
  *   这条路本项目走过多次（`O8` 的成本观测、`P11` 的账本挂错位置）。
  *   凡是"读磁盘判活动"的地方，都必须先问：**这个磁盘上有没有我自己写的东西？**
  */
-export const CLUSTER_OWN_FILES = new Set([
-  "_topology.log", // 规则自己的日志
-  "_lib-state.md", // 开工前的 lib 自检
-  "deliveries.jsonl", // 回流审计账
-  "audits", // 审查意见目录（规则写的）
-]);
-
-/** ★★ 进展信号②：`CONVERGED.md` 的 mtime（★ 它自己写的"我推进了"声明） */
-export function convergedMtime(): number {
-  const p = join(LAB, "outbox", "CONVERGED.md");
-  try {
-    return statSync(p).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
-
-export function workLatestMtime(): number {
-  const d = join(LAB, "work");
-  if (!existsSync(d)) return 0;
-  let latest = 0;
-  for (const f of readdirSync(d)) {
-    if (CLUSTER_OWN_FILES.has(f)) continue; // ★ 集群自己的痕迹，不算它的活动
-    try {
-      const st = statSync(join(d, f));
-      if (st.isFile() && st.mtimeMs > latest) latest = st.mtimeMs;
-    } catch {
-      /* 竞态：文件刚被删 */
-    }
-  }
-  return latest;
-}
-
 // ─────────────── 规则表 ───────────────
 
 export type TriggerCtx = {
@@ -146,6 +128,8 @@ export type State = {
   roundsSinceProgress: number;
   /** ★ 上次看到的 `CONVERGED.md` mtime（进展信号②的基准） */
   lastConvergedMtime: number;
+  /** ★★★ 上一次 tick 的时刻 —— v3 判据用它算"这段时间新出了多少文件" */
+  lastTickAt: number;
   firedAt: Partial<Record<ExpertName, number>>;
   verdict?: "STOP" | "CONTINUE";
   /**
@@ -189,6 +173,7 @@ export function newState(): State {
     lastActiveAt: Date.now(),
     lastWorkMtime: 0,
     lastConvergedMtime: convergedMtime(),
+    lastTickAt: Date.now(),
   };
 }
 
@@ -307,34 +292,60 @@ export function makeRules(ctx: TriggerCtx) {
    *   ★ 两者都是**它自己写的、语义明确的"我推进了"信号**（不是我们替它判）。
    */
   async function onPlateau(): Promise<void> {
-    // ★ 进展的两种信号（★ 都读它自己的产出，不读"动作"）
+    // ══════════════════════════════════════════════════════════════
+    // ★★★ v3 判据（第三次定义，前两次都被实测推翻，详见 topology/progress.ts）
+    //
+    //   ★ 两个信号都要看，各治一半的病：
+    //     ① **产出**：outbox 变多 或 CONVERGED 更新
+    //        ⇒ 治 v1 的病（跑同一条线第 20 轮 = "健康的动"）
+    //     ② **体量**：`work/` 里这段时间新出的**文件数**
+    //        ⇒ 治 v2 的病（跑实验时被判"卡住"，★ 这是研究员自己抓到的）
+    //
+    //   ★★ 为什么用"体量"而不是"有没有动"：
+    //     跑实验 → 大批量文件（corpus/runs/每轮产物，几十上百个）
+    //     原地打转 → 零星几个（反复改同一个脚本）
+    // ══════════════════════════════════════════════════════════════
     const outs = listOutbox().length;
-    const progress = outs > state.seenOutboxCount || convergedMtime() > state.lastConvergedMtime;
-    if (progress) {
-      state.roundsSinceProgress = 0;
+    const convM = convergedMtime();
+    const since = state.lastTickAt;
+    const { ok: busy, fresh } = hasProgress(since, FRESH_FILES_THRESHOLD);
+
+    const produced = outs > state.seenOutboxCount || convM > state.lastConvergedMtime;
+    const progressed = produced || busy;
+
+    if (produced) {
       if (outs > state.seenOutboxCount) state.seenOutboxCount = outs;
-      if (convergedMtime() > state.lastConvergedMtime) state.lastConvergedMtime = convergedMtime();
-    } else {
-      state.roundsSinceProgress++;
+      if (convM > state.lastConvergedMtime) state.lastConvergedMtime = convM;
     }
+    state.lastTickAt = Date.now();
+
+    if (progressed) state.roundsSinceProgress = 0;
+    else state.roundsSinceProgress++;
 
     const mins = Math.round((state.roundsSinceProgress * THROTTLE_MS) / 60_000);
     ctx.trace(
       "onPlateau",
-      `outbox=${outs} roundsSinceProgress=${state.roundsSinceProgress} need=${PLATEAU_ROUNDS} 约${mins}分钟无进展`,
+      `outbox=${outs} 新文件=${fresh} 产出=${produced} 在干活=${busy} ` +
+        `roundsSinceProgress=${state.roundsSinceProgress}/${PLATEAU_ROUNDS} 约${mins}分钟`,
     );
+
     if (state.roundsSinceProgress < PLATEAU_ROUNDS) return;
     if (Date.now() - (state.firedAt["inspirer"] ?? 0) < COOLDOWN_MS) return;
     state.firedAt["inspirer"] = Date.now();
+
+    // ★★★ 触发理由里**给出可核对的数**（P12：拦的同时给路）——
+    //   它看得见"这段时间只出了 N 个文件、也没交新成果"，能自己判断该不该换路。
     await fire(
       "inspirer",
-      `研究员已经约 ${mins} 分钟**没有新成果**（既没交新产物，也没更新 CONVERGED）。` +
-        `★ 注意：它可能一直在动（跑实验、改脚本）—— 所以这不是"它停了"，而是"**它在原地打转**"。` +
+      `研究员已经约 ${mins} 分钟**既没交新成果、也没在批量干活**` +
+        `（这段窗口内 \`work/\` 里新出 ${fresh} 个文件，阈值 ${FRESH_FILES_THRESHOLD}）。` +
+        `★ 注意：这不等于"它懒"—— 更可能是**在原地打转**（反复改同一个脚本、同一条线的第 N 个实验）。` +
         `★ 请给它一个**别的学科**能借的框架。`,
     );
     await fire(
       "archivist",
-      `研究员已经约 ${mins} 分钟没有新成果。★ 请做一次**阶段性复审**：看它是不是在同一条线上重复。`,
+      `研究员已经约 ${mins} 分钟没有实质推进（新文件 ${fresh} 个 / 无新成果）。` +
+        `★ 请做一次**阶段性复审**：看它是不是在同一条线上重复。`,
     );
     state.roundsSinceProgress = 0;
   }
