@@ -150,3 +150,37 @@ test("modelAllow：defaultModel 不在名单里 → 构造时就报错（不是�
     /不在 modelAllow 里/,
   );
 });
+
+// ══════════════════════════════════════════════════════════════════
+// ★★★ 创建期思考档守卫 —— 2026-10-19 实测事故的回归
+//
+// 事故（由 lab-3b 研究员集群实测发现）：`spec.thinking` 无守卫，
+// pi 的 `setThinkingLevel` 对非法档**静默钳**（实测 `very-high → low`，连抛都不抛，**且不是最近档**）
+// ⇒ 调用方以为设成了 A，实际是 B。
+//
+// 同一个库里的**两套口径**：运行期（`setThinking`）拒绝、创建期静默降级 ——
+// 正是 v1 决策 #28 要治的病，**只在创建路径漏了**（同族：`modelAllow` 那次也是"创建路径缺守卫"）。
+// ══════════════════════════════════════════════════════════════════
+test("创建期思考档：非法档必须抛错，不许静默钳", async () => {
+  await assert.rejects(
+    () => createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false }).then((l) => l.createAgent({ model: FAUX_MODEL_REF, thinking: "very-high" as never })),
+    /思考档「very-high」.*不支持/,
+    "★ 非法档必须抛错 —— 静默钳会让调用方以为设成了 A，实际是 B",
+  );
+});
+
+test("创建期思考档：合法档正常生效（守卫不能误伤）", async () => {
+  const l1 = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false });
+  const a = await l1.createAgent({ model: FAUX_MODEL_REF, thinking: "off" });
+  try {
+    assert.equal(a.model.thinking, "off");
+  } finally { a.dispose(); }
+});
+
+test("创建期思考档：不写 thinking 时完全不变（守卫的影响面只有非法档）", async () => {
+  const l2 = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false });
+  const a = await l2.createAgent({ model: FAUX_MODEL_REF });
+  try {
+    assert.ok(a.model.thinking, "默认档照旧可用");
+  } finally { a.dispose(); }
+});

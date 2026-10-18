@@ -10,6 +10,7 @@ import {
   resolveCliModel,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { buildLoader, declaredExtensionToolNames } from "./loader.ts";
 import { ANY_EVENT, createBridge, type Handler } from "./bridge.ts";
 import { addUsage, emptyUsage } from "./usage.ts";
@@ -157,11 +158,50 @@ function resolveModel(
     if (!env.defaultModel) return { thinkingLevel: spec.thinking };
     assertModelAllowed(env.defaultModel, env, "实验室默认型号");
     const d = resolveModelOrThrow(env.defaultModel, modelRuntime);
-    return { model: d.model, thinkingLevel: spec.thinking ?? d.thinkingLevel };
+    const t = spec.thinking ?? d.thinkingLevel;
+    assertThinkingSupported(d.model, t, "createAgent（实验室默认型号）");
+    return { model: d.model, thinkingLevel: t };
   }
   assertModelAllowed(spec.model, env, "createAgent");
   const resolved = resolveModelOrThrow(spec.model, modelRuntime);
-  return { model: resolved.model, thinkingLevel: spec.thinking ?? resolved.thinkingLevel };
+  const t = spec.thinking ?? resolved.thinkingLevel;
+  assertThinkingSupported(resolved.model, t, "createAgent");
+  return { model: resolved.model, thinkingLevel: t };
+}
+
+/**
+ * ★★★ 创建期思考档的守卫。
+ *
+ * ★ 为什么必需（由 lab-3b 研究员集群实测发现，2026-10-19）：
+ *   `surfaces/model.ts` 的 `setThinking`/`set` 已守住**运行期**；
+ *   但**创建期**（`spec.thinking`、以及 `model` 后缀里的档）把档**直接**交给
+ *   `createAgentSession({ thinkingLevel })` —— 而 pi 的 `setThinkingLevel`
+ *   对非法档**静默钳**（实测 `very-high → low`，**连抛都不抛**，而且**不是最近档**）。
+ *   ⇒ 调用方以为设成了 A，实际是 B，**且要读 `agent.model.thinking` 才发现**。
+ *
+ * ★★ 这是同一个库里的**两套口径**：运行期拒绝、创建期静默降级 ——
+ *   正是 v1 决策 #28 要治的病，**只在创建路径漏了**（同族：`modelAllow` 那次事故
+ *   也是"创建路径缺守卫"）。
+ *
+ * ★ 与 `model.ts` 的 `setThinking` 用**同一判据**（`getSupportedThinkingLevels(model)`），
+ *   创建/运行两期口径一致。
+ *
+ * ★★ 影响面：**只影响非法档**（合法档与"不写 thinking"完全不变）。
+ */
+function assertThinkingSupported(
+  model: ResolvedModel,
+  thinkingLevel: ThinkingLevel | undefined,
+  where: string,
+): void {
+  if (!thinkingLevel) return;
+  const supported = getSupportedThinkingLevels(model);
+  if (supported.includes(thinkingLevel)) return;
+  const name = (model as { id?: string; name?: string }).id ?? (model as { name?: string }).name ?? "?";
+  throw new Error(
+    `${where}：思考档「${thinkingLevel}」在模型「${name}」上不支持（可用：${supported.join("、")}）。` +
+      "pi 的 setThinkingLevel 对非法档会静默钳到**别的**档（实测 very-high→low，不是最近档），" +
+      "所以这里自己判、不静默降级；agent 未创建，请换档位。",
+  );
 }
 
 /** spec 顶层的可用字段（环境字段不在这里：它们只属于 `LabOptions`） */
