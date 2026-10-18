@@ -8,7 +8,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLab, type Lab } from "../../../src/index.ts";
-import { DOCS, MODEL, REPO } from "./paths.ts";
+import { DOCS, LAB, MODEL, REPO } from "./paths.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -24,8 +24,22 @@ if (!existsSync(AUTH)) {
   );
 }
 
-/** 起一个实验室；cwd 决定 agent 的工作根（每个实例一个子目录） */
+/** 起一个实验室；cwd 决定 agent 的工作根（每个实例一个子目录）
+ *
+ * ★★ 为什么要把 cwd 钳在空间之内：
+ *   本函数接受任意字符串，**写错路径不会报错，只会静默新建一个目录**。
+ *   本项目已因此留下过垃圾（`research/lab-3b/work` —— 探针脚本漏写了 `labfirst`）。
+ *   ⇒ 钳住它：不在空间内的路径直接抛，不让它静默长出来。
+ */
 export async function labAt(cwd: string): Promise<Lab> {
+  const norm = (s: string) => s.replace(/\\/g, "/");
+  const root = norm(LAB);
+  if (!norm(cwd).startsWith(root)) {
+    throw new Error(
+      `labAt 的 cwd 必须在集群空间之内：\n  收到 ${cwd}\n  应在 ${root} 之下\n` +
+        `  ★ 不允许在空间之外建目录 —— 写错路径会静默长出垃圾（本项目吃过这个亏）`,
+    );
+  }
   mkdirSync(cwd, { recursive: true });
   return createLab({ agentDir: AGENT_DIR, cwd, modelNetwork: true });
 }
