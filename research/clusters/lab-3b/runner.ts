@@ -139,18 +139,6 @@ export async function runCluster(secs: number, dry = false) {
   //   **哪怕它决定不动** —— 否则分不清「规则没跑」与「跑了但没触发」。
   const rules = makeRules({ fire, state, trace: (rule, detail) => log(`rule:${rule}`, detail) });
 
-  // ★★★ 观察点①：一次运行结束（v1 只有这一个）
-  researcher.on("agent_settled", () => {
-    // ★ 事件回调是同步语义 —— 异步规则 fire-and-forget，但必须自己接住异常
-    void (async () => {
-      try {
-        await tick({ fire, state, trace: (r, d) => log(`rule:${r}`, d), rules });
-      } catch (e) {
-        log("error", `规则跑挂了：${(e as Error).message}`);
-      }
-    })();
-  });
-
   // ★★★ 观察点②：每 THROTTLE_N 次工具调用（微实验 A/B 的落地）
   //
   //   ★ 为什么需要：研究员**一头扎进长实验**（实测：112 轮 0 次 settle）
@@ -171,7 +159,16 @@ export async function runCluster(secs: number, dry = false) {
   let tickBusy = false; // ★ 上一次还没跑完就不叠加（否则卡住时会把规则堆成队列）
   /** ★★ 两路节流都调**同一个** tick（判据与指令必须同源，P11） */
   const throttledTick = (src: string) => {
-    if (tickBusy) return;
+    if (tickBusy) {
+      // ★★★ 记一笔被挡下的（2026-10-19 长跑实测）：
+      //   `tick()` 里的 `await rules.onSettled()` 会 `fire` 一个审查员，
+      //   而那个专家要跑 **几分钟**（实测 6 分钟）—— 期间 `tickBusy` 一直是 true，
+      //   ⇒ **后续 tick 全被丢掉**。实测症状：tick 停在 1 次、8 分钟没动静。
+      //   ★ 这是设计权衡，不是 bug：宁可"少看几次"，也不要"两个 tick 并发写同一个状态"。
+      //   ★★ 但要**看得见** —— 否则下次又会把它当成"节流坏了"去查。
+      log("rule:skip", `${src} 被跳过（上一次 tick 还在跑——它在等专家）`);
+      return;
+    }
     tickBusy = true;
     void (async () => {
       try {
@@ -183,6 +180,17 @@ export async function runCluster(secs: number, dry = false) {
       }
     })();
   };
+
+  /** ★★★ 两个观察点**共用**这一个入口（单一写者） */
+  const timedTick = throttledTick;
+
+  // ★★★ 观察点①：一次运行结束（v1 只有这一个）
+  //
+  // ★★ 它必须与观察点② 共用同一个 `throttledTick` 与 `tickBusy`（2026-10-19 长跑实测）：
+  //   原来这两个观察点**各写一遍**、而且①没有 `tickBusy` 守卫
+  //   ⇒ 两个 tick 可以**并发跑** ⇒ ★ 破坏「同一状态单一写者」（微实验 F 的病）。
+  researcher.on("agent_settled", () => timedTick("settle"));
+
 
   // ── 节流路①：每 N 次工具调用（覆盖"频繁调工具"的对话形态）──
   researcher.on("tool_execution_end", () => {
