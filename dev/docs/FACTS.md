@@ -209,7 +209,7 @@
 | 成员 | 底层 | 回答什么 |
 |---|---|---|
 | `wire` / `lastWire` | `context_with_system` 事件 | ★ **每一轮真正发给模型的 messages**（含 system，`history` 看不到） |
-| `injections` | `bridge` 在专属槽位处记帐 | ★ **干预生效性**：override/gate 各调用几次、`changed` 几次、最后一次实参/返回值 |
+| `injections` | `bridge` 在专属槽位处记帐 | ★ **干预生效性**：override / gate / **onResult** 各调用几次、`changed` 几次、最后一次实参/返回值 |
 | `clear()` | — | 分段分析（配合 `context.reset()`） |
 
 **实测抓到的第一件事**（[`../../research/docs/实验/观测面-第一用.md`](../../research/docs/实验/观测面-第一用.md)）：
@@ -218,3 +218,22 @@
 ⇒ 这两者的差别不是"埋得深不深"，是**"改的是即将发出的那一次，还是会存进历史的东西"**。
 
 **测试**：`dev/test/observe.test.ts` 5 项；全量 167/167。
+
+### ★★ 补：`onResult` 当时**没接上** `note`（2026-10-18，由研究员集群抓出）
+
+上面那张表写的「override / gate / onResult 各调用几次」**只是注释里的承诺** ——
+实测只有 `context.override`（`bridge.ts` L153）与 `permissions.gate`（L172）接上了 `note`；
+★ **`tool_result` 没接** ⇒ `observe.injections` 对**最常用**的注入点**恒为 `{}`**。
+
+**怎么发现的**：lab-3b 研究员集群按自己**跑前冻结**的 PREREG 判据 4
+（「若 `observe.injections` 为 0 则本实验作废」）去读账本 —— 读到的是空的。
+★★ **它按判据行事反而会亲手作废一次本来有效的实验** —— 这是这条缺陷最贵的代价：
+不是「少了个数字」，是**「判据依赖了没验证过的量具」**。
+
+**修在哪**：★ 接在 `bridge.ts` 的事件派发循环里（与 override / gate **同一份 `deps.note`、同一个口子**），
+**不是**接在 `tools.ts` 的 `onResult` 里 —— 后者会变成第二份记账逻辑。
+只取**体量**（`content` 块数），不 stringify 整个 result（大产物会拖慢每一次工具返回）。
+
+**验证**：`dev/test/tools.test.ts`「onResult 进 observe.injections」（含退订后不再计数）；全量 **169/169**。
+
+★★ **这是「被研究对象抓装置缺陷」（P24）第 4 次**，也是**第一次抓到观测面本身**。

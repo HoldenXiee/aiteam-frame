@@ -45,6 +45,14 @@ export function deliverToResearcher(
   void researcher.io.queue(msg).catch((e) => onError(`回流 ${role} 失败：${(e as Error).message}`));
 }
 
-/** `consult` 那条路**不需要**这个 —— execute 的返回值自动回流。把这个区别写下来免得又忘 */
+/**
+ * ★★★ `consult` 那条路**不需要** `deliverToResearcher` —— `execute` 的返回值自动回流。
+ *
+ * ★ 这个常量原来**只写了警告、没有落地**（全仓库零引用）—— 研究员集群抓到了它的代价：
+ *   `fire()` 无条件投递 ⇒ consult 的结论进了研究员上下文**两份**。
+ * ★★ 现在它是**活的判据**：`fire(..., { echoed: true })` 就是这条常量的落地（见 runner.ts）。
+ *   `runner.ts` 引用它，`dev/test` 的断言也认它 —— 不再是注释。
+ */
 export const NOTE_CONSULT_ALREADY_FLOWS =
-  "★ consult 走的是 defineTool.execute 的返回值 —— 它天然回流，别在这里重复投递（会变成两份）。";
+  "★ consult 走的是 defineTool.execute 的返回值 —— 它天然回流，别在这里重复投递（会变成两份）。" +
+  "⇒ 调用 fire 时必须传 { echoed: true }（已落地为 runner.ts 的那个箭头）。";

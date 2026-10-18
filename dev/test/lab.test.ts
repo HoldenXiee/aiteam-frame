@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { join, sep } from "node:path";
 import { createLab } from "../../src/agent/lab.ts";
 import { getSharedRuntime } from "../../src/agent/create-agent.ts";
-import { fauxAgentDir, fauxCwd, FAUX_MODEL_REF } from "./helpers.ts";
+import { fauxAgentDir, fauxCwd, FAUX_MODEL_REF, FAUX_MODEL_ALT_REF, FAUX_MODEL_ALT_ID } from "./helpers.ts";
 
 test("实验室必填两个目录：缺失与空串都拒绝", async () => {
   // 不传参数（JS 调用者 / 漏传整个对象）也必须给本库的文案，不能是原生 TypeError：
@@ -84,4 +84,69 @@ test("lab.inspectEnv 只读报告这个实验室的环境", async () => {
   const report = await lab.inspectEnv();
   assert.equal(report.agentDir, fauxAgentDir);
   assert.equal(report.cwd, fauxCwd);
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ★★★ 模型白名单（`createLab({ modelAllow })`）—— 2026-10-18 实测事故的回归
+//
+// 事故：一个只声明了 `opencode-go/deepseek-v4.1-flash` 的实验室，**静默地**用了别的型号。
+// 两个漏口：
+//   ① `sandbox.spawn({ model })` 的 `model` 是**模型运行时自己填的参数** —— 绕过所有钉死点
+//   ② **不传** `model` 时旧行为是「不解析」⇒ 落到 **pi 的全局默认**（使用者控制不到）
+// ★ 这是「一个能力多个入口」（P17）在**型号**上的再现：堵了 5 个入口，第 6 个是模型开的。
+// ══════════════════════════════════════════════════════════════════
+
+test("modelAllow：不在名单里的型号在创建期就被拦下", async () => {
+  const labAllow = await createLab({
+    agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false,
+    modelAllow: [FAUX_MODEL_REF],
+  });
+  // 名单内：正常
+  const ok = await labAllow.createAgent({ model: FAUX_MODEL_REF });
+  ok.dispose();
+  // 名单外（等价于 sandbox.spawn({ model: "…" }) 那条路）：必须抛错，不许静默放行
+  await assert.rejects(
+    () => labAllow.createAgent({ model: FAUX_MODEL_ALT_REF }),
+    /不在这个实验室允许的型号里/,
+  );
+});
+
+test("modelAllow：不传 model 时用实验室默认，而不是 pi 的全局默认", async () => {
+  const labAllow = await createLab({
+    agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false,
+    modelAllow: [FAUX_MODEL_REF], defaultModel: FAUX_MODEL_REF,
+  });
+  const a = await labAllow.createAgent({});    // ★ 故意不传 model
+  try {
+    assert.equal(a.model.current?.id, FAUX_MODEL_REF.split("/")[1], "必须落到实验室声明的默认型号");
+  } finally { a.dispose(); }
+});
+
+test("modelAllow：运行期 model.set 也要过名单（不能绕开创建期的限制）", async () => {
+  const labAllow = await createLab({
+    agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false,
+    modelAllow: [FAUX_MODEL_REF], defaultModel: FAUX_MODEL_REF,
+  });
+  const a = await labAllow.createAgent({});
+  try {
+    await assert.rejects(() => a.model.set(FAUX_MODEL_ALT_REF), /不在这个实验室允许的型号里/);
+  } finally { a.dispose(); }
+});
+
+test("modelAllow：不传它时保持旧行为（不限制）", async () => {
+  const free = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false });
+  const a = await free.createAgent({ model: FAUX_MODEL_ALT_REF });
+  try {
+    assert.equal(a.model.current?.id, FAUX_MODEL_ALT_ID, "没声明白名单 ⇒ 不限制（向后兼容）");
+  } finally { a.dispose(); }
+});
+
+test("modelAllow：defaultModel 不在名单里 → 构造时就报错（不是等起 agent 才炸）", async () => {
+  await assert.rejects(
+    () => createLab({
+      agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false,
+      modelAllow: [FAUX_MODEL_REF], defaultModel: FAUX_MODEL_ALT_REF,
+    }),
+    /不在 modelAllow 里/,
+  );
 });

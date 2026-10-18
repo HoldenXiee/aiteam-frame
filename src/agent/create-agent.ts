@@ -48,6 +48,31 @@ export interface LabEnv {
   agentDir: string;
   cwd: string;
   modelRuntime: ModelRuntime;
+  /**
+   * ★★★ 模型白名单（可选）—— 这个实验室**只能**解析这些型号。
+   *
+   * ★ 为什么要有它（2026-10-18，实测到的事故）：
+   *   使用者把每一处 `model` 都钉死了，**仍然漏了一个入口** ——
+   *   · `sandbox.spawn({ model: "…" })` 是**模型运行时自己填的参数**，绕过所有钉死点
+   *   · 而**不传** `model` 时，`resolveModel` 会把选择权交给 **pi 的全局默认**（不在使用者控制内）
+   *   ⇒ 实测：一个只声明了 `opencode-go/deepseek-v4.1-flash` 的实验室，
+   *     **静默地**用 pi 的默认型号发起了请求。
+   *   ★★ 这是 `P17`「一个能力多个入口」在**型号**上的再现：堵了 5 个入口，第 6 个是模型自己开的。
+   *
+   * ★★ 它是**机制不是策略**：库不说"不许用 X"，只说"这个实验室的型号集是这些"。
+   *   声明什么由使用者定 —— 与 `permissions.only`（工具白名单）同一种性质。
+   *
+   * 不传 ⇒ 保持旧行为（不限制）；传了空数组 ⇒ 拒绝一切显式 model（只能用 `defaultModel`）。
+   */
+  modelAllow?: readonly string[];
+  /**
+   * 没给 `model` 时用的型号。
+   *
+   * ★★ 治的是上面那条的**第二半**：原来是 `return { thinkingLevel }` —— **不解析**，
+   *   于是落到 pi 的全局默认。现在实验室可以声明"我的默认是哪个"，
+   *   而它**必须**在白名单里（构造时校验）。
+   */
+  defaultModel?: string;
 }
 
 /** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir + 网络开关缓存** —— 一个凭证集一个 runtime。
@@ -97,12 +122,44 @@ function resolveModelOrThrow(
   return { model: resolved.model, thinkingLevel: resolved.thinkingLevel };
 }
 
-/** 创建期解析：没给 `model` 就只带思考档，不做任何解析 */
+/**
+ * ★★★ 模型白名单的唯一执行点（创建期 / 默认期 / 运行期三处都过这里）。
+ *
+ * ★ 为什么收敛到一处：型号有三个入口（`spec.model` / 不传时的默认 / `agent.model.set()`），
+ *   分散校验一定会漏 —— 本项目已在这类"多入口"上反复吃亏（`P17`）。
+ *
+ * ★★ 它是**机制**：只问"在不在这个实验室声明的型号集里"，不问"该不该允许”。
+ */
+function assertModelAllowed(ref: string, env: LabEnv, where: string): void {
+  const allow = env.modelAllow;
+  if (!allow) return; // 没声明 ⇒ 不限制（保持旧行为）
+  // 允许两种写法：完整 ref（`provider/id`）或裸 id —— 使用者两种都容易写出来。
+  const bare = ref.includes("/") ? ref.slice(ref.indexOf("/") + 1) : ref;
+  const ok = allow.includes(ref) || allow.includes(bare);
+  if (ok) return;
+  throw new Error(
+    `${where}：模型「${ref}」不在这个实验室允许的型号里。\n` +
+      `  允许的：${allow.length ? allow.join("、") : "（空 —— 只能用实验室默认型号）"}\n` +
+      `  ★ 这是 createLab({ modelAllow }) 定的 —— 要改就先改实验室声明，不要在调用处绕。`,
+  );
+}
+
+/** 创建期解析：没给 `model` 就用实验室默认（★ 不再落到 pi 的全局默认） */
 function resolveModel(
   spec: AgentSpec,
   modelRuntime: ModelRuntime,
+  env: LabEnv,
 ): { model?: ResolvedModel; thinkingLevel?: ThinkingLevel } {
-  if (!spec.model) return { thinkingLevel: spec.thinking };
+  if (!spec.model) {
+    // ★★★ 这里原来是 `return { thinkingLevel }` —— **不解析**，于是落到 pi 的全局默认。
+    //   那是使用者控制不到的地方（实测：一个只想要 deepseek 的实验室静默用了默认型号）。
+    //   现在：实验室声明了默认就解析它，没声明才保持旧行为。
+    if (!env.defaultModel) return { thinkingLevel: spec.thinking };
+    assertModelAllowed(env.defaultModel, env, "实验室默认型号");
+    const d = resolveModelOrThrow(env.defaultModel, modelRuntime);
+    return { model: d.model, thinkingLevel: spec.thinking ?? d.thinkingLevel };
+  }
+  assertModelAllowed(spec.model, env, "createAgent");
   const resolved = resolveModelOrThrow(spec.model, modelRuntime);
   return { model: resolved.model, thinkingLevel: spec.thinking ?? resolved.thinkingLevel };
 }
@@ -195,7 +252,7 @@ export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Pr
     settingsManager,
     extensionFactories: [bridge.factory],
   });
-  const { model, thinkingLevel } = resolveModel(spec, modelRuntime);
+  const { model, thinkingLevel } = resolveModel(spec, modelRuntime, env);
 
   // R41：白名单会自动并入**你在同一个 spec 里显式声明的**工具（显式声明一定生效）。
   // 两个来源都是显式声明：`spec.tools.custom` 的定义名（R42 接线后这里才有调用者）与
@@ -344,7 +401,12 @@ export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Pr
     modelRuntime,
     // 决策 #28 的唯一判据：ref 解析不出来（或只有警告）就抛错，绝不静默降级到别的模型。
     // 连同后缀里的思考档一起交出：运行期 `set` 要兑现它（R45）
-    resolveModel: (ref) => resolveModelOrThrow(ref, modelRuntime),
+    resolveModel: (ref) => {
+      // ★★ 运行期 `agent.model.set()` 是**第三个**入口 —— 也必须过白名单，
+      //   否则创建期的限制可以被运行期一句 set 绕过去。
+      assertModelAllowed(ref, env, "agent.model.set");
+      return resolveModelOrThrow(ref, modelRuntime);
+    },
     assertAlive,
   });
 

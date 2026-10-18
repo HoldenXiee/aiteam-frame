@@ -177,6 +177,18 @@ export function createBridge(deps: {
     }
     for (const fn of [...(listeners.get(name) ?? []), ...(listeners.get(ANY_EVENT) ?? [])]) {
       const returned = await fn(event, ctx);
+      // ★ 干预生效性：`tool_result` 上的监听器就是 `tools.onResult`。
+      //   接在这里（而不是 tools 面里）才与 override / gate **同一份定义、同一个口子**。
+      //   治的是同一族静默失效：onResult 是**最常用**的注入点，账上却是空的 ——
+      //   库的注释早写着「override / gate / onResult 各自被调用几次」，实测只有前两个接上了。
+      //   只取**体量**，不 stringify 整个 result：大产物会拖慢每一次工具返回。
+      if (name === "tool_result") {
+        const sizeOf = (v: unknown): { blocks: number } => {
+          const c = (v as { content?: unknown[] } | undefined)?.content;
+          return { blocks: Array.isArray(c) ? c.length : 0 };
+        };
+        deps.note?.("tools.onResult", sizeOf(result), returned === undefined ? undefined : sizeOf(returned));
+      }
       if (!returned) continue;                            // 真值判据，与 pi 逐字一致
       if ((returned as { block?: boolean }).block) return returned; // block 短路优先于守卫
       assertTransformShape(name, returned);               // R47：非对象真值不是变换结果，是误用

@@ -58,7 +58,20 @@ export async function labAt(cwd: string): Promise<Lab> {
     );
   }
   mkdirSync(cwd, { recursive: true });
-  return createLab({ agentDir: AGENT_DIR, cwd, modelNetwork: true });
+  // ★★★ 把实验室钳在**单一型号**上（2026-10-18 实测事故的修复）：
+  //   事故：集群每一处 `MODEL` 都钉死了，**仍然漏了一个入口** ——
+  //     · `sandbox.spawn({ model })` 的 model 是**模型运行时自己填的参数**
+  //     · 不传 model 时旧行为落到 **pi 的全局默认**（实测 = kimi-k3，不在允许列表里）
+  //   ⇒ 一个只想要 deepseek 的实验室，静默地向别的型号发了请求。
+  // ★ 这两条现在都在库层堵住了（`modelAllow` / `defaultModel` 过三个入口），
+  //   这里把集群的声明接上去 —— **机制在库，政策在使用者代码**。
+  return createLab({
+    agentDir: AGENT_DIR,
+    cwd,
+    modelNetwork: true,
+    modelAllow: [MODEL],
+    defaultModel: MODEL,
+  });
 }
 
 export { MODEL };

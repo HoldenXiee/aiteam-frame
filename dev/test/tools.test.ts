@@ -183,3 +183,28 @@ test("onResult 的退订函数生效", async () => {
     assert.notEqual(r.text, "echo:被改过");
   } finally { a.dispose(); }
 });
+
+// ★ 回归：`onResult` 曾经不进 `observe.injections`。
+//   库的注释早写着「override / gate / onResult 各自被调用几次」，但只有前两个接上了 `note` ——
+//   于是**最常用**的注入点在账上恒为空（静默失效：四次干预三次静默失败中的一次）。
+//   发现者：lab-3b 研究员集群（它按 PREREG 判据 4「injections 为 0 则实验作废」跑，
+//   结果差点把一次本来有效的实验毁掉）。
+//   判据：调了一次 onResult → calls=1；返回值与入参体量不同 → changed=1。
+//   退订后再调 → 不再计数（记账跟着监听器走，不是无条件记）。
+test("onResult 进 observe.injections（干预生效性）", async () => {
+  const a = await makeAgent();
+  try {
+    await a.tools.add(echoTool());
+    const off = a.tools.onResult(() => ({ content: [{ type: "text", text: "被改过" }] }));
+    await a.io.prompt("[[tool:probe_echo]]");
+    const st = a.observe.injections["tools.onResult"];
+    assert.ok(st, "onResult 调用过一次，账上必须有这一项");
+    assert.equal(st.calls, 1);
+    assert.equal(st.changed, 1, "返回非 undefined 且体量不同 ⇒ 计入 changed");
+
+    off();
+    const before = st.calls;
+    await a.io.prompt("[[tool:probe_echo]]");
+    assert.equal(a.observe.injections["tools.onResult"].calls, before, "退订后不再计数");
+  } finally { a.dispose(); }
+});

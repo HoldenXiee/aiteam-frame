@@ -1,22 +1,69 @@
-// ★★★ 拓扑：**情况 → 动作** 的规则表（代码触发的那一半）
+// ★★★ 拓扑 v2 —— 按微实验的实测值改写（单因素，逐条有据）
 //
-// ★★★ 根本约束（设计者裁定）：
-//   **运行时不能干涉。要干涉只能重设计集群。**
-//   ✗ 不许有"我在外面盯状态 / 我判断 / 我起 agent"的循环
-//   ✓ 触发必须是**集群自身结构的一部分** —— 挂在 agent 上的事件规则（见 runner.ts）
+// ══════════════════════════════════════════════════════════════
+// v1 的病（微实验 A/B/C 实测，不是猜的）
+// ══════════════════════════════════════════════════════════════
 //
-// ★★★ 为什么"审查/重审/换视角/判停"由**代码**触发（而不是让它自己叫）：
-//   · 审查   —— 若它自己触发，**它可以不触发**（P13），甚至只在自己觉得没事时触发
-//   · 重审目标 —— B6：它沉浸在局部，**看不见"该重审了"这件事**
-//   · 换视角  —— P22：它默认顺着当前的路走，"该换个角度"不是它能自知的
-//   · 判停   —— C7：疲劳与沉没成本在它身上，它判不了自己
+//   ★★★ **A · 触发粒度**（根因）
+//     v1 只在 `agent_settled` 看。而研究员**一头扎进长实验**（实测：112 轮 0 次 settle）
+//     ⇒ 规则**连被调用的机会都没有**。
+//     微实验 A：同一个事件序列，只拨观察点密度 ⇒ **0 → 2 个专家**。
+//     ★ 附带发现：主集群 600s 实跑里 `rule:` trace **一条都没有** —— 实证了这一点。
 //
-// ★★ 共同点：**这四件事都需要"一个不被当前处境困住的视角"** —— 而"当前处境"正是 agent 本身。
+//   ★★ **B · 节流阈值**（A 的参数）
+//     微实验 B（180 次工具调用、6 段长实验）：
+//       阈值   规则调用  fire   隔多久一次   发现卡住
+//         5     111      2      90 次        15 次
+//        10      57      2      90 次        30 次
+//        15      39      2      90 次        45 次   ← ★ 选它
+//        30      21      2      90 次        90 次   ✗ 太晚
+//       120       6      0      —           ★ 看不见
+//     ⇒ **取 15**：`detectedAfter=45`（≤60 合格）且 `perFire=90`（≥30 合格）。
+//     ★ 5/10 也合格，但**规则调用次数高一倍多**（111/57 vs 39）——
+//       在真集群里每次调用都要读盘、可能 fire，所以**在合格区内取最省的**。
+//
+//   ★★ **C · 观察窗口**（误报源）
+//     v1 只看 `outbox`。而研究员**大部分时间在 `work/` 里干活**
+//     ⇒ 「在努力干活」与「真卡住」在 v1 眼里**长得一样**（都是 outbox 不动）。
+//     微实验 C：
+//       outbox-only：1/2 判对（★ 把"在干活"误判成"卡住" → 起了 inspirer+archivist）
+//       work-too   ：2/2 判对
+//     ⇒ **把 `work/` 也算活动**。
+//
+// ══════════════════════════════════════════════════════════════
+// ★★ 这三条都是**单因素**拨动，各自有独立的微实验证据（不是一次改三个然后说不清）。
+// ★★★ 而且它们**不是干涉**：规则仍挂在集群自己的事件上，只是（A）看的时间点更密、
+//     （C）看的窗口更全、（B）密度取实测值。**没有"我在外面盯"的循环。**
+// ══════════════════════════════════════════════════════════════
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { LAB } from "../paths.ts";
 import type { ExpertName } from "../prompts/index.ts";
+
+// ─────────────── 参数（★ 全部来自微实验实测，不是拍的）───────────────
+
+/** ★ 微实验 B：每 15 次工具调用看一次（合格区内最省的） */
+export const THROTTLE_N = 15;
+/**
+ * ★★★ 微实验 E（长跑实测发现）：**时间那一路的节流**。
+ *
+ * ★ 为什么必需 —— 「工具调用次数」是**错的单位**：
+ *   实测它跑实验的方式是 `bash` 里执行 `npx tsx exp-cross.ts`，
+ *   **一次调用内部跑 20+ 轮，平均每轮 273 秒、最长 602 秒**（`work/runs/orch.jsonl` 的 secs）。
+ *   ⇒ **一次工具调用可以是 1~3 小时**。
+ *   ⇒ 实测：长跑 25 分钟，`rule:tick` 只跑了 **1 次**，而 `work/` 里改了 **1589 个文件**。
+ *   ★★ 所以"每 15 次工具调用"在实验形态下 **= 几小时** ⇒ 规则**仍然被饿死**。
+ *
+ * ★★★ 教训：**节流必须用"会流走的东西"做单位**。
+ *   工具调用次数**不会因为等待而增加**；**时间会流走**。
+ *   （同族：`P11`「用什么当判据，就等于让它服从什么」）
+ */
+export const THROTTLE_MS = 5 * 60_000;
+/** 平台期阈值：连续几"看"没有新东西。★ 取值理由：一审一换视角的节奏（微实验 C 用 3） */
+export const PLATEAU_ROUNDS = 3;
+/** 同一专家的冷却时间（防刷屏） */
+export const COOLDOWN_MS = 20 * 60_000;
 
 // ─────────────── 状态读取（★ 读磁盘，不读它的自述）───────────────
 
@@ -25,47 +72,138 @@ export function listOutbox(): string[] {
   return existsSync(d) ? readdirSync(d).filter((f) => f.endsWith(".md")) : [];
 }
 
+/**
+ * ★★ 微实验 C 的落地：`work/` 里最近有没有动过。
+ *
+ * ★ 为什么要它：研究员**大部分时间在 work/ 里干活**，
+ *   只看 outbox 会把"在努力干活"误判成"卡住了"（微实验 C：误报 1/2）。
+ */
+/**
+ * ★★★ 集群自己写的文件 —— 它们**不算研究员的活”。
+ *
+ * ★ 为什么必须排除（2026-10-18 实测到的**观察者效应**）：
+ *   规则每跑一次就写 `work/_topology.log`。而 `workLatestMtime()` 又去看 `work/`。
+ *   ⇒ **规则写日志 → work/ mtime 变新 → 下一轮判为"有活动"** —— 自触发死循环。
+ *   真实运行日志的原话：`rule:tick ... 活动=true roundsSinceNew=0`（**永远**为 0）
+ *   ⇒ `onPlateau` 永远不触发，**微实验 C 的修复被这个效应抵消掉了**。
+ *
+ * ★★ 教训（值得单独记一条）：**量具自己会污染测量** ——
+ *   这条路本项目走过多次（`O8` 的成本观测、`P11` 的账本挂错位置）。
+ *   凡是"读磁盘判活动"的地方，都必须先问：**这个磁盘上有没有我自己写的东西？**
+ */
+export const CLUSTER_OWN_FILES = new Set([
+  "_topology.log", // 规则自己的日志
+  "_lib-state.md", // 开工前的 lib 自检
+  "deliveries.jsonl", // 回流审计账
+  "audits", // 审查意见目录（规则写的）
+]);
+
+export function workLatestMtime(): number {
+  const d = join(LAB, "work");
+  if (!existsSync(d)) return 0;
+  let latest = 0;
+  for (const f of readdirSync(d)) {
+    if (CLUSTER_OWN_FILES.has(f)) continue; // ★ 集群自己的痕迹，不算它的活动
+    try {
+      const st = statSync(join(d, f));
+      if (st.isFile() && st.mtimeMs > latest) latest = st.mtimeMs;
+    } catch {
+      /* 竞态：文件刚被删 */
+    }
+  }
+  return latest;
+}
+
 // ─────────────── 规则表 ───────────────
 
 export type TriggerCtx = {
-  /** 起一个专家、等它出结论、把结论落盘并回流 */
   fire: (role: ExpertName, why: string, focus?: string) => Promise<string>;
   state: State;
+  /**
+   * ★★★ 规则级日志 —— 填的是归因分析里那个**测不了**的洞：
+   *   原来 `_topology.log` 只在 `fire` 里写 ⇒ **分不清「规则没跑」与「跑了但没触发」**。
+   *   ★ 有了它，微实验 A 的结论才在真集群里得到实证（600s 实跑：一条都没有）。
+   */
+  trace: (rule: string, detail: string) => void;
 };
 
 export type State = {
-  /** 上一次审到第几份产物 */
   auditedOutputs: number;
-  /** 连续几轮没有新东西 */
   roundsSinceNew: number;
-  /** 各专家的上次触发时间（防刷屏） */
   firedAt: Partial<Record<ExpertName, number>>;
-  /** 审查员给出的判停结论 */
   verdict?: "STOP" | "CONTINUE";
+  /**
+   * ★★ 微实验 C：上一次「看见活动」的时刻。
+   * ★ 活动的定义 = **outbox 有新产物** 或 **work/ 有改动**。
+   */
+  lastActiveAt: number;
+  /**
+   * ★★★ v2 修正（微实验 D 实测）：`work/` 里**最大的 mtime**。
+   *
+   * ★ 为什么不能用 `Date.now()` 当基准（这是 D 实验查出的真 bug）：
+   *   实测 `statSync(f).mtimeMs - Date.now()` 会在 **-17ms ~ +4ms** 之间跳 ——
+   *   **文件系统时间戳可以走在挂钟前面**。
+   *   ⇒ 拿 `mtime > Date.now()` 判"刚动过"，会把**早就存在的文件**也判成新活动。
+   *
+   * ★★ 正确做法：**自己跟自己比** —— 只用"这次读到的最大 mtime > 上次读到的最大 mtime"
+   *   作为"动过"的判据。两个值同源（都是 mtime），不跨时钟域。
+   */
+  lastWorkMtime: number;
 };
 
 export function newState(): State {
-  return { auditedOutputs: 0, roundsSinceNew: 0, firedAt: {} };
+  // ★ 初始化时先把当前的 work/ mtime 记下来 —— 否则第一轮会把"开工前就有的文件"判成活动。
+  return { auditedOutputs: 0, roundsSinceNew: 0, firedAt: {}, lastActiveAt: Date.now(), lastWorkMtime: 0 };
 }
 
-/** 平台期判定阈值（★ 我拍的，要实测调） */
-const PLATEAU_ROUNDS = 3;
-/** 同一专家的冷却时间（防刷屏） */
-const COOLDOWN_MS = 20 * 60_000;
+/**
+ * ★ 结算点 —— v1 的 `agent_settled` 回调体**原样搬到这里**，让两个观察点共用一个动作序列。
+ *
+ * ★★★ 为什么必须共用（`P11`：判据与指令必须同源）：
+ *   v1 是把这段逻辑**内联在 runner 的事件回调里**的。加了第二个观察点之后，
+ *   如果两处各写一遍，就会出现"settle 走一套、工具调用走另一套"的静默分叉。
+ */
+export async function tick(
+  ctx: TriggerCtx & {
+    rules: { onSettled: () => Promise<void>; onCapabilityGap: () => Promise<void>; onPlateau: () => Promise<void> };
+  },
+): Promise<void> {
+  const { state, rules, trace } = ctx;
+  const n = listOutbox().length;
+
+  // ★ 微实验 C：活动 = outbox 变了 **或** work/ 动了
+  // ★★★ 微实验 D：work/ 的"动了"必须是 **mtime 自己跟自己比**（见 State.lastWorkMtime 的注释）
+  const workAt = workLatestMtime();
+  const outboxChanged = n > state.auditedOutputs;
+  const workChanged = workAt > state.lastWorkMtime && state.lastWorkMtime !== 0;
+  if (outboxChanged) state.auditedOutputs = n;
+  if (workAt > state.lastWorkMtime) state.lastWorkMtime = workAt;
+  if (outboxChanged || workChanged) {
+    state.roundsSinceNew = 0;
+    state.lastActiveAt = Date.now();
+  } else {
+    state.roundsSinceNew++;
+  }
+
+  trace("tick", `outbox=${n} workAt=${workAt} 活动=${outboxChanged || workChanged} roundsSinceNew=${state.roundsSinceNew}`);
+  await rules.onSettled();
+  await rules.onCapabilityGap();
+  await rules.onPlateau();
+}
 
 export function makeRules(ctx: TriggerCtx) {
   const { state, fire } = ctx;
 
-  /** 情况 A：一轮结算了 —— 看有没有新产物 */
+  /** 情况 A：有新产物 → 审查（★ 收敛时就顺便要它判停，C7） */
   async function onSettled(): Promise<void> {
     const outs = listOutbox();
+    ctx.trace("onSettled", `outbox=${outs.length} auditedOutputs=${state.auditedOutputs}`);
     if (outs.length > state.auditedOutputs) {
       state.auditedOutputs = outs.length;
       const converged = outs.some((f) => /CONVERGED/i.test(f));
       const why = converged
         ? `研究员写了收敛声明（\`outbox/CONVERGED.md\`），且 outbox 现有 ${outs.length} 份成果。`
         : `研究员刚产出新东西（outbox 现有 ${outs.length} 份）。`;
-      // ★ 收敛时额外要它判停（C7）
       const focus = converged ? (await import("../prompts/inspector.ts")).CONVERGED_FOCUS : "";
       const out = await fire("inspector", why, focus);
       const v = out.match(/VERDICT:\s*(STOP|CONTINUE)/i);
@@ -76,29 +214,32 @@ export function makeRules(ctx: TriggerCtx) {
   /** 情况 B：它写了"能力缺口"类产物 → 起改库者（★ C1） */
   async function onCapabilityGap(): Promise<void> {
     const gaps = listOutbox().filter((f) => /缺口|提案|撞墙|做不到|capability/i.test(f));
+    const since = Date.now() - (state.firedAt["libsmith"] ?? 0);
+    ctx.trace("onCapabilityGap", `gaps=${gaps.length} sinceLastMs=${state.firedAt["libsmith"] ? since : "never"}`);
     if (!gaps.length) return;
     if (Date.now() - (state.firedAt["libsmith"] ?? 0) < COOLDOWN_MS) return;
     state.firedAt["libsmith"] = Date.now();
-    await fire(
-      "libsmith",
-      `研究员报告了底层能力缺口：${gaps.map((g) => `\`outbox/${g}\``).join("、")}`,
-    );
+    await fire("libsmith", `研究员报告了底层能力缺口：${gaps.map((g) => `\`outbox/${g}\``).join("、")}`);
   }
 
-  /** 情况 C：连续多轮没有新东西 → 换视角 + 重审目标 */
+  /**
+   * 情况 C：连续多次"看"都没有活动 → 换视角 + 重审目标。
+   *
+   * ★★ 注意这里的判据现在是 `roundsSinceNew` —— 而它由 `tick()` 用
+   *   **"outbox 或 work/ 有没有动"** 计算（微实验 C 的落地）。
+   *   ⇒ 「在干活」不会累加，「真卡住」才会。
+   */
   async function onPlateau(): Promise<void> {
+    ctx.trace("onPlateau", `roundsSinceNew=${state.roundsSinceNew} need=${PLATEAU_ROUNDS}`);
     if (state.roundsSinceNew < PLATEAU_ROUNDS) return;
     if (Date.now() - (state.firedAt["inspirer"] ?? 0) < COOLDOWN_MS) return;
     state.firedAt["inspirer"] = Date.now();
     await fire(
       "inspirer",
-      `研究员已经连续 ${state.roundsSinceNew} 轮没有产出新东西了。` +
+      `研究员连续 ${state.roundsSinceNew} 次检查都没有活动（outbox 与 work/ 都没动）。` +
         `★ 可能是它陷在某条路里 —— 请给它一个**别的学科**能借的框架。`,
     );
-    await fire(
-      "archivist",
-      `研究员连续 ${state.roundsSinceNew} 轮没有新产出。★ 请做一次**阶段性复审**。`,
-    );
+    await fire("archivist", `研究员连续 ${state.roundsSinceNew} 次检查没有活动。★ 请做一次**阶段性复审**。`);
     state.roundsSinceNew = 0;
   }
 
