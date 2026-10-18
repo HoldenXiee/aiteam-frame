@@ -125,8 +125,8 @@ export async function runArm(
     } else if (s.kind === "settle") {
       // 与 runner.ts 的 settle 处理**逐字同源**（★ 判据与指令必须同源，P11）
       const n = listOutbox().length;
-      if (n > state.auditedOutputs) state.roundsSinceNew = 0;
-      else state.roundsSinceNew++;
+      if (n > state.auditedOutputs) state.roundsSinceProgress = 0;
+      else state.roundsSinceProgress++;
       await rules.onSettled();
       await rules.onCapabilityGap();
       await rules.onPlateau();

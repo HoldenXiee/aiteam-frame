@@ -74,8 +74,8 @@ async function probe(granularity: Granularity): Promise<ProbeResult> {
   /** 结算点：两种粒度都收敛到**同一个**动作序列（★ 判据与指令同源，P11） */
   const tick = async () => {
     const n = listOutbox().length;
-    if (n > state.auditedOutputs) { state.auditedOutputs = n; state.roundsSinceNew = 0; }
-    else state.roundsSinceNew++;
+    if (n > state.auditedOutputs) { state.auditedOutputs = n; state.roundsSinceProgress = 0; }
+    else state.roundsSinceProgress++;
     await rules.onSettled();
     await rules.onCapabilityGap();
     await rules.onPlateau();

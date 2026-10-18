@@ -43,8 +43,8 @@ async function probe(throttle: number): Promise<Arm> {
 
   const tick = async () => {
     const n = listOutbox().length;
-    if (n > state.auditedOutputs) { state.auditedOutputs = n; state.roundsSinceNew = 0; }
-    else state.roundsSinceNew++;
+    if (n > state.auditedOutputs) { state.auditedOutputs = n; state.roundsSinceProgress = 0; }
+    else state.roundsSinceProgress++;
     await rules.onSettled();
     await rules.onCapabilityGap();
     await rules.onPlateau();

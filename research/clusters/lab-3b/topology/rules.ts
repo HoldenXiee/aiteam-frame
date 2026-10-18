@@ -98,6 +98,16 @@ export const CLUSTER_OWN_FILES = new Set([
   "audits", // 审查意见目录（规则写的）
 ]);
 
+/** ★★ 进展信号②：`CONVERGED.md` 的 mtime（★ 它自己写的"我推进了"声明） */
+export function convergedMtime(): number {
+  const p = join(LAB, "outbox", "CONVERGED.md");
+  try {
+    return statSync(p).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 export function workLatestMtime(): number {
   const d = join(LAB, "work");
   if (!existsSync(d)) return 0;
@@ -129,7 +139,13 @@ export type TriggerCtx = {
 
 export type State = {
   auditedOutputs: number;
-  roundsSinceNew: number;
+  /**
+   * ★★★ 连续几次检查**没有进展**（2026-10-19 微实验 G 换过定义）。
+   * ★ 进展 = 交了新成果 **或** 更新了 `CONVERGED.md` —— ★ 不是"有没有动作"。
+   */
+  roundsSinceProgress: number;
+  /** ★ 上次看到的 `CONVERGED.md` mtime（进展信号②的基准） */
+  lastConvergedMtime: number;
   firedAt: Partial<Record<ExpertName, number>>;
   verdict?: "STOP" | "CONTINUE";
   /**
@@ -168,10 +184,11 @@ export function newState(): State {
   return {
     auditedOutputs: 0,
     seenOutboxCount: 0,
-    roundsSinceNew: 0,
+    roundsSinceProgress: 0,
     firedAt: {},
     lastActiveAt: Date.now(),
     lastWorkMtime: 0,
+    lastConvergedMtime: convergedMtime(),
   };
 }
 
@@ -216,14 +233,12 @@ export async function tick(
   if (workAt > state.lastWorkMtime) state.lastWorkMtime = workAt;
   // ★ 活动账用 seenOutboxCount，**不碰 `auditedOutputs`**（那是 onSettled 的）
   if (outboxChanged) state.seenOutboxCount = n;
+  // ★ 活动账（供 trace 看"它到底在不在动"）—— ★ 判据已换到 roundsSinceProgress
   if (outboxChanged || workChanged) {
-    state.roundsSinceNew = 0;
     state.lastActiveAt = Date.now();
-  } else {
-    state.roundsSinceNew++;
   }
 
-  trace("tick", `outbox=${n} audited=${state.auditedOutputs} workAt=${workAt} 活动=${outboxChanged || workChanged} roundsSinceNew=${state.roundsSinceNew}`);
+  trace("tick", `outbox=${n} audited=${state.auditedOutputs} 活动=${outboxChanged || workChanged} roundsSinceProgress=${state.roundsSinceProgress}`);
   // ★ 顺序重要：onSettled 先跑（它自己记 auditedOutputs），其余两个不许碰它
   await rules.onSettled();
   await rules.onCapabilityGap();
@@ -268,18 +283,60 @@ export function makeRules(ctx: TriggerCtx) {
    *   **"outbox 或 work/ 有没有动"** 计算（微实验 C 的落地）。
    *   ⇒ 「在干活」不会累加，「真卡住」才会。
    */
+  /**
+   * 情况 C：连续多次检查没有**进展** → 换视角 + 重审目标。
+   *
+   * ══════════════════════════════════════════════════════════════
+   * ★★★ 判据换过（2026-10-19 长跑实测，微实验 G）
+   * ══════════════════════════════════════════════════════════════
+   *
+   * ★ 旧定义："有没有动作"（outbox 或 work/ 动没动）
+   *   实测：`roundsSinceNew` 到过 2 **但从未到 3** ⇒ `inspirer` 从未触发。
+   *   ★★ 不是判据坏了（微实验验证过），是**它太勤快** ——
+   *     `work/` 里几乎一直在动（跑实验、写分析脚本）
+   *     ⇒ "连续 15 分钟什么都没动"**几乎不可能发生**。
+   *
+   * ★★★ 更根本的问题："有没有动作"**漏了一整类真实的卡住** ——
+   *   · 在跑同一个实验的第 20 轮（原地打转）⇒ `work/` 在动 ⇒ **判为健康**（错）
+   *   · 在反复改分析脚本（没结论）      ⇒ `work/` 在动 ⇒ **判为健康**（错）
+   *   ★ 证据：它一晚跑了同一条线的 **8 个实验**（cross-pilot/2/3/hard/k/grep/off-small/off-kdose）
+   *     —— 这在旧定义下**永远不是卡住**。
+   *
+   * ★★ ⇒ 新定义：**"有没有进展"**（不是"有没有动作"）。
+   *   进展 = · 交了新成果（`outbox` 变多） **或** · 更新了 `CONVERGED.md`
+   *   ★ 两者都是**它自己写的、语义明确的"我推进了"信号**（不是我们替它判）。
+   */
   async function onPlateau(): Promise<void> {
-    ctx.trace("onPlateau", `roundsSinceNew=${state.roundsSinceNew} need=${PLATEAU_ROUNDS}`);
-    if (state.roundsSinceNew < PLATEAU_ROUNDS) return;
+    // ★ 进展的两种信号（★ 都读它自己的产出，不读"动作"）
+    const outs = listOutbox().length;
+    const progress = outs > state.seenOutboxCount || convergedMtime() > state.lastConvergedMtime;
+    if (progress) {
+      state.roundsSinceProgress = 0;
+      if (outs > state.seenOutboxCount) state.seenOutboxCount = outs;
+      if (convergedMtime() > state.lastConvergedMtime) state.lastConvergedMtime = convergedMtime();
+    } else {
+      state.roundsSinceProgress++;
+    }
+
+    const mins = Math.round((state.roundsSinceProgress * THROTTLE_MS) / 60_000);
+    ctx.trace(
+      "onPlateau",
+      `outbox=${outs} roundsSinceProgress=${state.roundsSinceProgress} need=${PLATEAU_ROUNDS} 约${mins}分钟无进展`,
+    );
+    if (state.roundsSinceProgress < PLATEAU_ROUNDS) return;
     if (Date.now() - (state.firedAt["inspirer"] ?? 0) < COOLDOWN_MS) return;
     state.firedAt["inspirer"] = Date.now();
     await fire(
       "inspirer",
-      `研究员连续 ${state.roundsSinceNew} 次检查都没有活动（outbox 与 work/ 都没动）。` +
-        `★ 可能是它陷在某条路里 —— 请给它一个**别的学科**能借的框架。`,
+      `研究员已经约 ${mins} 分钟**没有新成果**（既没交新产物，也没更新 CONVERGED）。` +
+        `★ 注意：它可能一直在动（跑实验、改脚本）—— 所以这不是"它停了"，而是"**它在原地打转**"。` +
+        `★ 请给它一个**别的学科**能借的框架。`,
     );
-    await fire("archivist", `研究员连续 ${state.roundsSinceNew} 次检查没有活动。★ 请做一次**阶段性复审**。`);
-    state.roundsSinceNew = 0;
+    await fire(
+      "archivist",
+      `研究员已经约 ${mins} 分钟没有新成果。★ 请做一次**阶段性复审**：看它是不是在同一条线上重复。`,
+    );
+    state.roundsSinceProgress = 0;
   }
 
   return { onSettled, onCapabilityGap, onPlateau };
