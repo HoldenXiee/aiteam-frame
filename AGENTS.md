@@ -120,8 +120,9 @@ dev/docs/FACTS.md    已实测核对的实现决策（v1 段 + v2 段）
 dev/docs/research/   研究问题清单 · v1 能力与极限审计报告
 
 research/         研究（把库当工具用）
-research/demom/   「系统该怎么搭」：形态 vs 交接机制
-research/demox/   「用代码组织零成本智力」这门生产方式的学问（总纲见 `research/demox/研究规划.md`）
+research/labfirst/  ★ **研究员集群**（它自己研究，产物归它；见 `labfirst/lab-3b/inbox/研究手册.md`）
+research/docs/     ★ **这个研究方向的全部材料** —— 入口见 `docs/README.md`
+                  `成果/`（做法·分析方法·特性）· `实验/` · `规划/` · `调研/` · `集群设计/` · `装置/`（bench + runs）
 ```
 
 > **为什么 `src/` 留顶层**：`dev/` 与 `research/` 都 import 它，放哪边都不对。

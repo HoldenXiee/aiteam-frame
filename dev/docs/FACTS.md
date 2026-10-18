@@ -195,7 +195,7 @@
 ## v2 段：观测面（`agent.observe`，2026-10-16）
 
 **为什么加**：`DESIGN.md` 把「功能二：为分析研究提供材料」写成与「功能一：绝对操控」**并列的一半**。
-而实际研究中，量具只抓了 `tool_call` 一个字段（`research/demox/bench/measure.ts:160`），`onAny` 用了 **0 次**。
+而实际研究中，量具只抓了 `tool_call` 一个字段（`research/docs/装置/bench/measure.ts:160`），`onAny` 用了 **0 次**。
 后果 —— 十几轮实验反复缺的就是这块：
 
 | 实验 | 当时需要什么 | 结果 |
@@ -212,7 +212,7 @@
 | `injections` | `bridge` 在专属槽位处记帐 | ★ **干预生效性**：override/gate 各调用几次、`changed` 几次、最后一次实参/返回值 |
 | `clear()` | — | 分段分析（配合 `context.reset()`） |
 
-**实测抓到的第一件事**（[`../../research/demox/观测面-第一用.md`](../../research/demox/观测面-第一用.md)）：
+**实测抓到的第一件事**（[`../../research/docs/实验/观测面-第一用.md`](../../research/docs/实验/观测面-第一用.md)）：
 `context.override` **只对当轮有效**（下一轮 pi 从原始历史重建 → 注入消失），
 而 `tools.onResult` 的结果**会成为一条消息进历史，持续存在**。
 ⇒ 这两者的差别不是"埋得深不深"，是**"改的是即将发出的那一次，还是会存进历史的东西"**。

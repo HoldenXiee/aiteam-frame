@@ -26,24 +26,13 @@ dev/demo/run/
 .superpowers/
 
 # ── research：实验的运行时产物 vs 原始数据 ─────────────────────────────
-# 运行时产物可整个删掉重建（语料由 bench/prep.ts 铺，report.md 由 run.ts 生成）
-research/demom/work/*
-research/demox/work/*
-
-# ⚠️ 但 runs/ **不是**运行时产物，是**原始研究数据**，要入库：
-#    demom 48 次运行 × 每次 10–50 分钟 —— 重跑一次是几天的机器时间，且结果不可复现（模型有随机性）。
-#    demox 的 runs/ 同理（100+ 轮）。它们还是「判据改了可以不重跑就重判」的唯一依据
-#    （JSONL 里存了产物全文）。所以这里**故意不忽略** runs/。
-
-# 各实验环境的凭证（每个实验目录自带 agentDir）
-research/demom/agent/auth.json
-research/demom/agent/models.json
-research/demom/agent/models-store.json
-research/demom/agent/settings.json
-research/demox/agent/auth.json
-research/demox/agent/models.json
-research/demox/agent/models-store.json
-research/demox/agent/settings.json
+# ⚠️ runs/ **不是**运行时产物，是**原始研究数据**，要入库：
+#    它是「判据改了可以不重跑就重判」的唯一依据（JSONL 里存了产物全文）。
+research/docs/装置/work/*
+research/docs/装置/agent/auth.json
+research/docs/装置/agent/models.json
+research/docs/装置/agent/models-store.json
+research/docs/装置/agent/settings.json
 
 # ── dev/pi：克隆的 pi 源码（2026-10-15 加入） ──────────────────────────
 # 这是**上游源码的完整副本**（含 packages/*/src、test、docs、schemas），
@@ -63,8 +52,8 @@ dev/pi/apps/*/dist/
 dev/pi/**/.vitest-cache/
 dev/pi/**/coverage/
 
-# ── research/demox/lab-1：研究员集群的**独立仓库**（2026-10-17） ──────────
-# 它是第一层集群的实验空间，**自己是一个 git 仓库**（设计者审查它的历史用）。
-# 父仓库不能索引它（"does not have a commit checked out"），
-# 所以这里显式排除；它的成果经设计者审查后，以**复制**的方式进本仓库。
-research/demox/lab-1/
+# ── research/labfirst：研究员集群（★ 独立 git 仓库）──────────────────
+# 它自己研究、产物归它，自己是一个 git 仓库（设计者审它的历史用）。
+# 父仓库不能索引它（"does not have a commit checked out"），这里显式排除。
+# 它的成果经审查后，以**复制**的方式进 research/docs/成果/。
+research/labfirst/*/

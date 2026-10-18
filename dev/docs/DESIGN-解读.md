@@ -859,7 +859,7 @@ demo 的第 8 项自检（「环境隔离：只认自己的技能与插件」）
 | `io` | （§7.3 没提） | ★ **多 agent 的交接面**（集群内部的投递与结算） |
 
 > ★★ **一个顺带的结论**：这个架构把**七个面全都用上了** ——
-> 而此前 430 轮里，我实际只用过一个半（见 [`research/demox/未解决问题清单.md`](../../research/demox/未解决问题清单.md)）。
+> 而此前 430 轮里，我实际只用过一个半（见 [`research/docs/规划/未解决问题清单.md`](../../research/docs/规划/未解决问题清单.md)）。
 
 ---
 
@@ -867,9 +867,9 @@ demo 的第 8 项自检（「环境隔离：只认自己的技能与插件」）
 
 | 落地物 | 位置 | 说明 |
 |---|---|---|
-| **任务书** | `research/demox/lab-1/inbox/BRIEF.md` | ★ 集群的目标/工具/权限/自审/收敛 —— **内容待重做（§8.10）** |
-| **启动器** | `research/demox/bench/lab-1.ts` | ★ 用库起的 agent + `permissions.gate` 拦越权写 + 干净上下文审查员 |
-| **它的空间** | `research/demox/lab-1/`（独立 git） | `inbox/` 输入 · `outbox/` 成果 · `work/` 工作区 |
+| **研究手册** | `research/labfirst/lab-3b/inbox/研究手册.md` | ★ 集群的目标/工具/权限/自审/收敛 —— **内容待重做（§8.10）** |
+| **启动器（触发拓扑）** | `research/docs/装置/bench/lab-3.ts` | ★ 用库起的 agent + `permissions.gate` 拦越权写 + 干净上下文审查员 |
+| **它的空间** | `research/labfirst/lab-3b/`（独立 git） | `inbox/` 输入 · `outbox/` 成果 · `work/` 工作区 |
 
 > ★★★ **2026-10-18 诊断：初版 BRIEF 把集群降成了执行器。**
 > 它塞进了 5000 字身份说明 + 26 条已有成果 + 三个任务族 + 固定 8 步工作流 + 14 条纪律。
