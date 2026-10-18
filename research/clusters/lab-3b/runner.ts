@@ -10,6 +10,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { labAt } from "./env.ts";
+import { deliverToResearcher } from "./feedback.ts";
+import { recordLibState } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
 import { ALL_TOOLS, LAB, MODEL } from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
@@ -36,6 +38,8 @@ export async function runCluster(secs: number, dry = false) {
 
   const spawned: Agent[] = [];
   let seq = 1;
+  /** ★ fire 定义在 researcher 之前，但它要回流给 researcher → 用这个引用接上 */
+  let researcherRef: Agent | null = null;
 
   // ── 起一个专家：给它处境 + 地盘，等它出结论，落盘 ──
   const fire = async (role: ExpertName, why: string, focus = ""): Promise<string> => {
@@ -52,10 +56,16 @@ export async function runCluster(secs: number, dry = false) {
     const res = await a.io.prompt(spec.prompt());
     const text = res.text ?? "";
     log("result", `${role} · ${text.length} 字${res.error ? " ⚠" + res.error : ""}`);
-    // ★★★ 回流：结论落盘（研究员读得到）
-    const ad = join(LAB, "outbox", "_audits");
+    // ── 落盘（留档，可复查）─────────────────────────────
+    // ★ 放在 work/audits/ 而**不是 outbox/**：outbox 是「研究员的成果」，
+    //   审查意见不是它的成果（原设计放 outbox/_audits 会让语义变混）。
+    const ad = join(LAB, "work", "audits");
     mkdirSync(ad, { recursive: true });
     writeFileSync(join(ad, `${String(seq++).padStart(2, "0")}-${role}.md`), `# ${role}\n\n为什么叫它来：${why}\n\n${text}\n`);
+
+    // ── ★★★ 回流：投给研究员（设计疏漏修复）──────────────
+    // ★ 不 await：回流不该阻塞规则链；但失败必须记下来（不静默）
+    if (researcherRef) deliverToResearcher(researcherRef, role, why, text, (m) => log("error", m));
     return text;
   };
 
@@ -73,6 +83,11 @@ export async function runCluster(secs: number, dry = false) {
   });
   attachGate(researcher);
   spawned.push(researcher);
+  researcherRef = researcher;   // ★ 接上回流的目标
+
+  // ── ★ lib/ 自检：它改了库，得能看见、也得能撤销（防"改坏 → 撞死"）──
+  const libState = recordLibState();
+  log("lib", libState.hasEdits ? `★ 它改过库：${libState.dirty.length} 处（已记入 work/_lib-state.md）` : "lib/ 未改动");
 
   // ── ★★★ 事件规则（集群的骨架，配置时挂好 —— 之后不再动它）──
   const state = newState();
