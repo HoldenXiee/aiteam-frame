@@ -149,11 +149,30 @@ export type State = {
    *   作为"动过"的判据。两个值同源（都是 mtime），不跨时钟域。
    */
   lastWorkMtime: number;
+  /**
+   * ★★★ tick 专用的"上次看到的 outbox 份数" —— **与 `auditedOutputs` 分开**。
+   *
+   * ★ 为什么不能共用一个（2026-10-19 长跑实测抓到）：
+   *   `tick()` 先把它推成最新值，而 `onSettled` 的判据正是
+   *   `outs.length > state.auditedOutputs` ⇒ **永远是 false** ⇒ **审查从不触发**。
+   *   实测：outbox 16→19，fire 一次都没有。
+   * ★★ 两个判据必须各有各的变量：
+   *   · `seenOutboxCount` —— tick 用（有活动吗）
+   *   · `auditedOutputs`  —— onSettled 用（该审查吗）
+   */
+  seenOutboxCount: number;
 };
 
 export function newState(): State {
   // ★ 初始化时先把当前的 work/ mtime 记下来 —— 否则第一轮会把"开工前就有的文件"判成活动。
-  return { auditedOutputs: 0, roundsSinceNew: 0, firedAt: {}, lastActiveAt: Date.now(), lastWorkMtime: 0 };
+  return {
+    auditedOutputs: 0,
+    seenOutboxCount: 0,
+    roundsSinceNew: 0,
+    firedAt: {},
+    lastActiveAt: Date.now(),
+    lastWorkMtime: 0,
+  };
 }
 
 /**
@@ -174,10 +193,29 @@ export async function tick(
   // ★ 微实验 C：活动 = outbox 变了 **或** work/ 动了
   // ★★★ 微实验 D：work/ 的"动了"必须是 **mtime 自己跟自己比**（见 State.lastWorkMtime 的注释）
   const workAt = workLatestMtime();
-  const outboxChanged = n > state.auditedOutputs;
+  const outboxChanged = n > state.seenOutboxCount;
   const workChanged = workAt > state.lastWorkMtime && state.lastWorkMtime !== 0;
-  if (outboxChanged) state.auditedOutputs = n;
+
+  // ★★★★ 这里曾经有一个**双重记账** bug（2026-10-19 长跑实测抓到）：
+  //   tick() 先 `state.auditedOutputs = n`，再调 `onSettled()` ——
+  //   而 `onSettled` 自己的判据正是 `outs.length > state.auditedOutputs`
+  //   ⇒ **永远是 false** ⇒ **审查从不触发**。
+  //   实测：outbox 从 16 跳到 19，tick 把 auditedOutputs 推成 19，**fire 一次都没有**。
+  //
+  // ★★ 根因：**同一个状态（auditedOutputs）被两处写** ——
+  //   一处用来判"有没有活动"（tick），一处用来判"要不要审查"（onSettled）。
+  //   两处共用一个变量，先跑的就把后跑的判据废了。
+  //
+  // ★★★ 修法：**tick 不再碰 `auditedOutputs`** —— 它只负责"活动/平台期"，
+  //   审查的书由 `onSettled` 自己记（单一写者）。
+  //   两个判据分开：
+  //     · `activityAt` —— tick 用（是不是有活动）
+  //     · `auditedOutputs` —— onSettled 用（有没有审过）
+  //   （同族：`P11`「用什么当判据，就等于让它服从什么」；
+  //     以及本项目反复吃过的「一个状态两个写者」）
   if (workAt > state.lastWorkMtime) state.lastWorkMtime = workAt;
+  // ★ 活动账用 seenOutboxCount，**不碰 `auditedOutputs`**（那是 onSettled 的）
+  if (outboxChanged) state.seenOutboxCount = n;
   if (outboxChanged || workChanged) {
     state.roundsSinceNew = 0;
     state.lastActiveAt = Date.now();
@@ -185,7 +223,8 @@ export async function tick(
     state.roundsSinceNew++;
   }
 
-  trace("tick", `outbox=${n} workAt=${workAt} 活动=${outboxChanged || workChanged} roundsSinceNew=${state.roundsSinceNew}`);
+  trace("tick", `outbox=${n} audited=${state.auditedOutputs} workAt=${workAt} 活动=${outboxChanged || workChanged} roundsSinceNew=${state.roundsSinceNew}`);
+  // ★ 顺序重要：onSettled 先跑（它自己记 auditedOutputs），其余两个不许碰它
   await rules.onSettled();
   await rules.onCapabilityGap();
   await rules.onPlateau();
