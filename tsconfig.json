@@ -25,6 +25,8 @@
     "dev/examples"
   ],
   "exclude": [
+    "research/demox/lab-brief*/**",
+    "research/demox/lab-*/**",
     "node_modules",
     "dev/pi",
     "dev/demo/run",
