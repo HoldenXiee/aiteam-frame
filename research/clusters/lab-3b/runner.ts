@@ -9,6 +9,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
+import { acquireLock } from "./lock.ts";
 import { labAt } from "./env.ts";
 import { deliverToResearcher, NOTE_CONSULT_ALREADY_FLOWS } from "./feedback.ts";
 import { recordLibState } from "./lib-state.ts";
@@ -28,6 +29,18 @@ function log(kind: string, detail: string): void {
 }
 
 export async function runCluster(secs: number, dry = false) {
+  // ★★★ 单实例锁：**先抢锁再动任何东西**（2026-10-19 并发会话事故后加）
+  //   ★ 必须在 mkdir/writeFile 之前 —— 否则并发者已经把 _topology.log 清空了才被拦住
+  const lock = acquireLock();
+  if (!lock.ok) {
+    console.error(`\n${lock.reason}\n`);
+    process.exit(2);
+  }
+  const releaseOnExit = () => lock.release();
+  process.on("exit", releaseOnExit);
+  process.on("SIGINT", () => { releaseOnExit(); process.exit(130); });
+  process.on("SIGTERM", () => { releaseOnExit(); process.exit(143); });
+
   mkdirSync(join(LAB, "outbox"), { recursive: true });
   mkdirSync(join(LAB, "work"), { recursive: true });
   writeFileSync(join(LAB, "work", "_topology.log"), "");
