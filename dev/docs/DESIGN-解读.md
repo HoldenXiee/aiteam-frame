@@ -868,8 +868,8 @@ demo 的第 8 项自检（「环境隔离：只认自己的技能与插件」）
 | 落地物 | 位置 | 说明 |
 |---|---|---|
 | **研究手册** | `research/labfirst/lab-3b/inbox/研究手册.md` | ★ 集群的目标/工具/权限/自审/收敛 —— **内容待重做（§8.10）** |
-| **启动器（触发拓扑）** | `research/docs/装置/bench/lab-3.ts` | ★ 用库起的 agent + `permissions.gate` 拦越权写 + 干净上下文审查员 |
-| **它的空间** | `research/labfirst/lab-3b/`（独立 git） | `inbox/` 输入 · `outbox/` 成果 · `work/` 工作区 |
+| **集群代码** | `research/clusters/lab-3b/` | ★ 触发拓扑（`topology/rules.ts`）+ 每 agent 一个提示词文件（`prompts/`）+ 工具（`tools/`） |
+| **它的空间** | `research/labfirst/lab-3b/`（独立 git） | `inbox/` 手册 · `outbox/` 成果 · `work/` 工作区 · `lib/` 可写的库 |
 
 > ★★★ **2026-10-18 诊断：初版 BRIEF 把集群降成了执行器。**
 > 它塞进了 5000 字身份说明 + 26 条已有成果 + 三个任务族 + 固定 8 步工作流 + 14 条纪律。
