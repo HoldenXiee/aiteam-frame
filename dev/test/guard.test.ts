@@ -14,10 +14,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { outsideWrite, type Bounds } from "../../research/clusters/lab-3b/guard.ts";
+import { outsideWrite, type Bounds } from "../../research/clusters/hunt/guard.ts";
 
-const SRC = "D:/repo/research/labfirst/lab-3b";
-const OWN = "D:/repo/research/labfirst/lab-2";
+const SRC = "D:/repo/research/labfirst/hunt";
+const OWN = "D:/repo/research/labfirst/forge";
 
 /** 第二集群看到的边界 */
 const AS_LAB2: Bounds = { lab: OWN, sourceLab: SRC, isSource: false };

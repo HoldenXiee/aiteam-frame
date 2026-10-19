@@ -29,8 +29,8 @@ import { fileURLToPath } from "node:url";
 // ★★ lib 与 crossTask **都在集群空间里**（`research/labfirst/lab-3b/`）——
 //   · lib/aiteam：研究员可写的那份库（★ 它改过，本实验就用它改过的那份）
 //   · work/crossTask.ts：研究员自己写的任务生成器 + 判据（判据不是我现编的）
-import { createLab } from "../../../labfirst/lab-3b/lib/aiteam/index.ts";
-import { buildCrossTask, parseFindings } from "../../../labfirst/lab-3b/work/crossTask.ts";
+import { createLab } from "../../../labfirst/hunt/lib/aiteam/index.ts";
+import { buildCrossTask, parseFindings } from "../../../labfirst/hunt/work/crossTask.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SANDBOX = join(HERE, "_sandbox");

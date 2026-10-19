@@ -19,6 +19,12 @@ import { EXPERTS, type ExpertName } from "./prompts/index.ts";
 import * as researcherPrompt from "./prompts/researcher.ts";
 // ★★★ 同一身份多员工：角度的定义（设计者交办 2026-10-19）
 import { ANGLES, renderAngle } from "./prompts/angles.ts";
+// ★★★ 两个集群的"多员工"含义完全不同（2026-10-19）：
+//   · hunt ：三个**角度**（同一种活=探索的三种偏好）⇒ 多员工 = 找盲区
+//   · forge：三条**工作线**（三种不同的活）⇒ 多员工 = 一条产不出教科书
+import { DEFAULT_LINES, renderLine } from "./prompts/lines.ts";
+import { CLUSTER } from "./paths.ts";
+import { SOURCE_CLUSTER } from "./prompts/missions.ts";
 import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "./topology/rules.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
@@ -143,7 +149,24 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //     要么给反例/缺陷，要么**明确说"我同意"**（逼它表态，`P7`/`B8`）。
   //   ★ 为什么不能是"你们去讨论吧"（`P3`）：不要指望模型自己分工 ——
   //     所以给的是**工具**（能挑战谁、要写什么），不是一句"请辩论"。
-  const usedAngles = ANGLES.slice(0, employees);
+  // ★★★ 多员工在 forge 里是**必须的**（不是可选）—— 见 `prompts/lines.ts` 的说明：
+  //   教科书要求"讲透为什么 + 是对的 + 能用"**同时成立**，
+  //   一个人做三件事必然偏向自己最顺手的那件 ⇒ 三条线各一人。
+  const isForge = CLUSTER !== SOURCE_CLUSTER;
+  const usedAngles = isForge
+    ? DEFAULT_LINES.slice(0, Math.max(2, employees)).map((k) => ({
+        key: k,
+        stance: "",
+        // ★ forge 的三条线用 `renderLine` 渲染（内容与 hunt 的角度完全不同）
+        render: () => renderLine(k),
+      }))
+    : ANGLES.slice(0, employees).map((a) => ({
+        key: a.key,
+        stance: a.stance,
+        render: () => renderAngle(a),
+      }));
+  /** ★ 统一的渲染入口：两个集群各自的"多员工含义" */
+  const renderSeat = (seat: { render: () => string }) => seat.render();
   const researcherByKey = new Map<string, Agent>();
 
   // ★ 挑战的投递路由：把文本作为消息送到目标员工
@@ -183,7 +206,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const a = await lab.createAgent({
       id: `L3-researcher-${ang.key}-${Date.now().toString(36)}`,
       model: MODEL,
-      role: role + renderAngle(ang),
+      role: role + renderSeat(ang),
       permissions: { only: [...ALL_TOOLS] },
       tools: { custom: [consult, spawnLine, challenge] },
     });
@@ -196,7 +219,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   researcherRef = researcher;   // ★ 接上回流的目标（第一条意见回流给 0 号）
   log(
     "setup",
-    `研究员 ${researchers.length} 个：${usedAngles.map((a) => a.key).join(" / ")}` +
+    `${isForge ? "★ 教科书的" : "研究员"}${researchers.length}${isForge ? "条工作线" : "个"}：${usedAngles.map((a) => a.key).join(" / ")}` +
       (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge 工具）` : ""),
   );
 
@@ -315,7 +338,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   // 别让定时器把进程吊住（收尾时要 clear）—— 挂到 spawned 清理那一步
   timers.push(timer);
 
-  log("setup", `装置就绪 · 窗口 ${secs}s · 5 个专家（按需起）· researcher 1 个（常驻）`);
+  log("setup", `装置就绪 · 窗口 ${secs}s · 5 个专家（按需起）· 工作线/研究员 ${researchers.length} 个（常驻）`);
   log("setup", `researcher 的自定义工具：consult / spawn_line`);
 
   if (dry) {

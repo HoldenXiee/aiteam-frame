@@ -24,7 +24,7 @@ export const REPO = join(here, "..", "..", "..");
  *   ★ 它们的代码**同源**（路径、守卫、锁、回退、lib 自检全都一样），
  *     **差别只在提示词与规则表** —— 这正是「集群的使命是使用者代码，不是库」的落实。
  */
-export const CLUSTER = process.env.CLUSTER ?? "lab-3b";
+export const CLUSTER = process.env.CLUSTER ?? "hunt";
 
 /** ★ 集群的空间（它自己读写的地方，独立 git 仓库） */
 export const LAB = join(REPO, "research/labfirst", CLUSTER);
