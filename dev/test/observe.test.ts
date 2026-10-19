@@ -100,3 +100,23 @@ test("observe.turns 记录每轮 token（O3 成本盲区的材料）", async () 
     a.dispose();
   }
 });
+
+// ══════════════════════════════════════════════════════════════════
+// ★★★ 「这轮 provider 报账了吗」—— 2026-10-19 由 lab-3b 研究员实测发现的量具缺陷
+//
+// 事故：`message_end` 没带 usage 块时，量具报 `0/0/0`，**不报错、不打标**
+//   ⇒ **「这轮没账」与「这轮免费」无法区分**。
+// ★★ 严重性：本项目所有**成本承重句**都建立在这个量具上。
+// ★ 这是 `P24`（区分「它不听劝」与「它做不到」）在成本量具上的落实。
+// ══════════════════════════════════════════════════════════════════
+test("observe.turns 标出「这轮报账了吗」—— 正常有账时 reported=true", async () => {
+  const a = await makeAgent();
+  try {
+    await a.io.prompt("hi");
+    const t = a.observe.turns;
+    assert.ok(t.length >= 1, "至少一轮");
+    assert.equal(t[0]!.reported, true, "★ 假 provider 会报 usage ⇒ reported 应为 true");
+  } finally {
+    a.dispose();
+  }
+});

@@ -57,6 +57,16 @@ export interface TurnUsage {
   reasoning: number;
   /** 总 token */
   total: number;
+  /**
+   * ★★★ 这一轮 provider **到底报没报账**（2026-10-19 由 lab-3b 研究员实测发现）。
+   *
+   * ★ 事故：`message_end` 里没带 usage 块时，下面的 `num()` 把它当成 0 ⇒
+   *   量具报 **`0/0/0`，不报错、不打标** ⇒ **「这轮没账」与「这轮免费」无法区分**。
+   * ★★ 严重性：本项目所有**成本承重句**都建立在这个量具上。
+   * ★ 所以加这个字段：**有账 = true，没账 = false** —— 让使用者能当场分开这两件事。
+   * ★★ 这是 `P24`（区分「它不听劝」与「它做不到」）在成本量具上的落实。
+   */
+  reported: boolean;
   at: number;
 }
 
@@ -128,6 +138,13 @@ export function createObserve(deps: ObserveDeps): ObserveSurface {
     if (!msg || msg.role !== "assistant") return;
     const u = msg.usage ?? {};
     const num = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
+    // ★★★ 「这轮 provider 报账了吗」（2026-10-19）：
+    //   只要有**任一** token 字段是 number，就算报了账。
+    //   ★ 全缺 ⇒ `reported:false` ⇒ 使用者能区分「没账」与「免费」。
+    //   ★★ 为什么不用「u 非空」：有些 provider 会发一个只有 model 名的 usage 对象。
+    const reported = ["input", "output", "totalTokens", "cacheRead", "cacheWrite"].some(
+      (k) => typeof u[k] === "number",
+    );
     turnN += 1;
     turns.push({
       n: turnN,
@@ -137,6 +154,7 @@ export function createObserve(deps: ObserveDeps): ObserveSurface {
       cacheWrite: num("cacheWrite"),
       reasoning: num("reasoning"),
       total: num("totalTokens") || num("input") + num("output"),
+      reported,
       at: Date.now(),
     });
   });
