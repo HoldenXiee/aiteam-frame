@@ -151,14 +151,24 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   // ★★★ 用 `steer` 而不是 `queue`（2026-10-19 实测教训）：
   //   `queue` 在忙时是 **followUp**——排在**这一次运行**里。
   //   而三个员工是**不间断干活**的（几十个工具调用）⇒
-  //   ★★ 挑战被排在它自己的工具输出后面，**根本轮不到它看**。
-  //   ⇒ 改用 `steer`：**当场打断并注入** —— 挑战必须能被看见。
-  //   ★ 这与 `interrupt` 不同：`steer` 不打断当前那轮，只是把话插进去。
+  //   ★★ 实测：`hands-on` 整个窗口只收到 **5 次**挑战（另两位 24/25 次），
+  //      因为它几乎从不空闲 ⇒ **挑战被排在它自己的工具输出后面**。
+  //   ⇒ 改用 `steer`：**当场注入** —— 挑战必须能被看见。
+  //   ★ 与 `interrupt` 不同：`steer` 不打断当前那轮，只把话插进去。
   const deliverTo = (toKey: string, text: string): { ok: boolean; reason?: string } => {
     const target = researcherByKey.get(toKey);
     if (!target) return { ok: false, reason: `没有这位员工：${toKey}（有：${[...researcherByKey.keys()].join("、")}）` };
     void target.io.steer(text).catch((e: unknown) => log("error", `挑战投递失败：${(e as Error).message}`));
-    debateLog.push({ at: new Date().toISOString(), to: toKey, chars: text.length });
+    const rec = { at: new Date().toISOString(), to: toKey, chars: text.length };
+    debateLog.push(rec);
+    // ★★★ 同时**落盘**（2026-10-19 读数错误）：
+    //   原来只在**收尾**写 `debate.jsonl` ⇒ 中途查永远是 0 ⇒
+    //   ★ 我据此差点误判「挑战没发生」（实际发生了 54 次）。
+    //   ★★ 教训：**量具的采样时机必须与要观测的过程匹配** ——
+    //      拿一个"收尾才落盘"的量具查中途状态，得到的是假阴性。
+    try {
+      appendFileSync(join(LAB, "work", "debate.jsonl"), JSON.stringify(rec) + "\n");
+    } catch { /* 落盘失败不影响投递 */ }
     return { ok: true };
   };
 
