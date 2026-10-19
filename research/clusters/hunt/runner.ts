@@ -149,12 +149,13 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //     要么给反例/缺陷，要么**明确说"我同意"**（逼它表态，`P7`/`B8`）。
   //   ★ 为什么不能是"你们去讨论吧"（`P3`）：不要指望模型自己分工 ——
   //     所以给的是**工具**（能挑战谁、要写什么），不是一句"请辩论"。
-  // ★★★ 多员工在 forge 里是**必须的**（不是可选）—— 见 `prompts/lines.ts` 的说明：
-  //   教科书要求"讲透为什么 + 是对的 + 能用"**同时成立**，
-  //   一个人做三件事必然偏向自己最顺手的那件 ⇒ 三条线各一人。
+  // ★★★ forge 的三条线：默认三条（一个人做三件事必然偏向最顺手的那件 ⇒ 三条线各一人）。
+  //   ★ 但 `--employees=N` **说了算**（设计者 2026-10-19：先 1 人暴露问题，再加到多员工）。
+  //   ★★ 实测发现的 bug：原写 `Math.max(2, employees)` ⇒ **传 1 也起 2 条线**，
+  //      与"先跑 1 人"的意图相反。现在就是 `employees`。
   const isForge = CLUSTER !== SOURCE_CLUSTER;
   const usedAngles = isForge
-    ? DEFAULT_LINES.slice(0, Math.max(2, employees)).map((k) => ({
+    ? DEFAULT_LINES.slice(0, employees).map((k) => ({
         key: k,
         stance: "",
         // ★ forge 的三条线用 `renderLine` 渲染（内容与 hunt 的角度完全不同）
@@ -219,7 +220,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   researcherRef = researcher;   // ★ 接上回流的目标（第一条意见回流给 0 号）
   log(
     "setup",
-    `${isForge ? "★ 教科书的" : "研究员"}${researchers.length}${isForge ? "条工作线" : "个"}：${usedAngles.map((a) => a.key).join(" / ")}` +
+    `${isForge ? "★ 教科书的 " : "研究员 "}${researchers.length} ${isForge ? "条工作线" : "个"}：${usedAngles.map((a) => a.key).join(" / ")}` +
       (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge 工具）` : ""),
   );
 
