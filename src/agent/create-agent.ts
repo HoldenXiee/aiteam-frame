@@ -74,6 +74,16 @@ export interface LabEnv {
    *   而它**必须**在白名单里（构造时校验）。
    */
   defaultModel?: string;
+  /**
+   * ★★★ 这个实验室跑的是**真模型**还是**本机假服务**（2026-10-19）。
+   *
+   * ★ 为什么必需：`modelAllow` 是**字符串判据** ⇒ 能拦"换了别的真实型号"，
+   *   但**无法区分"同一个名字下面接的是假服务"** ⇒
+   *   用假服务跑出来的读数与真实样本**分不开** ⇒ 后人可能误当真实结论。
+   * ★★ 所以：开了 `mock` ⇒ 所有 `RunResult` 带 `mock:true`，**一眼可辨**。
+   * ★ 用途边界：假模型只用于**装置/管线**类问题，**不用于模型行为**类结论。
+   */
+  mock?: boolean;
 }
 
 /** 宿主级共享的 ModelRuntime（决策 #8）：**按 agentDir + 网络开关缓存** —— 一个凭证集一个 runtime。
@@ -136,7 +146,12 @@ function assertModelAllowed(ref: string, env: LabEnv, where: string): void {
   if (!allow) return; // 没声明 ⇒ 不限制（保持旧行为）
   // 允许两种写法：完整 ref（`provider/id`）或裸 id —— 使用者两种都容易写出来。
   const bare = ref.includes("/") ? ref.slice(ref.indexOf("/") + 1) : ref;
-  const ok = allow.includes(ref) || allow.includes(bare);
+  // ★★★ 支持 `前缀*` 通配（2026-10-19，为 mock 通道而加）：
+  //   `faux/*` 应放行 `faux/echo`、`faux/anything`。
+  //   ★ 为什么需要：mock 通道要放行的是一**族**假模型，而不是逐个写死 id。
+  //   ★★ 写在“机制”里而不是特例：与 `permissions.only` 一样，声明的形状由使用者定。
+  const hitWildcard = allow.some((a) => a.endsWith("*") && (ref.startsWith(a.slice(0, -1)) || bare.startsWith(a.slice(0, -1))));
+  const ok = allow.includes(ref) || allow.includes(bare) || hitWildcard;
   if (ok) return;
   throw new Error(
     `${where}：模型「${ref}」不在这个实验室允许的型号里。\n` +
@@ -394,6 +409,8 @@ export async function createAgentInLab(env: LabEnv, rawSpec: AgentSpec = {}): Pr
     accumulate: (fresh) => {
       usage = addUsage(usage, fresh);
     },
+    // ★★★ 假服务标记（2026-10-19）：从实验室声明直通到每一份 RunResult
+    isMock: () => env.mock === true,
   });
 
   // 忙判据的**唯一一处定义**：声明面（reload）与 compact 都会「先 abort 或静默不生效」在飞的那轮，

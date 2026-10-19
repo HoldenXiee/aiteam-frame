@@ -168,8 +168,14 @@ export function createBridge(deps: {
         // `Extension failed, blocking execution`，agent-session.js:319-324）。统一在这里转成 block。
         returned = { block: true, reason: String(err) };
       }
+      // ★★★ 记账先于真值判定：**放行也要记**（2026-10-19 由 lab-3b 研究员实测发现）。
+      //   原来这一句在 `if (returned)` 里面 —— 而一个「只放行 / 只计数」的审批门
+      //   （总是返回 undefined）在 `observe.injections` 上**恒为空（calls=0）**，
+      //   正是本文件要治的「干预生效 0 次都不知道」。
+      //   与 `context.override` 同口径：`calls` 每次调用都记，`changed` 只记真的改了东西。
+      //   ★★ 实测：`work/exp-wire-fidelity.ts` 里 gate 被调 2 次、账上 0 次；修后 2 次。
+      deps.note?.("permissions.gate", { name: call.toolName, input: call.input }, returned);
       if (returned) {
-        deps.note?.("permissions.gate", { name: call.toolName, input: call.input }, returned);
         if ((returned as { block?: boolean }).block) return returned;   // block 短路，监听表不跑（pi 同构）
         result = returned;
         hasResult = true;
@@ -187,7 +193,13 @@ export function createBridge(deps: {
           const c = (v as { content?: unknown[] } | undefined)?.content;
           return { blocks: Array.isArray(c) ? c.length : 0 };
         };
-        deps.note?.("tools.onResult", sizeOf(result), returned === undefined ? undefined : sizeOf(returned));
+        // ★★★ 实参取**事件自带的那份结果**（`event.content`），不是派发累加器 `result`
+        //   （2026-10-19 由 lab-3b 研究员实测发现）。
+        //   ★ 为什么 `result` 是错的：`tool_result` 上**没有任何专属槽位给它赋值**
+        //     （override 在 `context`、gate 在 `tool_call`）⇒ `sizeOf(result)` **恒为 `{blocks:0}`**。
+        //   ★★ 实测：**全 lab 612 行 jsonl 的 `tools.onResult.lastArgs` 无一例外是 `{"blocks":0}`**；
+        //      而那个字段的用途恰恰是回答「注进去的东西长什么样」—— 退化成常量就答不了。
+        deps.note?.("tools.onResult", sizeOf(event), returned === undefined ? undefined : sizeOf(returned));
       }
       if (!returned) continue;                            // 真值判据，与 pi 逐字一致
       if ((returned as { block?: boolean }).block) return returned; // block 短路优先于守卫

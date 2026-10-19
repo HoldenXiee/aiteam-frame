@@ -37,6 +37,26 @@ export interface LabOptions {
    * 它**必须**在 `modelAllow` 里（否则构造时就报错）。
    */
   defaultModel?: string;
+  /**
+   * ★★★ 这个实验室跑的到底是**真模型**还是**本机假服务**（2026-10-19 由 lab-3b 研究员提出）。
+   *
+   * ★ 它发现的缺口（逐字核实为真）：
+   *   。modelAllow 是**字符串判据** ⇒ 能拦「换了别的**真实**型号」，
+   *     但**拦不住、也无法区分「同一个名字下面接的是假服务」**。
+   *   。反向也成立：一个**诚实的 mock 通道**（如 `faux/echo`）**反而进不来**。
+   *
+   * ★★ 为什么这是个真问题：
+   *   用假服务跑出来的东西，与真实样本**在读数上分不开** ⇒ 后人可能误当真实结论。
+   *
+   * ★ 形状（它提的，我采用）：**必须显式声明**才开。
+   *   · 不开 ⇒ 行为与现在完全一致（旧行为）
+   *   · 开了 ⇒ ① `modelAllow` 额外放行 `faux/*`
+   *            ② ★★ 所有 `RunResult` / `observe` 记录里带 `mock: true` ⇒ **一眼可辨**
+   *
+   * ★★ 用途边界（这很重要）：假模型**只用于装置/管线**类问题
+   *   （wire 保真、注入到达、工具面装配…），**不用于模型行为**类结论。
+   */
+  mock?: boolean;
 }
 
 /** 对外只有这四个成员：环境（两个目录）+ 两个动作。runtime 等实现细节不在接口上。 */
@@ -62,7 +82,17 @@ export async function createLab(opts: LabOptions = {} as LabOptions): Promise<La
   // 当场检查（await 之前）：不存在的 cwd 要等到建 session 才炸，那时已经建了一堆东西、文案也难看
   if (!existsSync(cwd)) throw new Error(`createLab：cwd 不存在：${cwd}`);
 
-  const { modelNetwork, catalogBaseUrl, modelAllow, defaultModel } = opts;
+  const { modelNetwork, catalogBaseUrl, defaultModel, mock } = opts;
+  let { modelAllow } = opts;
+  // ★★★ mock 通道（2026-10-19 由 lab-3b 研究员提出，形状我采用）：
+  //   「开了显式声明」才放行 `faux/*` —— 不开时行为与旧版**完全一致**。
+  //   ★ 为什么要它：一个**诚实的** mock（`faux/echo`）以前**进不来** ——
+  //     而它比"借真型号名字跑假服务"好得多（后者读数上与真实样本分不开）。
+  if (mock) {
+    const base = modelAllow ?? [];
+    // ★ `faux/*` 两种写法都放行（完整 ref 与裸 id）
+    modelAllow = [...new Set([...base, "faux/*", "faux"])];
+  }
   if (defaultModel && modelAllow && !modelAllow.includes(defaultModel)) {
     throw new Error(
       `createLab：defaultModel「${defaultModel}」不在 modelAllow 里。\n` +
@@ -77,7 +107,7 @@ export async function createLab(opts: LabOptions = {} as LabOptions): Promise<La
   // 否则第二个实验室会去读第一份的 models.json / auth.json。
   // 注入的那份优先，并且**真的**给这个实验室起的 agent 用（createAgentInLab 直接收这份环境）。
   const modelRuntime = opts.modelRuntime ?? (await getSharedRuntime(agentDir, { modelNetwork, catalogBaseUrl }));
-  const env = { agentDir, cwd, modelNetwork, catalogBaseUrl, modelAllow, defaultModel };
+  const env = { agentDir, cwd, modelNetwork, catalogBaseUrl, modelAllow, defaultModel, mock };
 
   const lab: Lab = {
     agentDir,

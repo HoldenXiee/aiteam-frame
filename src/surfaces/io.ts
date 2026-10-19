@@ -23,6 +23,15 @@ export interface IoDeps {
   setStatus: (status: Agent["status"]) => void;
   /** 把本次用量计入全生命周期累计（调用方持有那个 Usage 对象） */
   accumulate: (usage: Usage) => void;
+  /**
+   * ★★★ 这个实验室是不是跑的**本机假服务**（2026-10-19）。
+   *
+   * ★ 为什么要标在**结果**上（而不是只在配置里）：
+   *   用假服务跑出来的读数与真实样本**在数据上分不开** ⇒ 后人可能误当真实结论。
+   * ★ `modelAllow` 是字符串判据，拦不住"同一个名字下面接的是假服务"——
+   *   所以不能只靠白名单，必须让**每一条结果自带标记**。
+   */
+  isMock?: () => boolean;
 }
 
 export function createIo(deps: IoDeps): IoSurface {
@@ -76,7 +85,15 @@ export function createIo(deps: IoDeps): IoSurface {
       counted.add(message);
       deps.accumulate(message.usage);
     }
-    return { runId, text, usage, ...(error ? { error } : {}), messages };
+    return {
+      runId,
+      text,
+      usage,
+      ...(error ? { error } : {}),
+      messages,
+      // ★★★ 假服务标记：一眼可辨「这条结果不是真模型跑的」
+      ...(deps.isMock?.() ? { mock: true as const } : {}),
+    };
   }
 
   /** 起一次运行并结算。忙 → 抛错（调用者该走 queue）；未接受就失败 → 结算完区间再原样抛出。

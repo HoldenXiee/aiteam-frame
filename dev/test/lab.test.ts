@@ -184,3 +184,46 @@ test("创建期思考档：不写 thinking 时完全不变（守卫的影响面�
     assert.ok(a.model.thinking, "默认档照旧可用");
   } finally { a.dispose(); }
 });
+
+// ══════════════════════════════════════════════════════════════════
+// ★★★ mock 通道（2026-10-19 由 lab-3b 研究员提出，形状它写的）
+//
+// 它发现的缺口（逐字核实为真）：`modelAllow` 是**字符串判据** ⇒
+//   能拦「换了别的**真实**型号」，但**拦不住、也无法区分「同一个名字下面接的是假服务」**。
+//   反向也成立：一个**诚实的 mock**（`faux/echo`）**反而进不来**。
+//
+// ★★ 严重性：用假服务跑出来的读数与真实样本**在数据上分不开**。
+// ══════════════════════════════════════════════════════════════════
+test("mock 未开（默认）：faux 型号进不来 —— 旧行为不变", async () => {
+  const l = await createLab({
+    agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false,
+    modelAllow: ["opencode-go/deepseek-v4.1-flash"], defaultModel: "opencode-go/deepseek-v4.1-flash",
+  });
+  await assert.rejects(
+    () => l.createAgent({ model: FAUX_MODEL_REF }),
+    /不在这个实验室允许的型号里/,
+    "★ 不开 mock 时，faux 应被白名单拦住（旧行为）",
+  );
+});
+
+test("mock 开了：faux 型号放行，且**每条结果带 mock:true**", async () => {
+  const l = await createLab({
+    agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false,
+    modelAllow: ["opencode-go/deepseek-v4.1-flash"], defaultModel: "opencode-go/deepseek-v4.1-flash",
+    mock: true,
+  });
+  const a = await l.createAgent({ model: FAUX_MODEL_REF });
+  try {
+    const r = await a.io.prompt("hi");
+    assert.equal(r.mock, true, "★★ 假服务跑出来的结果必须自带标记 —— 否则读数与真实样本分不开");
+  } finally { a.dispose(); }
+});
+
+test("mock 未开：真实型号的结果**不带** mock 标记", async () => {
+  const l = await createLab({ agentDir: fauxAgentDir, cwd: fauxCwd, modelNetwork: false });
+  const a = await l.createAgent({ model: FAUX_MODEL_REF });
+  try {
+    const r = await a.io.prompt("hi");
+    assert.equal(r.mock, undefined, "★ 没声明 mock ⇒ 不能误标");
+  } finally { a.dispose(); }
+});
