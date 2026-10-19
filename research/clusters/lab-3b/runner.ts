@@ -146,11 +146,18 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   const usedAngles = ANGLES.slice(0, employees);
   const researcherByKey = new Map<string, Agent>();
 
-  // ★ 挑战的投递路由：把文本作为消息送到目标员工的队列（它在跑也收得到）
+  // ★ 挑战的投递路由：把文本作为消息送到目标员工
+  //
+  // ★★★ 用 `steer` 而不是 `queue`（2026-10-19 实测教训）：
+  //   `queue` 在忙时是 **followUp**——排在**这一次运行**里。
+  //   而三个员工是**不间断干活**的（几十个工具调用）⇒
+  //   ★★ 挑战被排在它自己的工具输出后面，**根本轮不到它看**。
+  //   ⇒ 改用 `steer`：**当场打断并注入** —— 挑战必须能被看见。
+  //   ★ 这与 `interrupt` 不同：`steer` 不打断当前那轮，只是把话插进去。
   const deliverTo = (toKey: string, text: string): { ok: boolean; reason?: string } => {
     const target = researcherByKey.get(toKey);
     if (!target) return { ok: false, reason: `没有这位员工：${toKey}（有：${[...researcherByKey.keys()].join("、")}）` };
-    void target.io.queue(text).catch((e: unknown) => log("error", `挑战投递失败：${(e as Error).message}`));
+    void target.io.steer(text).catch((e: unknown) => log("error", `挑战投递失败：${(e as Error).message}`));
     debateLog.push({ at: new Date().toISOString(), to: toKey, chars: text.length });
     return { ok: true };
   };
