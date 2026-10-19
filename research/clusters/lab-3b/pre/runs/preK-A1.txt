@@ -1,0 +1,15 @@
+已逐个对照全部 20 个模块与各自的 `<name>-config.js`，写出 `review.json`。
+
+对照结果（HARD_LIMIT vs `<NAME>_LIMIT`）：
+
+| 模块 | HARD_LIMIT | config | 判定 |
+|---|---|---|---|
+| approval | 25 | 17 | ❌ |
+| cart | 20 | 25 | ❌ |
+| checkout | 27 | 25 | ❌ |
+| coupon | 1 | 10 | ❌ |
+| flags | 35 | 43 | ❌ |
+| ledger | 36 | 37 | ❌ |
+| audit(8/8)、auth(11/11)、backup(29/29)、billing(30/30)、digest(34/34)、email(13/13)、export(43/43)、gateway(41/41)、geo(13/13)、health(11/11)、ingest(37/37)、inventory(28/28)、jobs(36/36)、kyc(10/10) | — | — | ✅ 干净 |
+
+产物仅一个文件 `review.json`，6 条 finding，无其他新增文件。

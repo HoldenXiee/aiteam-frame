@@ -17,8 +17,12 @@ import { attachGate } from "./guard.ts";
 import { ALL_TOOLS, LAB, MODEL } from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
 import * as researcherPrompt from "./prompts/researcher.ts";
+// ★★★ 同一身份多员工：角度的定义（设计者交办 2026-10-19）
+import { ANGLES, renderAngle } from "./prompts/angles.ts";
 import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "./topology/rules.ts";
 import { makeConsult } from "./tools/consult.ts";
+// ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
+import { makeChallenge } from "./tools/challenge.ts";
 import { makeSpawnLine } from "./tools/spawn-line.ts";
 
 /** 拓扑日志（★ 它会不会用 consult，看这个） */
@@ -28,7 +32,7 @@ function log(kind: string, detail: string): void {
   process.stdout.write(`  ${kind.padEnd(11)} ${detail}\n`);
 }
 
-export async function runCluster(secs: number, dry = false) {
+export async function runCluster(secs: number, dry = false, employees = 1) {
   // ★★★ 单实例锁：**先抢锁再动任何东西**（2026-10-19 并发会话事故后加）
   //   ★ 必须在 mkdir/writeFile 之前 —— 否则并发者已经把 _topology.log 清空了才被拦住
   const lock = acquireLock();
@@ -55,6 +59,8 @@ export async function runCluster(secs: number, dry = false) {
   /** ★ 集群自己的定时器（微实验 E 的时间节流）—— 收尾时必须清掉，否则进程不退出 */
   const timers: NodeJS.Timeout[] = [];
   let seq = 1;
+  /** ★★ 辩证账：每一条挑战（可离线复核"他们真的在辩吗"） */
+  const debateLog: { at: string; to: string; chars: number }[] = [];
   /** ★ fire 定义在 researcher 之前，但它要回流给 researcher → 用这个引用接上 */
   let researcherRef: Agent | null = null;
   /** ★ 回流审计：每一条投给研究员的意见（via=fire 是真投了，via=consult 是它自己回的）——
@@ -117,17 +123,65 @@ export async function runCluster(secs: number, dry = false) {
   });
   const spawnLine = makeSpawnLine({ lab, onSpawn: (a) => spawned.push(a) });
 
-  // ── researcher（唯一常驻）──
-  const researcher = await lab.createAgent({
-    id: `L3-researcher-${Date.now().toString(36)}`,
-    model: MODEL,
-    role,
-    permissions: { only: [...ALL_TOOLS] },
-    tools: { custom: [consult, spawnLine] },
-  });
-  attachGate(researcher);
-  spawned.push(researcher);
-  researcherRef = researcher;   // ★ 接上回流的目标
+  // ── researcher ──
+  //
+  // ★★★ 同一身份、多个员工（设计者交办 2026-10-19）
+  //
+  //   ★ 他们**职责完全相同**（都是研究员），只有**看问题的角度**不同
+  //     （角度的定义在 `prompts/angles.ts`）。
+  //   ★★ 为什么角度进 `role` 而不是投递的消息：
+  //      角度是**它是谁的一部分**（一贯怎么看问题）⇒ 会话级，不随轮次变。
+  //      处境是**这一轮遇到什么** ⇒ 进指示。
+  //      ★ 若把角度写成指示 ⇒ 每轮都要重复说，且**会被处境冲掉**。
+  //   ★ 为什么这不算"运行时干涉"：这是**集群的形态**（起几个 agent、各自是谁），
+  //      属于"配置集群"那一类，不是"在外面盯状态"那一类。
+  //
+  // ★★★ 辩证机制（设计者提示 2026-10-19：「让他们探讨，通过辩论把研究辩证清楚」）：
+  //   ★ 我原来的做法（已被推翻）：3 个员工 ∥ 并行干活、**不要求交流** ——
+  //     3 份产物并列躺在 outbox 里，**无人合并**。那是**回避设计**。
+  //   ★★ 现在：他们**互相看得到彼此的产品**，且能用 `challenge` 质疑 ——
+  //     要么给反例/缺陷，要么**明确说"我同意"**（逼它表态，`P7`/`B8`）。
+  //   ★ 为什么不能是"你们去讨论吧"（`P3`）：不要指望模型自己分工 ——
+  //     所以给的是**工具**（能挑战谁、要写什么），不是一句"请辩论"。
+  const usedAngles = ANGLES.slice(0, employees);
+  const researcherByKey = new Map<string, Agent>();
+
+  // ★ 挑战的投递路由：把文本作为消息送到目标员工的队列（它在跑也收得到）
+  const deliverTo = (toKey: string, text: string): { ok: boolean; reason?: string } => {
+    const target = researcherByKey.get(toKey);
+    if (!target) return { ok: false, reason: `没有这位员工：${toKey}（有：${[...researcherByKey.keys()].join("、")}）` };
+    void target.io.queue(text).catch((e: unknown) => log("error", `挑战投递失败：${(e as Error).message}`));
+    debateLog.push({ at: new Date().toISOString(), to: toKey, chars: text.length });
+    return { ok: true };
+  };
+
+  const researchers: Agent[] = [];
+  for (const ang of usedAngles) {
+    // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
+    const challenge = makeChallenge({
+      deliver: deliverTo,
+      selfKey: ang.key,
+      peers: () => usedAngles.filter((x) => x.key !== ang.key).map((x) => ({ key: x.key, stance: x.stance })),
+    });
+    const a = await lab.createAgent({
+      id: `L3-researcher-${ang.key}-${Date.now().toString(36)}`,
+      model: MODEL,
+      role: role + renderAngle(ang),
+      permissions: { only: [...ALL_TOOLS] },
+      tools: { custom: [consult, spawnLine, challenge] },
+    });
+    attachGate(a);
+    spawned.push(a);
+    researchers.push(a);
+    researcherByKey.set(ang.key, a);
+  }
+  const researcher = researchers[0];
+  researcherRef = researcher;   // ★ 接上回流的目标（第一条意见回流给 0 号）
+  log(
+    "setup",
+    `研究员 ${researchers.length} 个：${usedAngles.map((a) => a.key).join(" / ")}` +
+      (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge 工具）` : ""),
+  );
 
   // ── ★ lib/ 自检：它改了库，得能看见、也得能撤销（防"改坏 → 撞死"）──
   const libState = recordLibState();
@@ -223,11 +277,26 @@ export async function runCluster(secs: number, dry = false) {
     return { dry: true };
   }
 
-  // ── 开工：投一次就够 —— 之后全由事件驱动 ──
-  const run = researcher.io.prompt(researcherPrompt.KICKOFF).catch((e) => ({
-    error: (e as Error).message,
-    text: "",
-  }));
+  // ── 开工：每个员工各投一次 —— 之后全由事件驱动 ──
+  //   ★ 三个员工**同时开跑**（不是串行）—— 这才叫"多员工"。
+  const runs = researchers.map((a, i) =>
+    a.io.prompt(
+      // ★ 告诉他们彼此存在（他们共享 outbox 与 work）——
+      //   但**不要求**他们协作：会不会看别人、要不要分工，是**要观察的行为**（`P3`：不要指望模型自己分工）。
+      researchers.length > 1
+        ? researcherPrompt.KICKOFF +
+          `\n\n★ 这个集群有 **${researchers.length} 位研究员**（职责相同，角度不同），共用 \`outbox/\` 与 \`work/\`。` +
+          `你是 \`${usedAngles[i].key}\` 那位。\n\n` +
+          `## ⚔️ 辩证机制（★ 这是这个集群的核心）\n` +
+          `你和同事**互相看得到彼此的产物**（都在 \`outbox/\`）。\n` +
+          `★ 看到同事的产物时，用 \`challenge\` 工具**必须表一个态**：\n` +
+          `  要么给出**反例/缺陷**（指到文件/数字），要么**明确说「我同意」**。\n` +
+          `★ 若只写"看起来还行"，那既没推进也没纠正 —— 不算。\n` +
+          `★★ 同事会挑战你的产物；**收到挑战必须回应**：接受→修订 / 反驳→给证据 / 悬而未决→说清缺什么。\n` +
+          `★ 不要附和 —— 你的角度就是你的价值。三人都同意的东西才叫站住。`
+        : researcherPrompt.KICKOFF,
+    ).catch((e) => ({ error: (e as Error).message, text: "" })),
+  );
 
   // ★ 只等窗口（不做任何"看状态/判断/起 agent"的事 —— 那都在事件规则里）
   await new Promise((r) => setTimeout(r, secs * 1000));
@@ -242,9 +311,25 @@ export async function runCluster(secs: number, dry = false) {
   const viaFire = deliveries.filter((d) => d.via === "fire").length;
   const viaConsult = deliveries.filter((d) => d.via === "consult").length;
   log("flow", `回流：fire 投了 ${viaFire} 条 · consult 自回 ${viaConsult} 次（★ consult 不该出现在 fire 里）`);
+  // ★★ 辩证账：他们真的在互相挑战吗（离线可复核）
+  writeFileSync(
+    join(LAB, "work", "debate.jsonl"),
+    debateLog.map((d) => JSON.stringify(d)).join("\n") + (debateLog.length ? "\n" : ""),
+  );
+  if (researchers.length > 1) {
+    const byTo = new Map<string, number>();
+    for (const d of debateLog) byTo.set(d.to, (byTo.get(d.to) ?? 0) + 1);
+    log(
+      "flow",
+      `辩证：共 ${debateLog.length} 次挑战` +
+        (debateLog.length
+          ? `（${[...byTo.entries()].map(([k, n]) => `${k}←${n}`).join(" ")}）`
+          : " ★ 一次都没有 —— 要么他们没看彼此，要么没找到可挑战的"),
+    );
+  }
 
   // ── 关灯（不是干涉）：让在跑的收干净 ──
-  await Promise.allSettled([run, ...spawned.map((a) => a.io.waitIdle().catch(() => {}))]);
+  await Promise.allSettled([...runs, ...spawned.map((a) => a.io.waitIdle().catch(() => {}))]);
   for (const a of spawned) {
     try {
       a.dispose();

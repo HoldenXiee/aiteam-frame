@@ -1,0 +1,4 @@
+{"arm":"A1","n":1,"merge":"-","reported":6,"tp":6,"fp":0,"recall":1,"precision":1,"overlap":1,"tokens":72417,"cost":0.0035154120000000003,"turns":12}
+{"arm":"A3-union","n":3,"merge":"union","reported":6,"tp":6,"fp":0,"recall":1,"precision":1,"overlap":1,"tokens":210229,"cost":0.015388632000000001,"turns":31}
+{"arm":"A3-vote","n":3,"merge":"vote","reported":6,"tp":6,"fp":0,"recall":1,"precision":1,"overlap":1,"tokens":210229,"cost":0.015388632000000001,"turns":31}
+{"arm":"A3-vote2","n":3,"merge":"vote2","reported":6,"tp":6,"fp":0,"recall":1,"precision":1,"overlap":1,"tokens":210229,"cost":0.015388632000000001,"turns":31}

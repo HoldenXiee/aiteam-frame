@@ -12,6 +12,7 @@
 //
 // 跑法：
 //   npx tsx research/clusters/lab-3b/index.ts --secs=1800
+//   npx tsx research/clusters/lab-3b/index.ts --employees=3   # ★★★ 同一身份多员工
 //   npx tsx research/clusters/lab-3b/index.ts --dry          # 只搭装置不投递（自检）
 
 import { runCluster } from "./runner.ts";
@@ -24,8 +25,12 @@ if (
   const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
   const secs = Number(arg("secs") ?? 1800);
   const dry = process.argv.includes("--dry");
-  console.log(`★ 研究员集群 lab-3b（触发拓扑）· 窗口 ${secs}s${dry ? " · 自检" : ""}`);
-  await runCluster(secs, dry);
+  // ★★★ 同一身份多员工：起几个研究员（1 = 旧行为；最多 = ANGLES 的个数）
+  const employees = Number(arg("employees") ?? 1);
+  console.log(
+    `★ 研究员集群 lab-3b（触发拓扑）· 窗口 ${secs}s · 研究员 ${employees} 个${dry ? " · 自检" : ""}`,
+  );
+  await runCluster(secs, dry, employees);
 }
 
 export { runCluster };
