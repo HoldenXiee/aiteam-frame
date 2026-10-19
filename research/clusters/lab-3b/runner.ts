@@ -12,7 +12,7 @@ import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
 import { labAt } from "./env.ts";
 import { deliverToResearcher, NOTE_CONSULT_ALREADY_FLOWS } from "./feedback.ts";
-import { recordLibState } from "./lib-state.ts";
+import { recordLibState, recordLibRevision } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
 import { ALL_TOOLS, LAB, MODEL } from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
@@ -203,6 +203,11 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   // ── ★ lib/ 自检：它改了库，得能看见、也得能撤销（防"改坏 → 撞死"）──
   const libState = recordLibState();
   log("lib", libState.hasEdits ? `★ 它改过库：${libState.dirty.length} 处（已记入 work/_lib-state.md）` : "lib/ 未改动");
+  // ★★★ 记下**此刻的 lib/ 修订号**（2026-10-19 研究员请求，我采纳）：
+  //   ★ 它实测到：3 人共用一个 lib/ ⇒ 改动静默合流 ⇒ 一次 run 的结果归因不到某个修订。
+  //   ★★ 用内容哈希（`git hash-object`），不是 commit —— 因为改动往往**没提交**。
+  const libRev = recordLibRevision("集群开工");
+  log("lib", `修订指纹 ${libRev.fingerprint}（work/_lib-rev.jsonl）`);
 
   // ── ★★★ 事件规则（集群的骨架，配置时挂好 —— 之后不再动它）──
   const state = newState();
@@ -356,6 +361,11 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   const viaFire = deliveries.filter((d) => d.via === "fire").length;
   const viaConsult = deliveries.filter((d) => d.via === "consult").length;
   log("flow", `回流：fire 投了 ${viaFire} 条 · consult 自回 ${viaConsult} 次（★ consult 不该出现在 fire 里）`);
+  // ★★★ 收尾时再记一次 lib 修订 —— **与开工时不同就说明中途有人改了库**（可归因）
+  const libRevEnd = recordLibRevision("集群收尾");
+  if (libRevEnd.fingerprint !== libRev.fingerprint) {
+    log("lib", `★ 本轮 lib/ 被改过：开工 ${libRev.fingerprint} → 收尾 ${libRevEnd.fingerprint}`);
+  }
   // ★★ 辩证账：他们真的在互相挑战吗（离线可复核）
   writeFileSync(
     join(LAB, "work", "debate.jsonl"),
