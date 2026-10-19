@@ -22,13 +22,15 @@ import { ANGLES, renderAngle } from "./prompts/angles.ts";
 // ★★★ 两个集群的"多员工"含义完全不同（2026-10-19）：
 //   · hunt ：三个**角度**（同一种活=探索的三种偏好）⇒ 多员工 = 找盲区
 //   · forge：三条**工作线**（三种不同的活）⇒ 多员工 = 一条产不出教科书
-import { DEFAULT_LINES, renderLine } from "./prompts/lines.ts";
+import { DEFAULT_TEAMS, TEAMS, renderTeam } from "./prompts/lines.ts";
 import { CLUSTER } from "./paths.ts";
 import { SOURCE_CLUSTER } from "./prompts/missions.ts";
 import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "./topology/rules.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
 import { makeChallenge } from "./tools/challenge.ts";
+import { makeSignOff, loadSignOffs, writeAgreedIndex, gateVerdict, renderSignOff, type SignOffTable } from "./tools/signoff.ts";
+import { makeJointExperiment, type JointProposal } from "./tools/joint.ts";
 import { makeSpawnLine } from "./tools/spawn-line.ts";
 
 /** 拓扑日志（★ 它会不会用 consult，看这个） */
@@ -154,18 +156,34 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★★ 实测发现的 bug：原写 `Math.max(2, employees)` ⇒ **传 1 也起 2 条线**，
   //      与"先跑 1 人"的意图相反。现在就是 `employees`。
   const isForge = CLUSTER !== SOURCE_CLUSTER;
-  const usedAngles = isForge
-    ? DEFAULT_LINES.slice(0, employees).map((k) => ({
-        key: k,
-        stance: "",
-        // ★ forge 的三条线用 `renderLine` 渲染（内容与 hunt 的角度完全不同）
-        render: () => renderLine(k),
-      }))
+  // ★★★ forge = **团队 × 队内员工**（设计者：「多个团队、多个员工」—— 两层）
+  //   ★ `--employees=N` 现在是**每个团队几个人**（1 或 2）。
+  //   ★★ 首跑实测教训：我把「三条线」当成三个员工，结果它们各写各的、无人合成。
+  //      现在每个团队至少 1 人，默认 2 人（一人提概念 / 一人连线，真的会吵）。
+  const perTeam = Math.max(1, Math.min(2, employees));
+  const seats = isForge
+    ? DEFAULT_TEAMS.flatMap((tk) =>
+        TEAMS[tk].members.slice(0, perTeam).map((m) => ({
+          key: perTeam > 1 ? `${tk}/${m.key}` : tk,
+          teamKey: tk as string,
+          memberKey: m.key,
+          stance: TEAMS[tk].stance,
+          render: () => renderTeam(tk, m.key),
+        })),
+      )
     : ANGLES.slice(0, employees).map((a) => ({
         key: a.key,
+        teamKey: "",
+        memberKey: "",
         stance: a.stance,
         render: () => renderAngle(a),
       }));
+  /** ★ 真正要起的座位（forge 是 团队×成员，hunt 是 角度） */
+  const usedAngles: { key: string; teamKey: string; stance: string; render: () => string }[] = seats;
+  /** ★★ 共识门要的"全体团队"（forge 按团队算，hunt 按员工算） */
+  const ALL_TEAMS: string[] = isForge
+    ? DEFAULT_TEAMS.filter((tk) => seats.some((s2) => s2.teamKey === tk))
+    : usedAngles.map((s2) => s2.key);
   /** ★ 统一的渲染入口：两个集群各自的"多员工含义" */
   const renderSeat = (seat: { render: () => string }) => seat.render();
   const researcherByKey = new Map<string, Agent>();
@@ -183,7 +201,18 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const target = researcherByKey.get(toKey);
     if (!target) return { ok: false, reason: `没有这位员工：${toKey}（有：${[...researcherByKey.keys()].join("、")}）` };
     void target.io.steer(text).catch((e: unknown) => log("error", `挑战投递失败：${(e as Error).message}`));
-    const rec = { at: new Date().toISOString(), to: toKey, chars: text.length };
+    // ★★★ 2026-10-19 实测缺陷：原来只存 `chars` —— **"争辩"只剩字数，内容丢了**。
+    //   ★ 后果：事后**无法判断它是在争辩，还是在各说各的**（上一轮 21 次挑战，
+    //     翻开看全是 `{at,to,chars}` ⇒ 只能数次数，不能读论点）。
+    //   ★★ 教训（量具纪律）：**量具记的字段，必须能回答你想问的问题**。
+    //     我要问"它们辩了什么"，却只记了"说了几个字"。
+    const rec = {
+      at: new Date().toISOString(),
+      to: toKey,
+      // ★ 全文（争辩必须可复核 —— 教科书里的共识要能被追出来）
+      text,
+      chars: text.length,
+    };
     debateLog.push(rec);
     // ★★★ 同时**落盘**（2026-10-19 读数错误）：
     //   原来只在**收尾**写 `debate.jsonl` ⇒ 中途查永远是 0 ⇒
@@ -197,19 +226,46 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   };
 
   const researchers: Agent[] = [];
+  // ★★★ 共识签字表（跨员工共享，且**从落盘读回** ⇒ 重启不丢）
+  const signoffTable: SignOffTable = loadSignOffs(join(LAB, "work", "signoffs.jsonl"));
+  /** ★ 联合实验提案表 */
+  const jointTable = new Map<string, JointProposal>();
   for (const ang of usedAngles) {
+    const myKey = ang.key; // ★ forge 是 `team/member`，hunt 是角度名
     // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
+    //   ★★ forge 要能挑战**别的团队**（同团队内也可挑）⇒ peers 用 myKey 判
     const challenge = makeChallenge({
       deliver: deliverTo,
-      selfKey: ang.key,
-      peers: () => usedAngles.filter((x) => x.key !== ang.key).map((x) => ({ key: x.key, stance: x.stance })),
+      selfKey: myKey,
+      peers: () =>
+        usedAngles
+          .filter((x) => x.key !== myKey)
+          .map((x) => ({ key: x.key, stance: x.stance || (x.teamKey ? `团队 ${x.teamKey}` : "") })),
+    });
+    // ★★★ 共识门（设计者 2026-10-19：「最后争辩出一个都认同的结果才能写进 book」）
+    //   ★ 每位员工都有 `sign_off`；门要求**全体团队**都表态（沉默不算认同）。
+    const signOff = makeSignOff({
+      selfKey: ang.teamKey || ang.key,
+      allTeams: () => ALL_TEAMS,
+      recordPath: join(LAB, "work", "signoffs.jsonl"),
+      table: signoffTable,
+      outboxDir: join(LAB, "outbox"),
+    });
+    // ★★ 联合实验（设计者：「各个团队可以设计实验，或共同设计实验来验证」）
+    const joint = makeJointExperiment({
+      selfKey: ang.teamKey || ang.key,
+      allTeams: () => ALL_TEAMS,
+      recordPath: join(LAB, "work", "joint.jsonl"),
+      table: jointTable,
+      workDir: join(LAB, "work", "joint"),
     });
     const a = await lab.createAgent({
-      id: `L3-researcher-${ang.key}-${Date.now().toString(36)}`,
+      id: `L3-researcher-${myKey.replace("/", "-")}-${Date.now().toString(36)}`,
       model: MODEL,
       role: role + renderSeat(ang),
       permissions: { only: [...ALL_TOOLS] },
-      tools: { custom: [consult, spawnLine, challenge] },
+      // ★★ forge 多两件工具：`sign_off`（共识门）+ `joint_experiment`（联合设计实验）
+      tools: { custom: isForge ? [consult, spawnLine, challenge, signOff, joint] : [consult, spawnLine, challenge] },
     });
     attachGate(a);
     spawned.push(a);
@@ -339,7 +395,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   // 别让定时器把进程吊住（收尾时要 clear）—— 挂到 spawned 清理那一步
   timers.push(timer);
 
-  log("setup", `装置就绪 · 窗口 ${secs}s · 5 个专家（按需起）· 工作线/研究员 ${researchers.length} 个（常驻）`);
+  log("setup", `装置就绪 · 窗口 ${secs}s · 5 个专家（按需起）· ${isForge ? `团队 ${ALL_TEAMS.length} 个 × 座位 ${researchers.length} 个` : `研究员 ${researchers.length} 个`}（常驻）`);
   log("setup", `researcher 的自定义工具：consult / spawn_line`);
 
   if (dry) {
