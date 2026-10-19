@@ -129,6 +129,16 @@ export type TriggerCtx = {
   challenge?: (toKey: string, text: string) => void;
   /** ★ 当前活着的员工 key（用于“新产物该交给谁挑战”） */
   peerKeys?: () => string[];
+  /**
+   * ★★★ 收尾态（2026-10-19）：窗口到点后为 `true`。
+   *
+   * ★ 为什么必需（实测）：多员工时“窗口到点 → 等收尾”会**自激** ——
+   *   员工还在产出 ⇒ 新产物触发 `onSettled` ⇒ fire 专家（要跑 6 分钟）
+   *   ⇒ 期间又有新产物 ⇒ 又触发 ⇒ **永不收敛**（实测超窗口 44 分钟仍在跑）。
+   * ★ `N=1` 时不存在这个问题（一个员工收尾就是收尾）。
+   * ★★ 这不是“运行时干涉” —— 它是**集群的收尾形态**（配置的一部分）。
+   */
+  closing?: () => boolean;
 };
 
 export type State = {
@@ -270,6 +280,8 @@ export function makeRules(ctx: TriggerCtx) {
 
   /** 情况 A：有新产物 → 审查（★ 收敛时就顺便要它判停，C7） */
   async function onSettled(): Promise<void> {
+    // ★ 收尾态：不再 fire 新专家（已 fire 的会跑完）
+    if (ctx.closing?.()) return;
     const outs = listOutbox();
     ctx.trace("onSettled", `outbox=${outs.length} auditedOutputs=${state.auditedOutputs}`);
     if (outs.length > state.auditedOutputs) {
@@ -327,6 +339,8 @@ export function makeRules(ctx: TriggerCtx) {
    *   ★ 两者都是**它自己写的、语义明确的"我推进了"信号**（不是我们替它判）。
    */
   async function onPlateau(): Promise<void> {
+    // ★ 收尾态：不再 fire inspirer/archivist（它们是长跑专家，会让收尾永不结束）
+    if (ctx.closing?.()) return;
     // ══════════════════════════════════════════════════════════════
     // ★★★ v3 判据（第三次定义，前两次都被实测推翻，详见 topology/progress.ts）
     //
@@ -403,6 +417,8 @@ export function makeRules(ctx: TriggerCtx) {
   // ══════════════════════════════════════════════════════════════
   async function onNewFinding(): Promise<void> {
     if (!ctx.challenge || !ctx.peerKeys) return;
+    // ★ 收尾态：不再送新挑战
+    if (ctx.closing?.()) return;
     const outs = listOutbox();
     const fresh = outs.filter((f) => !state.challengedOutputs.includes(f));
     if (fresh.length === 0) return;

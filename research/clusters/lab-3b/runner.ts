@@ -208,6 +208,20 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   const state = newState();
   // ★★★ 规则级 trace（微实验的前提量具）：每条规则每次被调用都记一笔，
   //   **哪怕它决定不动** —— 否则分不清「规则没跑」与「跑了但没触发」。
+  // ★★★ 收尾态（2026-10-19 实测：多员工时才暴露的缺口）
+  //
+  //   现象：窗口到点 15:23，16:07 仍在跑（超 44 分钟），outbox 还在涨。
+  //   机制：窗口到点 → 等收尾 → 但**员工还在产出** → 新产物触发 onSettled
+  //         → fire inspector（它要跑 6 分钟）→ 期间又有新产物 → 又触发
+  //         ⇒ **收尾期变成「边收边产」的自激循环**。
+  //   ★ N=1 时不存在（一个员工收尾就是收尾）；
+  //   ★★ N=3 时"收尾"本身又产生三倍新事件 ⇒ **永不收敛**。
+  //
+  //   ★ 这不是 bug（规则对、员工对），是**设计缺口**：缺一个"收尾态"。
+  //   ★★ 它**不违反「运行时不能干涉」** —— 它是**集群的收尾形态**（配置的一部分），
+  //      不是"我在外面判断该不该停"。
+  let closing = false;
+
   const rules = makeRules({
     fire,
     state,
@@ -217,6 +231,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     //   ★★ 只有多员工时才接（单员工不接 ⇒ 行为与旧版完全一致）。
     challenge: researchers.length > 1 ? deliverTo : undefined,
     peerKeys: researchers.length > 1 ? () => usedAngles.map((a) => a.key) : undefined,
+    // ★ 收尾态：窗口到点后不再 fire 新专家、不再送新挑战（只等现有的做完）
+    closing: () => closing,
   });
 
   // ★★★ 观察点②：每 THROTTLE_N 次工具调用（微实验 A/B 的落地）
@@ -327,6 +343,9 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   // ★ 只等窗口（不做任何"看状态/判断/起 agent"的事 —— 那都在事件规则里）
   await new Promise((r) => setTimeout(r, secs * 1000));
   log("window", `窗口到点（${Math.round((Date.now() - t0) / 1000)}s）`);
+  // ★★★ 进入收尾态（多个员工时必需 —— 否则"收尾"会自激，永不收敛）
+  closing = true;
+  log("window", "进入收尾态：不再 fire 新专家 / 不再送新挑战，只等已在跑的做完");
 
   for (const t of timers) clearInterval(t);   // ★ 清掉时间节流，否则进程不退出
   // ★★ 回流的审计账（写盘，可离线复核 —— 验收「同一份意见到了几次」就靠它）
