@@ -25,8 +25,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ★★★ 这一行是分层的关键：import 研究员可写的那份库
-import { createLab, type Lab } from "../../labfirst/lab-3b/lib/aiteam/index.ts";
-import { DOCS, LAB, MODEL } from "./paths.ts";
+//   ★★ 用**动态 import**（`await import(LAB_ENTRY)`）—— 静态 import 要求字面量路径，
+//     而我们要让它从 `paths.ts` 算出来（同一份代码能跑不同集群）。
+import { LAB_ENTRY, DOCS, LAB, MODEL } from "./paths.ts";
+// ★ Windows 路径必须转 `file://` URL 才能动态 import（`D:\...` 会被当成协议）
+import { pathToFileURL } from "node:url";
+const aiteam = (await import(pathToFileURL(LAB_ENTRY).href)) as typeof import("../../src/index.ts");
+export const { createLab } = aiteam;
+import type { Lab as _Lab } from "../../src/index.ts";
+export type Lab = _Lab;
 
 const here = dirname(fileURLToPath(import.meta.url));
 

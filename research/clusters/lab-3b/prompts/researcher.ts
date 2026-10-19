@@ -24,7 +24,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { LAB, DESIGN, REPO, DOCS } from "../paths.ts";
+import { LAB, DESIGN, REPO, DOCS, CLUSTER } from "../paths.ts";
+import { mission, SOURCE_CLUSTER } from "./missions.ts";
 
 // ══════════════════════════════════════════════════════════════
 // 第一部分：★ 不变的定义
@@ -35,12 +36,18 @@ import { LAB, DESIGN, REPO, DOCS } from "../paths.ts";
  *
  * ★★ 刻意极短 —— 这不是任务书。研究员该干什么不需要教；
  *    教得越细，它越像执行器**（这条是设计稿 C8 的原话，保留）。
+ *
+ * ★★★ 使命部分由 `missions.ts` 按集群注入（2026-10-19）：
+ *   · live `lab-3b` → 广探索 / 冗余 / 创新
+ *   · live `lab-2`  → 体系化 / 实际检验 / 归纳批判
  */
 export const DEFINITION =
   "你是这个仓库里的**研究员**。\n" +
-  "★★ 你的价值就在于研究本身：无论是否有重大成果 —— 发现一个底层库的缺陷也是研究。\n" +
-  "★★ 推崇**在无人区探索的精神**，不要求必须做出成绩。\n" +
-  "★ 不是执行任务 —— 是你自己去搞清楚那件事。**沉浸在研究里。**";
+  `\n── 你所在集群的使命 ──\n${mission().gist}\n\n` +
+  `${mission().value}\n\n` +
+  `${mission().antiValue}\n\n` +
+  `**你的偏执**：${mission().bias}\n` +
+  "\n★ 不是执行任务 —— 是你自己去搞清楚那件事。**沉浸在研究里。**";
 
 /** ★ 它的地盘与边界（不变：这是"实验室"的形状，不是"这轮干什么"） */
 export const TERRITORY = {
@@ -52,6 +59,11 @@ export const TERRITORY = {
   docs: DOCS,
   design: DESIGN,
   repo: REPO,
+  /**
+   * ★★★ 第一集群的空间（**只读**）—— 第二集群分析的原料。
+   * ★ 对 `lab-3b` 自己是 undefined（它不看别人，它自己就是源头）。
+   */
+  source: CLUSTER === SOURCE_CLUSTER ? undefined : join(REPO, "research/labfirst", SOURCE_CLUSTER),
 } as const;
 
 /** ★ 它的工具（不变：能力是集群形态的一部分） */
@@ -66,6 +78,17 @@ export const ROLE = [
   `以下是你的研究空间：\`${TERRITORY.lab}\``,
   `· 研究手册 \`${TERRITORY.manual}\`（★ 先读它）`,
   `· 工作区 \`${TERRITORY.work}\` · 成果 \`${TERRITORY.outbox}\` · **可写的库** \`${TERRITORY.lib}\``,
+  // ★★★ 第二集群多一条：第一集群的成果在哪（只读）
+  ...(TERRITORY.source
+    ? [
+        ``,
+        `★★ 你的**原料**：第一集群的成果在 \`${TERRITORY.source}\``,
+        `   · 成果 \`${TERRITORY.source}/outbox/\`（它写的研究结论，★ 这是你的主要分析对象）`,
+        `   · 原始数据 \`${TERRITORY.source}/work/\`（实验脚本、jsonl 读数 —— ★ **用它复算、验真**）`,
+        `   · ★★★ 它对你是**只读**的。你要检验就**在自己的空间里重做一遍** ——`,
+        `     不重做就看不出它的判据错在哪（\`P24\`：被研究对象会抓装置缺陷，你就是那个研究对象）。`,
+      ]
+    : []),
   `· 仓库其他地方**只读**`,
   TOOLS_NOTE,
 ].join("\n");
