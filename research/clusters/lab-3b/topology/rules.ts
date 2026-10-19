@@ -117,6 +117,18 @@ export type TriggerCtx = {
    *   ★ 有了它，微实验 A 的结论才在真集群里得到实证（600s 实跑：一条都没有）。
    */
   trace: (rule: string, detail: string) => void;
+  /**
+   * ★★★ 辩证（2026-10-19）：把“去挑战同事产物”的**处境**送到某位员工面前。
+   *
+   * ★ 为什么不是给它一个工具（实测教训）：
+   *   第一版给了 `challenge` 工具 —— **一次都没用过**（`P13`：“允许它做 X” 它不做）。
+   *   ⇒ 辩论不能是**能力**，必须是**处境**（由代码主动送到它面前）。
+   *
+   * ★ 未接（单员工跑）时为 `undefined` ⇒ `onNewFinding` 直接不触发。
+   */
+  challenge?: (toKey: string, text: string) => void;
+  /** ★ 当前活着的员工 key（用于“新产物该交给谁挑战”） */
+  peerKeys?: () => string[];
 };
 
 export type State = {
@@ -161,6 +173,14 @@ export type State = {
    *   · `auditedOutputs`  —— onSettled 用（该审查吗）
    */
   seenOutboxCount: number;
+  /**
+   * ★★★ 辩证专用：已经被“交给同事挑战过”的产物文件名。
+   *
+   * ★ 与 `auditedOutputs`（审查）、`seenOutboxCount`（活动）**又是三个不同的账** ——
+   *   这是本项目反复踩过的坑（一个状态两个写者 ⇒ 判据恒 false）。
+   *   ★ 三条规则三个账：审的、看的、辩的。
+   */
+  challengedOutputs: string[];
 };
 
 export function newState(): State {
@@ -173,6 +193,7 @@ export function newState(): State {
     lastActiveAt: Date.now(),
     lastWorkMtime: 0,
     lastConvergedMtime: convergedMtime(),
+    challengedOutputs: [],
     lastTickAt: Date.now(),
   };
 }
@@ -186,7 +207,12 @@ export function newState(): State {
  */
 export async function tick(
   ctx: TriggerCtx & {
-    rules: { onSettled: () => Promise<void>; onCapabilityGap: () => Promise<void>; onPlateau: () => Promise<void> };
+    rules: {
+      onSettled: () => Promise<void>;
+      onCapabilityGap: () => Promise<void>;
+      onPlateau: () => Promise<void>;
+      onNewFinding: () => Promise<void>;
+    };
   },
 ): Promise<void> {
   const { state, rules, trace } = ctx;
@@ -226,6 +252,15 @@ export async function tick(
   trace("tick", `outbox=${n} audited=${state.auditedOutputs} 活动=${outboxChanged || workChanged} roundsSinceProgress=${state.roundsSinceProgress}`);
   // ★ 顺序重要：onSettled 先跑（它自己记 auditedOutputs），其余两个不许碰它
   await rules.onSettled();
+  // ★★★ 辩证（2026-10-19）：新产物落盘 → **结构性地**要求同事去挑战
+  //   ★ 为什么放在这里（`onSettled` 之后、`onPlateau` 之前）：
+  //     · 先审（`onSettled`）—— 审查是底线
+  //     · 再辩 —— 辩论是**多员工才有的**机制
+  //     · 最后看平台期
+  //   ★★ 为什么必须有这条规则（实测教训）：
+  //     给 `challenge` **工具** = 「允许它辩」⇒ **一次都没用过**（P13）。
+  //     ⇒ 辩论不能是能力，必须是**处境**（由代码送到它面前）。
+  await rules.onNewFinding();
   await rules.onCapabilityGap();
   await rules.onPlateau();
 }
@@ -350,5 +385,49 @@ export function makeRules(ctx: TriggerCtx) {
     state.roundsSinceProgress = 0;
   }
 
-  return { onSettled, onCapabilityGap, onPlateau };
+  // ══════════════════════════════════════════════════════════════
+  // ★★★ 情况 D：辩证 —— 有新产物 ⇒ **结构性地**要同事去挑战它
+  //
+  //   ★★★ 为什么必须有这条（实测教训，2026-10-19）：
+  //     第一版只给了 `challenge` **工具**，结果 **一次都没用过**。
+  //     ⇒ **「允许它辩」＝它不辩**（`P13` 第 N 次）。
+  //   ★ 所以辩论不能是**能力**（工具），必须是**处境**（由代码送到它面前）。
+  //     —— 这与本集群其它触发同构：不是“让模型自己决定要不要分工”（`P3`）。
+  //
+  //   ★★ 与 `onSettled` 的分工：
+  //     · `onSettled`    → 叫**外部专家**（inspector）审
+  //     · `onNewFinding` → 叫**内部同事**（另两个角度的研究员）辩
+  //     两者**不能互相替代**：专家上下文干净（看不到推导），同事**全程在场**（能追到细节）。
+  //
+  //   ★ 单员工时 `ctx.challenge` 未接 ⇒ 直接不触发（与旧行为完全一致）。
+  // ══════════════════════════════════════════════════════════════
+  async function onNewFinding(): Promise<void> {
+    if (!ctx.challenge || !ctx.peerKeys) return;
+    const outs = listOutbox();
+    const fresh = outs.filter((f) => !state.challengedOutputs.includes(f));
+    if (fresh.length === 0) return;
+    // ★ 一次最多送一份 —— 否则一批十几份产物会同时向同事发问，把它们的上下文淹了
+    const target = fresh[0]!;
+    state.challengedOutputs.push(target);
+    const peers = ctx.peerKeys();
+    const n = Math.min(peers.length, 2);
+    ctx.trace(
+      "onNewFinding",
+      `新产物=${target} · 要 ${n} 位同事去挑战（已辩 ${state.challengedOutputs.length}/${outs.length}）`,
+    );
+    const text =
+      `## ⚔️ 辩证：有一份新同事产物需要你挑战\n\n` +
+      `**产物**：\`outbox/${target}\`\n\n` +
+      `---\n\n` +
+      `★ 读完它，然后**必须表一个态**：\n` +
+      `  · **给出反例**（指到文件/数字/实验）\n` +
+      `  · **指出缺陷**（装置、判据、归因哪一处错）\n` +
+      `  · **我同意**（★ 并写清你**核对过什么**才同意的）\n\n` +
+      `★★ 不要写“看起来还行” —— 那既没推进也没纠正。\n` +
+      `★ 用你的角度去看：**别人会信什么，你就去找什么的反面**。\n` +
+      `★ 若它站得住，说出来也是贡献 —— 那意味着三个人从三个方向都没找到问题。`;
+    for (const k of peers.slice(0, n)) ctx.challenge(k, text);
+  }
+
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding };
 }

@@ -191,7 +191,16 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   const state = newState();
   // ★★★ 规则级 trace（微实验的前提量具）：每条规则每次被调用都记一笔，
   //   **哪怕它决定不动** —— 否则分不清「规则没跑」与「跑了但没触发」。
-  const rules = makeRules({ fire, state, trace: (rule, detail) => log(`rule:${rule}`, detail) });
+  const rules = makeRules({
+    fire,
+    state,
+    trace: (rule, detail) => log(`rule:${rule}`, detail),
+    // ★★★ 辩证（2026-10-19）：把“去挑战同事”的**处境**送到员工面前。
+    //   ★ 为什么不是给工具（实测）：第一版给了 `challenge` 工具 ⇒ **一次都没用过**。
+    //   ★★ 只有多员工时才接（单员工不接 ⇒ 行为与旧版完全一致）。
+    challenge: researchers.length > 1 ? deliverTo : undefined,
+    peerKeys: researchers.length > 1 ? () => usedAngles.map((a) => a.key) : undefined,
+  });
 
   // ★★★ 观察点②：每 THROTTLE_N 次工具调用（微实验 A/B 的落地）
   //
