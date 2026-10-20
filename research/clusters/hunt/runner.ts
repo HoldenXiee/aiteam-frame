@@ -14,7 +14,7 @@ import { labAt } from "./env.ts";
 import { deliverToResearcher, NOTE_CONSULT_ALREADY_FLOWS } from "./feedback.ts";
 import { recordLibState, recordLibRevision } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
-import { ALL_TOOLS, LAB, MODEL } from "./paths.ts";
+import { ALL_TOOLS, LAB, MODEL, REPO } from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
 import * as researcherPrompt from "./prompts/researcher.ts";
 // ★★★ 同一身份多员工：角度的定义（设计者交办 2026-10-19）
@@ -22,7 +22,8 @@ import { ANGLES, renderAngle } from "./prompts/angles.ts";
 // ★★★ 两个集群的"多员工"含义完全不同（2026-10-19）：
 //   · hunt ：三个**角度**（同一种活=探索的三种偏好）⇒ 多员工 = 找盲区
 //   · forge：三条**工作线**（三种不同的活）⇒ 多员工 = 一条产不出教科书
-import { DEFAULT_TEAMS, TEAMS, renderTeam } from "./prompts/lines.ts";
+import { DEFAULT_TEAMS, TEAMS, renderTeam, AUDIENCES, renderAudience, BOOK_THRESHOLD } from "./prompts/lines.ts";
+import { makeJudge, loadVotes, writeVerdicts, type Vote } from "./tools/judge.ts";
 import { CLUSTER } from "./paths.ts";
 import { SOURCE_CLUSTER } from "./prompts/missions.ts";
 import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "./topology/rules.ts";
@@ -31,6 +32,7 @@ import { makeConsult } from "./tools/consult.ts";
 import { makeChallenge } from "./tools/challenge.ts";
 import { makeSignOff, loadSignOffs, writeAgreedIndex, gateVerdict, renderSignOff, type SignOffTable } from "./tools/signoff.ts";
 import { makeJointExperiment, type JointProposal } from "./tools/joint.ts";
+import { publishAndReport } from "./tools/publish.ts";
 import { makeSpawnLine } from "./tools/spawn-line.ts";
 
 /** 拓扑日志（★ 它会不会用 consult，看这个） */
@@ -184,9 +186,17 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   const ALL_TEAMS: string[] = isForge
     ? DEFAULT_TEAMS.filter((tk) => seats.some((s2) => s2.teamKey === tk))
     : usedAngles.map((s2) => s2.key);
+  // ★★★ 观众（设计者 2026-10-19）：
+  //   「加一个『观众』，最后观众**最被说服哪个观点就写哪个观点**」
+  //   「所有观众都支持某个观点（或达到 9 成支持）就**结束争辩写入 book**」
+  //   ★★ 观众**不生产产物**，只表态 ⇒ 它们的 role 是另一套（renderAudience）。
+  //   ★ 每人有**自己的想法**（operator / skeptic / newcomer / builder）⇒ 不是橡皮图章。
+  const audienceSeats = isForge ? AUDIENCES.map((a) => ({ audience: a })) : [];
   /** ★ 统一的渲染入口：两个集群各自的"多员工含义" */
   const renderSeat = (seat: { render: () => string }) => seat.render();
   const researcherByKey = new Map<string, Agent>();
+  /** ★ 观众（只在 forge）—— 把它们的话送回去要用 */
+  const audienceByKey = new Map<string, Agent>();
 
   // ★ 挑战的投递路由：把文本作为消息送到目标员工
   //
@@ -198,9 +208,22 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ⇒ 改用 `steer`：**当场注入** —— 挑战必须能被看见。
   //   ★ 与 `interrupt` 不同：`steer` 不打断当前那轮，只把话插进去。
   const deliverTo = (toKey: string, text: string): { ok: boolean; reason?: string } => {
-    const target = researcherByKey.get(toKey);
-    if (!target) return { ok: false, reason: `没有这位员工：${toKey}（有：${[...researcherByKey.keys()].join("、")}）` };
-    void target.io.steer(text).catch((e: unknown) => log("error", `挑战投递失败：${(e as Error).message}`));
+    // ★★★ 2026-10-19 夜间实测 bug：座位 key 是 `theory/architect`，
+    //   但共识门/观众规则送的是**团队名** `theory` ⇒ `get("theory")` 落空
+    //   ⇒ 投递**静默失败**（规则不看返回值）⇒ 三条规则触发了，agent 一次没收到。
+    //   ★★ 修法：团队名 → 该队的**全部座位**；同时下面让失败**必须响亮**。
+    let targets = [researcherByKey.get(toKey)].filter((x): x is Agent => !!x);
+    if (targets.length === 0) {
+      targets = [...researcherByKey.entries()]
+        .filter(([k]) => k === toKey || k.startsWith(`${toKey}/`))
+        .map(([, a]) => a);
+    }
+    if (targets.length === 0)
+      return { ok: false, reason: `没有这位员工/团队：${toKey}（有：${[...researcherByKey.keys()].join("、")}）` };
+    for (const target of targets) {
+      void target.io.steer(text).catch((e: unknown) => log("error", `投递失败：${(e as Error).message}`));
+    }
+    // ★★ 上面的循环已经投给全部座位，这里不再重复投第一个
     // ★★★ 2026-10-19 实测缺陷：原来只存 `chars` —— **"争辩"只剩字数，内容丢了**。
     //   ★ 后果：事后**无法判断它是在争辩，还是在各说各的**（上一轮 21 次挑战，
     //     翻开看全是 `{at,to,chars}` ⇒ 只能数次数，不能读论点）。
@@ -272,13 +295,43 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     researchers.push(a);
     researcherByKey.set(ang.key, a);
   }
+  // ★★★ 起观众（只在 forge）：它们**不写产物**，只回答"谁最说服了我"
+  const audiences: Agent[] = [];
+  const votes: Vote[] = loadVotes(join(LAB, "work", "votes.jsonl"));
+  for (const seat of audienceSeats) {
+    const a = seat.audience;
+    const judge = makeJudge({
+      selfKey: a.key,
+      recordPath: join(LAB, "work", "votes.jsonl"),
+      votes,
+    });
+    const ag = await lab.createAgent({
+      id: `L3-audience-${a.key}-${Date.now().toString(36)}`,
+      model: MODEL,
+      role: renderAudience(a),
+      permissions: { only: [...ALL_TOOLS] },
+      tools: { custom: [judge, consult] },
+    });
+    attachGate(ag);
+    spawned.push(ag);
+    audiences.push(ag);
+    audienceByKey.set(a.key, ag);
+  }
+
   const researcher = researchers[0];
   researcherRef = researcher;   // ★ 接上回流的目标（第一条意见回流给 0 号）
   log(
     "setup",
-    `${isForge ? "★ 教科书的 " : "研究员 "}${researchers.length} ${isForge ? "条工作线" : "个"}：${usedAngles.map((a) => a.key).join(" / ")}` +
-      (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge 工具）` : ""),
+    `★ 研究席位 ${researchers.length} 个：${usedAngles.map((a) => a.key).join(" / ")}` +
+      (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge / sign_off / joint_experiment）` : ""),
   );
+  if (isForge && audiences.length) {
+    log(
+      "setup",
+      `★★ 观众 ${audiences.length} 位：${AUDIENCES.map((a) => a.key).join(" / ")}` +
+        ` · ★★★ 观众最被谁说服就写谁的观点（门槛 ${Math.round(BOOK_THRESHOLD * 100)}%）`,
+    );
+  }
 
   // ── ★ lib/ 自检：它改了库，得能看见、也得能撤销（防"改坏 → 撞死"）──
   const libState = recordLibState();
@@ -316,6 +369,20 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     //   ★★ 只有多员工时才接（单员工不接 ⇒ 行为与旧版完全一致）。
     challenge: researchers.length > 1 ? deliverTo : undefined,
     peerKeys: researchers.length > 1 ? () => usedAngles.map((a) => a.key) : undefined,
+    // ★★★ 观众通道（只在 forge）：请观众评"哪一方的说法最站得住"
+    audience: audiences.length > 0 ? () => [...audienceByKey.keys()] : undefined,
+    // ★★★ 共识门的状态（供 onConsensus 规则判断"谁还没签字"）
+    signoffState: (artifact: string) => signoffTable.get(artifact),
+    allTeams: () => ALL_TEAMS,
+    tellAudience:
+      audiences.length > 0
+        ? (key: string, text: string): { ok: boolean; reason?: string } => {
+            const ag = audienceByKey.get(key);
+            if (!ag) return { ok: false, reason: `没有这位观众：${key}（有：${[...audienceByKey.keys()].join("、")}）` };
+            void ag.io.steer(text).catch((e: unknown) => log("error", `观众投递失败：${(e as Error).message}`));
+            return { ok: true };
+          }
+        : undefined,
     // ★ 收尾态：窗口到点后不再 fire 新专家、不再送新挑战（只等现有的做完）
     closing: () => closing,
   });
@@ -423,6 +490,43 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
           `★ 不要附和 —— 你的角度就是你的价值。三人都同意的东西才叫站住。`
         : researcherPrompt.KICKOFF,
     ).catch((e) => ({ error: (e as Error).message, text: "" })),
+  );
+
+  // ★★★ 观众也要**开工**（2026-10-19 夜间实测 bug）：
+  //   ★ 症状：`onAudience` 触发了 5 次、消息都送出去了，但**观众 0 票**。
+  //   ★★ 根因：观众建出来后**从来没被 `io.prompt` 投递过** ⇒ 它们没在跑 ⇒
+  //      `steer` 的消息排在「一次不存在的运行」后面 ⇒ **永远看不到**。
+  //   ★ 教训（同类第 3 次）：**"我把东西给它了" ≠ "它在跑"** ——
+  //     投递要发生在**已经启动的** agent 上。
+  const audienceRuns = audiences.map((a, i) =>
+    a
+      .io.prompt(
+        `★ 你是观众（${AUDIENCES[i]!.key}）。你**不写产物**，也不做研究。
+
+` +
+          `★★★ 你的唯一职责：等研究团队产出后，回答**谁最说服了我**。
+` +
+          `★ 三个团队（theory / practice / landing）在争同一个问题，各有立场。
+
+` +
+          `## 你现在该怎么做
+` +
+          `1. 先看 \`outbox/\` 里有什么（\`ls outbox/\`），挑最近的读。
+` +
+          `2. 读的时候按**你的身份**看（见你的定义里的「你怎么判断」）。
+` +
+          `3. 读完用 \`judge\` 工具表一个态。
+` +
+          `4. 然后**继续等**（会有新产物送过来）。
+
+` +
+          `★★ 不要客气。**「都不够」是完全有效的表态** —— 全体观众支持某一方时争辩才结束，
+` +
+          `   所以你的不同意见比附和重要得多。
+` +
+          `★ 若现在 outbox 还是空的，就等着；有东西了再用 \`judge\`。`,
+      )
+      .catch((e) => ({ error: (e as Error).message, text: "" })),
   );
 
   // ★ 只等窗口（不做任何"看状态/判断/起 agent"的事 —— 那都在事件规则里）

@@ -15,8 +15,8 @@ import { gateVerdict, renderSignOff, agreedArtifacts, type SignOffRecord, type V
 
 const T = ["theory", "practice", "landing"] as const;
 
-function sign(by: string, verdict: Verdict, reason = "核对过 runs/x.jsonl 的 12 行"): SignOffRecord {
-  return { at: "2026-10-19T00:00:00Z", artifact: "a.md", by, verdict, reason };
+function sign(by: string, verdict: Verdict, reason = "核对过 runs/x.jsonl 的 12 行", dislodge?: string): SignOffRecord {
+  return { at: "2026-10-19T00:00:00Z", artifact: "a.md", by, verdict, reason, ...(dislodge ? { dislodge } : {}) };
 }
 
 function table(...recs: SignOffRecord[]) {
@@ -48,14 +48,30 @@ describe("共识门 gateVerdict", () => {
     assert.deepEqual(m.missing, ["landing"]);
   });
 
-  it("有保留、但没人反对且都表了态 → 开门，保留意见要能读出来", () => {
+  it("★ 有保留 + **给了解除条件** → 开门，保留与解除条件都要能读出来", () => {
     const m = gateVerdict(
-      table(sign("theory", "认同"), sign("practice", "有保留", "只在单模型上验过"), sign("landing", "认同")),
+      table(
+        sign("theory", "认同"),
+        sign("practice", "有保留", "只在单模型上验过", "补一批跨模型读数 N=3"),
+        sign("landing", "认同"),
+      ),
       T,
     );
     assert.equal(m.ok, true);
     assert.equal(m.reservations.length, 1);
     assert.match(m.reservations[0]!, /单模型/);
+    assert.match(m.reservations[0]!, /解除条件.*跨模型/);
+  });
+
+  it("★★★ 有保留但**没给解除条件** → 视为没表态（夜间实测：23 张有保留 0 张反对 ⇒ 门形同虚设）", () => {
+    const m = gateVerdict(
+      table(sign("theory", "认同"), sign("practice", "有保留", "我觉得还不够扎实"), sign("landing", "认同")),
+      T,
+    );
+    assert.equal(m.ok, false, "没给解除条件的保留不该放行");
+    assert.equal(m.missing.length, 1);
+    assert.match(m.missing[0]!, /practice/);
+    assert.match(m.missing[0]!, /解除条件/);
   });
 
   it("空表 → 关门（没签字不等于默认通过）", () => {

@@ -130,6 +130,18 @@ export type TriggerCtx = {
   /** ★ 当前活着的员工 key（用于“新产物该交给谁挑战”） */
   peerKeys?: () => string[];
   /**
+   * ★★★ 观众（设计者 2026-10-19）：「加一个『观众』，最后观众最被说服哪个观点就写哪个观点」
+   *
+   * ★ 未接（hunt / 无观众的 forge）时为 `undefined` ⇒ `onAudience` 直接不触发。
+   */
+  audience?: () => string[];
+  /** ★ 把话送到某位观众 */
+  tellAudience?: (key: string, text: string) => void;
+  /** ★★ 查某份产物的签字表（共识门的状态）*/
+  signoffState?: (artifact: string) => Map<string, unknown> | undefined;
+  /** ★ 全体团队（门的判据）*/
+  allTeams?: () => string[];
+  /**
    * ★★★ 收尾态（2026-10-19）：窗口到点后为 `true`。
    *
    * ★ 为什么必需（实测）：多员工时“窗口到点 → 等收尾”会**自激** ——
@@ -191,6 +203,12 @@ export type State = {
    *   ★ 三条规则三个账：审的、看的、辩的。
    */
   challengedOutputs: string[];
+  /** ★★★ 已请观众评过的产物（设计者 2026-10-19）*/
+  audienceAsked: string[];
+  /** ★★★ 已请过签字的产物 */
+  signedAsked: string[];
+  /** ★★★ 已送过"联合实验"处境的产物 */
+  disputeAsked: string[];
 };
 
 export function newState(): State {
@@ -204,6 +222,9 @@ export function newState(): State {
     lastWorkMtime: 0,
     lastConvergedMtime: convergedMtime(),
     challengedOutputs: [],
+    audienceAsked: [],
+    signedAsked: [],
+    disputeAsked: [],
     lastTickAt: Date.now(),
   };
 }
@@ -222,6 +243,9 @@ export async function tick(
       onCapabilityGap: () => Promise<void>;
       onPlateau: () => Promise<void>;
       onNewFinding: () => Promise<void>;
+      onAudience: () => Promise<void>;
+      onConsensus: () => Promise<void>;
+      onDispute: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -260,8 +284,6 @@ export async function tick(
   }
 
   trace("tick", `outbox=${n} audited=${state.auditedOutputs} 活动=${outboxChanged || workChanged} roundsSinceProgress=${state.roundsSinceProgress}`);
-  // ★ 顺序重要：onSettled 先跑（它自己记 auditedOutputs），其余两个不许碰它
-  await rules.onSettled();
   // ★★★ 辩证（2026-10-19）：新产物落盘 → **结构性地**要求同事去挑战
   //   ★ 为什么放在这里（`onSettled` 之后、`onPlateau` 之前）：
   //     · 先审（`onSettled`）—— 审查是底线
@@ -270,9 +292,23 @@ export async function tick(
   //   ★★ 为什么必须有这条规则（实测教训）：
   //     给 `challenge` **工具** = 「允许它辩」⇒ **一次都没用过**（P13）。
   //     ⇒ 辩论不能是能力，必须是**处境**（由代码送到它面前）。
+  // ★★★ 顺序很重要（2026-10-19 夜间实测踩到两次）：
+  //   ① `onAudience` / `onConsensus` **必须排在 `onSettled` 之前**。
+  //      ★ 因为 `onSettled` 里 `await fire("inspector")` 会**等专家跑完（几分钟）**，
+  //        整个 tick 被卡住 ⇒ 排在它后面的规则**一个都轮不到**。
+  //      ★★ 实测症状：日志里 `fire inspector` 之后全是「tick 被跳过（上一次还在跑）」，
+  //        观众的 `onAudience` 一次都没出现 ⇒ 4 位观众零表态。
+  //   ② 这两条规则**不 fire 专家**（只给别人发消息），所以放在前面不会卡。
+  await rules.onAudience();
+  await rules.onConsensus();
+  await rules.onDispute();
   await rules.onNewFinding();
   await rules.onCapabilityGap();
   await rules.onPlateau();
+  // ★★★ `onSettled` **必须放最后**：它会 `await fire("inspector")`（等专家几分钟），
+  //   是唯一会长时间阻塞 tick 的规则 ⇒ 放在前面会把后面的规则全部饿死。
+  //   ★ 副作用提醒：`onSettled` 自己记 `auditedOutputs`，所以它之后不要再读那个字段。
+  await rules.onSettled();
 }
 
 export function makeRules(ctx: TriggerCtx) {
@@ -442,8 +478,169 @@ export function makeRules(ctx: TriggerCtx) {
       `★★ 不要写“看起来还行” —— 那既没推进也没纠正。\n` +
       `★ 用你的角度去看：**别人会信什么，你就去找什么的反面**。\n` +
       `★ 若它站得住，说出来也是贡献 —— 那意味着三个人从三个方向都没找到问题。`;
-    for (const k of peers.slice(0, n)) ctx.challenge(k, text);
+    for (const k of peers.slice(0, n)) {
+      const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
+      if (r && !r.ok) ctx.trace("onNewFinding", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
+    }
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding };
+  // ══════════════════════════════════════════════════════════════
+  // onAudience —— ★★★ 请观众表态（设计者 2026-10-19）
+  // ══════════════════════════════════════════════════════════════
+  //   设计者：「加一个『观众』，最后观众最被说服哪个观点就写哪个观点」
+  //          「所有观众都支持某个观点（或达到 9 成支持）就结束争辩写入 book」
+  //
+  // ★★ 这个规则**只负责把话送到观众那儿**；判"是否结束争辩"在 `judge` 工具里
+  //    （纯函数 `resolveVotes`，可离线重判）。
+  // ★ 未接观众时（hunt / 单员工 forge）直接不触发。
+  async function onAudience(): Promise<void> {
+    if (!ctx.audience) return;
+    if (ctx.closing?.()) return;
+    const outs = listOutbox();
+    // ★ 至少要有产物可评
+    if (outs.length === 0) return;
+    // ★★ 一份产物只请一次（避免每 tick 都轰炸观众 —— 它们会被淹）
+    const target = outs.filter((f) => !state.audienceAsked.includes(f))[0];
+    if (!target) return;
+    state.audienceAsked.push(target);
+    ctx.trace(
+      "onAudience",
+      `请观众评 \`${target}\`（已评 ${state.audienceAsked.length}/${outs.length}）`,
+    );
+    const text =
+      `## 🎬 请你们评判：\`outbox/${target}\`
+
+` +
+      `★ 三个团队（theory / practice / landing）在争同一件事。
+` +
+      `★★★ 你的活只有一个：**谁最说服了你？**
+` +
+      `  · 用 \`judge\` 工具表态（theory / practice / landing / **都不够**）
+` +
+      `  · ★ 理由按**你自己的标准**说 —— 你就是按你的身份在看这件事的
+` +
+      `  · ★★ 若选「都不够」，**一定**填 missing 字段：缺什么才能说服你
+
+` +
+      `★★ 不要客气。全体观众支持某一方时争辩才结束 —— **你的不同意见很重要**。
+` +
+      `★ 问题（judge 的 question 参数请原样用这句）：**\`${target}\` 这份东西该不该进书，哪一方的说法最站得住？**`;
+    for (const k of ctx.audience()) {
+      const r = (ctx.tellAudience as unknown as (k: string, t: string) => { ok?: boolean; reason?: string })(k, text);
+      if (r && r.ok === false) ctx.trace("onAudience", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // onConsensus —— ★★★ 把「去签字」变成处境（不是能力）
+  // ══════════════════════════════════════════════════════════════
+  //   ★★★ 为什么必须有这条规则（我自己的实测规律 `P13`）：
+  //     上一版把 `sign_off` 只当**工具**给下去 ⇒ 与 `challenge` 工具版一模一样的坑
+  //     ⇒ **一次都不会用**。而共识门没签字 ⇒ 什么都进不了书。
+  //   ★★ 所以：产物一出现，就由**代码**把「请你团队去签字」送到其他团队面前。
+  //
+  //   ★ 只送一次（`signedAsked`），否则每 tick 都轰炸。
+  async function onConsensus(): Promise<void> {
+    if (!ctx.challenge || !ctx.peerKeys) return;
+    if (ctx.closing?.()) return;
+    if (!ctx.signoffState) return;
+    const outs = listOutbox();
+    if (outs.length === 0) return;
+    const teams = ctx.allTeams?.() ?? [];
+    // ★ 找一份「还没被全体团队表态」的产物
+    const target = outs.find((f) => {
+      const signs = ctx.signoffState!(f);
+      return teams.some((t) => !signs?.has(t));
+    });
+    if (!target || state.signedAsked.includes(target)) return;
+    state.signedAsked.push(target);
+    const signs = ctx.signoffState(target);
+    const missing = teams.filter((t) => !signs?.has(t));
+    ctx.trace("onConsensus", `请 ${missing.join("、")} 对 \`${target}\` 签字（已请 ${state.signedAsked.length} 份）`);
+    const text =
+      `## ✍️ 共识门：请你们团队对 \`outbox/${target}\` 签字
+
+` +
+      `★★★ 这个集群的规则是：**一份东西要进书，必须全体团队都签字**（沉默不算认同）。
+` +
+      `★ 目前还没表态的团队：**${missing.join("、")}**
+
+` +
+      `---
+
+` +
+      `★ 读完后用 \`sign_off\` 表一个态：
+` +
+      `  · **认同** —— ★ 并写清你**核对了什么**才同意的（不能凭空点头）
+` +
+      `  · **有保留** —— 可以进书，但你的保留意见会**附在产物里**随它走
+` +
+      `  · **反对** —— ⛔ 它进不了书，★ 你必须写出**反证或替代解释**
+
+` +
+      `★★ 反对不是终点：之后用 \`joint_experiment\` 和对手**一起设计实验**来判定谁对。
+` +
+      `★ 按你团队的立场看 —— **你看不到的问题，正是别的团队存在的原因**。`;
+    // ★★★ 投递失败**必须响亮**（2026-10-19 夜间实测：静默失败导致三条规则空转 15 分钟）
+    for (const k of missing) {
+      const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
+      if (r && !r.ok) ctx.trace("onConsensus", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // onDispute —— ★★★ 「有人反对」⇒ 请两方**共同设计一个实验**来判定
+  // ══════════════════════════════════════════════════════════════
+  //   ★★★ 为什么必须有这条（2026-10-19 夜间实测，判据跑前定死）：
+  //     实测：**20 次签字、4 张反对票，而 `joint.jsonl` 仍然是 0**。
+  //     ★ `joint_experiment` 和 `sign_off` 一样只作为**工具**给下去 ⇒ 与 `P13` 同型。
+  //   ★★ 逻辑：反对票 = 双方对事实判断不同 ⇒ **只有实验能判** ⇒ 这不是"建议"，是处境。
+  async function onDispute(): Promise<void> {
+    if (!ctx.challenge || !ctx.peerKeys) return;
+    if (ctx.closing?.()) return;
+    if (!ctx.signoffState) return;
+    const teams = ctx.allTeams?.() ?? [];
+    for (const f of listOutbox()) {
+      const signs = ctx.signoffState(f);
+      if (!signs) continue;
+      const id = `${f}`;
+      if (state.disputeAsked.includes(id)) continue;
+      // ★★★ 什么算"僵局"（2026-10-19 夜间 R9 实测修正）：
+      //   原来只认 `verdict === "反对"` ⇒ 但门收紧后，真实的僵局形态是
+      //   **「有保留但没给解除条件」**（那只算没表态）和 **「没表态」**。
+      //   ★ 若不认这两种 ⇒ **门关了，却没有任何机制推动它往前走** ⇒ 死锁。
+      //   ★★ 判据：一份产物**门没开**，且有团队**不是简单认同** ⇒ 就是僵局。
+      const against = teams.filter((t) => {
+        const rec = signs.get(t) as { verdict?: string; dislodge?: string } | undefined;
+        if (!rec) return true; // 没表态
+        if (rec.verdict === "反对") return true;
+        if (rec.verdict === "有保留") return !rec.dislodge || rec.dislodge.trim().length < 10;
+        return false; // 认同
+      });
+      if (against.length === 0) continue;
+      state.disputeAsked.push(id);
+      ctx.trace("onDispute", `\`${f}\` 有 ${against.length} 方反对（${against.join("、")}）⇒ 送去联合实验`);
+      const text =
+        `## 🔬 分歧已登记：\`outbox/${f}\`\n\n` +
+        `★★★ **这份东西现在过不了门** —— 这些团队还没给结论：**${against.join("、")}**。\n` +
+        `  （★ 反对票 / 有保留但没说解除条件 / 干脆没表态 —— 三种都算）\n` +
+        `★ 按这个集群的规则：**门没开 ⇒ 它进不了书**，必须先辩清楚。\n\n` +
+        `---\n\n` +
+        `★★ 而「谁对」**辩是辩不出来的** —— 只有实验能判。\n` +
+        `★ 所以请你们**用 \`joint_experiment\` 和对方一起设计一个判定实验**：\n` +
+        `  1. \`action="propose"\` —— 写清：要判什么（可判死的一句话）、几个臂、**判据（纯函数源码）**\n` +
+        `  2. 对方 \`action="sign"\` —— 认同 / **要求加臂** / 反对\n` +
+        `  3. 全体签好之后 \`action="run"\` 取回装置骨架，真跑\n\n` +
+        `★★ 为什么必须**共同**设计：单方设计的实验，对方**天然不信它的判据**。\n` +
+        `★ 若你只是「有保留」—— 要么给出**可执行的解除条件**（如「再加一个对照臂 N=8」），\n` +
+        `  要么直说你其实同意或反对。**没有结论的保留不算表态**，门会一直关着。`;
+      for (const k of [...new Set([...against, ...teams])]) {
+        const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
+        if (r && !r.ok) ctx.trace("onDispute", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
+      }
+      break; // ★ 一次只推一份，别把他们的上下文淹了
+    }
+  }
+
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onAudience, onConsensus, onDispute };
 }

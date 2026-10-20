@@ -38,6 +38,17 @@ export interface SignOffRecord {
   by: string;
   verdict: Verdict;
   reason: string;
+  /**
+   * ★★★ 「有保留」的**解除条件**（2026-10-19 夜间实测补的设计缺口）。
+   *
+   * ★ 现象：26 次签字里 **23 张"有保留"、0 张"反对"** ⇒ 门形同虚设。
+   * ★★ 根因（设计缺陷，不是 bug）：`有保留` 太廉价 —— 它**不需要给结论**。
+   *   `sign_off` 于是变成了"我读过了，但我不想负责"。
+   * ★★★ 修法：**有保留必须说出"什么能解除它"**。
+   *   格式要求：可执行（"再加一个对照臂 N=8"），不是"再看看"（那是敷衍）。
+   * ⇒ 这条把"有保留"从**免责声明**变成**待办清单**。
+   */
+  dislodge?: string;
 }
 
 /** ★ 一个团队对某份产物的签字表：`artifact → (teamKey → record)` */
@@ -55,12 +66,18 @@ export function gateVerdict(
   const blocked: string[] = [];
   const reservations: string[] = [];
   const missing: string[] = [];
+  /** ★★★ 有保留但**没给解除条件** ⇒ 视为无效表态（与"没表态"同罪）*/
   for (const t of allTeams) {
     const rec = signs?.get(t);
     // ★★★ 没表态 = 不许进（沉默不是认同）
     if (!rec) missing.push(t);
     else if (rec.verdict === "反对") blocked.push(`${t}：${rec.reason}`);
-    else if (rec.verdict === "有保留") reservations.push(`${t}：${rec.reason}`);
+    else if (rec.verdict === "有保留") {
+      reservations.push(`${t}：${rec.reason}${rec.dislodge ? ` —— ★解除条件：${rec.dislodge}` : " ⚠（没给解除条件 ⇒ 这条保留不算表态）"}`);
+      // ★★★ 2026-10-19 夜间实测：23 张"有保留"、0 张"反对" ⇒ 门形同虚设。
+      //   ★ 修法：**没给解除条件的保留 = 没表态**（必须说清"什么能解除它"）。
+      if (!rec.dislodge || rec.dislodge.trim().length < 10) missing.push(`${t}（有保留但没给解除条件）`);
+    }
   }
   // ★★ 只要有反对 或 有人没表态 ⇒ 不许进 book
   return { ok: blocked.length === 0 && missing.length === 0, blocked, reservations, missing };
@@ -96,6 +113,14 @@ export function makeSignOff(deps: {
           "★ 理由。选「认同」也要写**你核对过什么**才同意的（不能凭空点头）；" +
           "选「反对」必须写清**你的反证或替代解释**。",
       }),
+      dislodge: Type.Optional(
+        Type.String({
+          description:
+            "★★★ 选「有保留」时**必填**：什么能解除它？\\n" +
+            "必须**可执行** —— 例：「再加一个对照臂 N=8」「在第二个任务族上复现」\\n" +
+            "✘ 不算：「再看看」「希望更深入」「取决于具体情况」（那是免责声明，不是保留）",
+        }),
+      ),
     }),
     execute: async (_id, p) => {
       const path = join(deps.outboxDir, p.artifact);
@@ -112,6 +137,34 @@ export function makeSignOff(deps: {
               text:
                 `⛔ 没有这份产物：${p.artifact}\n` +
                 `★ 可签的产物：\n${avail.map((f) => `  · ${f}`).join("\n") || "  （outbox 还是空的）"}`,
+            },
+          ],
+          details: {},
+        };
+      }
+      // ★★★ 「有保留」必须给解除条件（否则门永远开着 —— 见 SignOffRecord.dislodge 的注释）
+      if (p.verdict === "有保留" && (p.dislodge ?? "").trim().length < 10) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `⛔ 你说「有保留」，但**没说什么能解除它**。
+
+` +
+                `★★★ 这个集群实测过：**23 张"有保留"、0 张"反对"** ⇒ 门形同虚设。
+` +
+                `★ 根因：「有保留」不需要给结论，于是它变成了「我读过了，但我不想负责」。
+
+` +
+                `★ 请填 dislodge：**什么能解除你的保留**（要可执行）。
+` +
+                `  ✔ 「再加一个对照臂 N=8」「在第二个任务族上复现」「补一批跨模型读数」
+` +
+                `  ✘ 「再看看」「希望更深入」「取决于具体情况」
+
+` +
+                `★ 或者：若你其实同意 ⇒ 选「认同」；若你其实不同意 ⇒ 选「反对」（那才是有效表态）。`,
             },
           ],
           details: {},
@@ -138,6 +191,7 @@ export function makeSignOff(deps: {
         by: deps.selfKey,
         verdict: p.verdict,
         reason: p.reason,
+        ...(p.dislodge ? { dislodge: p.dislodge } : {}),
       };
       if (!deps.table.has(p.artifact)) deps.table.set(p.artifact, new Map());
       deps.table.get(p.artifact)!.set(deps.selfKey, rec);
@@ -174,6 +228,9 @@ export function renderSignOff(artifact: string, signs: Map<string, SignOffRecord
   const out = [`\n---\n\n## ★ 共识状态\n`];
   for (const [team, r] of signs) {
     out.push(`- **${team}**：${r.verdict} —— ${r.reason}`);
+    // ★★★ 解除条件必须随产物走（2026-10-19 夜间：测试抓到它没被渲染出来）
+    //   ★ 否则读者只看到"有保留"，看不到**要做什么才能解除** ⇒ 保留意见等于没写。
+    if (r.dislodge) out.push(`  - ★ **解除条件**：${r.dislodge}`);
   }
   return out.join("\n") + "\n";
 }
