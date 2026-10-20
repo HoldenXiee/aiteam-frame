@@ -578,7 +578,14 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   }
 
   const outs = listOutbox();
-  console.log(`\n★ 收尾：outbox ${outs.length} 份 · 起过 ${spawned.length - 1} 次专家/支线 · 判停 ${state.verdict ?? "（无）"}`);
+  // ★★★ 收尾账**必须同时落进 `_topology.log`**（2026-10-20 实测发现）
+  //   ★ 原来只 `console.log` 到 stdout ⇒ 一个只看 `_topology.log` 的新会话
+  //     会以为「这轮没跑完」（其实跑完了）。
+  //   ★★ 这是我自己的纪律㉖ 的反面教材：「接上了的唯一证据是日志里出现」——
+  //      而我把**唯一的证据**留在了 stdout，脚本日志一删就没了。
+  const closingLine = `★ 收尾：outbox ${outs.length} 份 · 起过 ${spawned.length - 1} 次专家/支线 · 判停 ${state.verdict ?? "（无）"}`;
+  log("done", closingLine);
+  console.log(`\n${closingLine}`);
   console.log(`★ 日志：${join(LAB, "work", "_topology.log")}`);
   return { outputs: outs.length, fired: spawned.length - 1, verdict: state.verdict };
 }
