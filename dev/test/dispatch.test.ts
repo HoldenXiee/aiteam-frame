@@ -40,8 +40,13 @@ const mkTrace = () => {
   return { lines, trace: (what: string, detail: string) => lines.push(`${what}|${detail}`) };
 };
 
-describe("★★★ 派活器：同一时刻只有一位专家在跑", () => {
-  it("★★★ 一口气排 3 位 ⇒ 峰值并发仍是 1", async () => {
+describe("★★★ 派活器：并发有上限（2026-10-21 从「恒 1」改成 N）", () => {
+  // ★★★ 决策变更（不是放宽测试）：原来是"同一时刻只有一位专家在跑"。
+  //   理由（纪律⑱ 记下来）：串行是「广」的硬上限 —— 实测排队 1193s 的专家、
+  //   收尾也因此拖几分钟。设计者裁定**成本不是 KPI** ⇒ 默认允许 2 位并行，
+  //   用 `HUNT_FIRE_CONCURRENCY` 可调。
+  // ★ 仍然要守的不变式：**峰值不超过上限**，且**排 3 位时确实并行过**（否则等于没改）。
+  it("★★★ 一口气排 3 位 ⇒ 峰值并发 = 上限（默认 2），不是 3", async () => {
     const { doFire, started } = mkDoFire({ delayMs: 30 });
     const { trace } = mkTrace();
     const d = makeDrainer({ doFire, trace, closing: () => false });
@@ -50,17 +55,18 @@ describe("★★★ 派活器：同一时刻只有一位专家在跑", () => {
     d.enqueue({ role: "inspirer", why: "b" });
     d.enqueue({ role: "libsmith", why: "c" });
 
-    // ★ 一开始只该跑 1 位
-    assert.equal(started.length, 1, "排了 3 位却立刻启了多个 —— 并发失控");
-    assert.equal(d.queued(), 2);
+    // ★ 一开始起 2 位（默认上限），第 3 位排队 —— 不能一次全起
+    assert.equal(started.length, 2, "排了 3 位却立刻全启了 —— 并发失控");
+    assert.equal(d.queued(), 1);
+    assert.equal(d.peakConcurrent() <= 2, true, "峰值超过上限");
 
     // ★ 等全部跑完
     await new Promise((r) => setTimeout(r, 400));
     assert.equal(d.fired(), 3, "3 位没派完");
     assert.equal(
       d.peakConcurrent(),
-      1,
-      `峰值并发 ${d.peakConcurrent()} —— 这就是「void fire」那个版本的病`,
+      2,
+      `峰值并发 ${d.peakConcurrent()} —— 期望 2（上限 2，且确实并行过）`,
     );
   });
 

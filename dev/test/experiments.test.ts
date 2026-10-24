@@ -69,11 +69,25 @@ describe("parseLedger：末格当结局", () => {
     assert.equal(rows.length, 2);
     assert.equal(rows[0]!.id, "P58");
   });
-  it("结局取最后一格，且锚判对", () => {
+  it("结局按列名取（不是最后一格）", () => {
     const rows = parseLedger(table);
     assert.equal(rows[0]!.outcome, "active");
     assert.equal(rows[1]!.outcome, "dead");
-    assert.equal(rows[1]!.anchored, true);
+  });
+  it("★★ 没有「死因」列 ⇒ 不计死因（拿结局格当死因会造出假锚）", () => {
+    const rows = parseLedger(table);
+    assert.equal(rows[1]!.cause, "");
+    assert.equal(rows[1]!.anchored, false);
+  });
+  it("★★ 有「死因」列 ⇒ 从那一列取，锚判对", () => {
+    const t2 = [
+      "| 编号 | 装置 | 结局 | 死因 |",
+      "| --- | --- | --- | --- |",
+      "| P59 | work/y.mjs | 死 | arity 不可切，`judge2` 返回 2 |",
+    ].join(NL);
+    const rows = parseLedger(t2);
+    assert.equal(rows[0]!.outcome, "dead");
+    assert.equal(rows[0]!.anchored, true);
   });
   it("没有 | 的行不算行", () => assert.equal(parseLedger("随便一句话").length, 0));
 });

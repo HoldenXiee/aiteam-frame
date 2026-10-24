@@ -164,83 +164,6 @@ export function listOutbox(): string[] {
   return existsSync(d) ? readdirSync(d).filter((f) => f.endsWith(".md")) : [];
 }
 
-/**
- * ★★★★★ 自审的**配额**（2026-10-21，修我自己的规则造成的洞）
- *
- * ═══════════════════════════════════════════════════════════════════════
- * 实测（真实数据，不是我推的）：
- *
- *   最近 60 条提交 —— 审装置/量具 **57 条** · 研究结论 P* **1 条**
- *   ★ 最后一次真研究：2026-10-23（P99 修订）
- *
- * ★★★ 根因是 `onInstrumentReview` 没有两条判据：
- *   ① 没有「这件东西审过了」—— 同一个 seal 被反复审了十几轮
- *   ② 没有「自审能占多少产出」—— 审查产出本身算"有活动"，
- *      ⇒ **审装置 → 产出 → 活动 → 又能审装置**（正反馈）
- *
- * ★★★★ 后果：一个**探索者**被我变成了**审计员**。
- *   而 hunt 的使命是「广探索 / 冗余 / 创新」—— 审装置是 forge 的活。
- * ═══════════════════════════════════════════════════════════════════════
- *
- * ★ 判据（纯函数，可离线重判 —— 纪律⑦）：
- *
- *   **自审类产物数 不得 ≥ 研究结论类产物数。**
- *   一旦相等就已经是"审得不比干得多"，再多就是偏了。
- *
- * ★ 为什么是"数产物"而不是"数时间"：
- *   时间判据要靠时长参数（我已经被人纠正过三次"分母不对"）。
- *   **产物是可数的、可离线重判的、不依赖窗口位置**（纪律㉛）。
- *
- * @param products outbox 的文件名清单
- * @returns 允许自审吗 + 两侧各几份（★ 报数是为了让读数能解释）
- */
-export function auditQuota(
-  products: string[],
-  isRecent: (file: string) => boolean = () => true,
-): {
-  allowed: boolean;
-  selfAudit: number;
-  total: number;
-  share: number;
-  reason: string;
-} {
-  const recent = products.filter(isRecent);
-  // ★ 自审类：`INSPIR*` / `手段*` / `装置缺陷*`（"审我们自己在用的东西"）
-  const selfAudit = recent.filter((f) => /^(INSPIR|手段|装置缺陷)/.test(f)).length;
-  const total = recent.length;
-  const share = total ? selfAudit / total : 0;
-
-  if (total === 0) {
-    return { allowed: false, selfAudit: 0, total: 0, share: 0, reason: "最近没有产物 ⇒ 先干活" };
-  }
-  // ★★★ 判据：**自审不得占到一半以上**。
-  //
-  //   ★ 为什么不是「自审 < 研究结论」（我第一版，写错了两处）：
-  //     ① 「研究结论」我原来只数 `P<数字>` ⇒ **把 `面-denom` 这类真研究漏掉了**
-  //        （它是那一轮最有价值的产物，却不计数）⇒ 纪律㉞：口径太窄。
-  //     ② 拿两类相比，会随"另一类攒了多少"漂移。
-  //   ★★ 直接用**占比** —— 它量的正是那个病：**自审有没有吃掉一切**。
-  //
-  //   ★ 为什么是一半：三个角度里 `先怀疑量具` 就占 **1/3**，
-  //     再留一点余量给"顺手发现装置缺陷" ⇒ 上限 50% 是宽裕的。
-  //     实测生病时 **62%**（54 份里 34 份）—— 超过一半就被拦。
-  if (share >= 0.5) {
-    return {
-      allowed: false,
-      selfAudit,
-      total,
-      share,
-      reason: `最近自审 ${selfAudit}/${total} 份 = ${Math.round(share * 100)}% ≥ 50% ⇒ 配额用完，先去做别的`,
-    };
-  }
-  return {
-    allowed: true,
-    selfAudit,
-    total,
-    share,
-    reason: `最近自审 ${selfAudit}/${total} 份 = ${Math.round(share * 100)}% < 50% ⇒ 还有余量`,
-  };
-}
 
 /**
  * ★★ 微实验 C 的落地：`work/` 里最近有没有动过。
@@ -684,19 +607,16 @@ export function makeRules(ctx: TriggerCtx) {
     // ③ 冷却（与 inspirer 共用，避免同时起两个长跑专家）
     if (now - (state.firedAt["inspirer"] ?? 0) < COOLDOWN_MS) return;
 
-    // ★★★★★ ④ 存量闸（2026-10-21 换成 WIP 判据）——
+    // ★★★ 2026-10-21 · ④ 存量闸**已撤**（DESIGN §4.1「撤掉我加的保守东西」）
     //
-    //   ★★★ 我第一版用的是「自审**产出占比** ≥ 50% 就停规则」：**治错了地方**。
-    //     实测：规则停了，产出仍然 63% 自审（36/57）。
-    //   ★ 真因：**每审一条开 2–3 条、关 0–1 条**（实测 53 开 / 1 可核关 = 开环）。
-    //     停"开工"没用 —— **存量本身就是工作来源**（47 条未结缺陷摆在那儿）。
-    //   ★★ 正确判据：**未结账存量**。它有明确分母（已登记的 O 行）、可数、
-    //     可离线重判、**而且喂得进它的决策**（"你还欠 47 条"是具体任务）。
-    //   （同源：Kanban 的 WIP limit —— 开工上限管不住，存量上限才管得住。）
-    const cl = readClosure(join(LAB, "outbox"));
-    const gate = canOpenNewAudit(cl.open + cl.unverifiable.length);
-    ctx.trace("onInstrumentReview", `存量闸：${gate.reason}`);
-    if (!gate.allowed) return;
+    //   ★ 它当初治的是「自审吃满产出」（63%）。撤的理由两条：
+    //     ① 手段换了：真正让产出转向的是**递读数 + 逼回答**（实测 4 次都灵，
+    //        最近一次它答 (b)「转到量具自己」并当场开了 3 个新实验）；
+    //     ② 这个闸只挡**规则触发**，挡不住它自己选的活 —— 实测规则停了产出仍 63% 自审。
+    //   ★★ 自审的正确定位改为「必须挂到某个实验的阻塞上」（DESIGN §6），那是结构，
+    //     不是配额。配额留着只会让我误以为问题解决了。
+    void canOpenNewAudit;
+    void readClosure;
 
     state.lastInstrumentReviewAt = now;
     state.firedAt["inspirer"] = now;

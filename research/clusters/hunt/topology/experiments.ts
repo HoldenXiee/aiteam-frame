@@ -115,17 +115,26 @@ export function classifyOutcome(raw: string): Outcome {
  */
 const ID_HEAD = /^(编号|实验|实验号|id|ID|＃|#)$/;
 const OUT_HEAD = /^(结局|状态|结论|结果|verdict|Status)$/;
+/**
+ * ★★★ 「死因」必须是**它自己的列**，不能拿整行当死因。
+ *   第一版 `cause = body[outCol]` ⇒ 只拿到 `死` 这个字 ⇒ 死因可判死 0%（假读数）。
+ *   第二版想过「整行拼接」⇒ 也不行：整行里一定有装置路径，那样永远 100%（恒真读数）。
+ *   ⇒ 只认**表头里明写**的死因列（死因/判死句/理由/为什么/原因）。没有这一列 ⇒ 未声明。
+ */
+const CAUSE_HEAD = /(死因|判死句|理由|为什么|原因|why|because)/i;
 
 export function parseLedger(text: string): Row[] {
   const rows: Row[] = [];
   const lines = text.split(String.fromCharCode(10));
   let idCol = -1;
   let outCol = -1;
+  let causeCol = -1;
   let inTable = false;
 
   const reset = () => {
     idCol = -1;
     outCol = -1;
+    causeCol = -1;
     inTable = false;
   };
 
@@ -150,9 +159,11 @@ export function parseLedger(text: string): Row[] {
       // 这行是**表头**：找列名
       const i = body.findIndex((c) => ID_HEAD.test(c));
       const o = body.findIndex((c) => OUT_HEAD.test(c));
+      const k = body.findIndex((c) => CAUSE_HEAD.test(c));
       if (i >= 0 && o >= 0) {
         idCol = i;
         outCol = o;
+        causeCol = k;
       } else {
         reset();
       }
@@ -162,8 +173,9 @@ export function parseLedger(text: string): Row[] {
     if (idCol < 0) continue; // 不在实验表里
     const id = body[idCol] ?? "";
     if (!id || /^[-:\s]+$/.test(id)) continue;
-    const last = outCol >= 0 ? (body[outCol] ?? "") : "";
-    rows.push({ id, outcome: classifyOutcome(last), cause: last, anchored: hasAnchor(last) });
+    const state = outCol >= 0 ? (body[outCol] ?? "") : "";
+    const cause = causeCol >= 0 ? (body[causeCol] ?? "") : "";
+    rows.push({ id, outcome: classifyOutcome(state), cause, anchored: hasAnchor(cause) });
   }
   return rows;
 }
@@ -361,7 +373,9 @@ export function renderExperiments(
     `   灵感出处：外部材料 ${mix.external} · 跨学科 ${mix.interdisciplinary} · 明写出处 ${mix.declared}` +
       `（共 ${mix.total}）`,
   );
-  if (s.mode === "ledger" && s.byOutcome.unsaid && outcomeSamples.length) {
+  // ★ 只在**多数**认不出时才警告。第一版写成 `if (unsaid)` ⇒ 60 行里有 1 行认不出
+  //   就报「结局列认不出四态」，是狼来了（量具必须在该响时才响）。
+  if (s.mode === "ledger" && s.total > 0 && s.byOutcome.unsaid / s.total > 0.5 && outcomeSamples.length) {
     L.push(
       `   ⚠ 账读到了，但「结局」列认不出四态 —— 实际写在里面的是：${outcomeSamples
         .slice(0, 4)

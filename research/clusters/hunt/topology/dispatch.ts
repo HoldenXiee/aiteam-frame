@@ -153,11 +153,27 @@ export function makeDrainer(opts: {
    *   ⇒ 必须把 `runningRole` 也算进来。
    */
   let runningRole: string | null = null;
-  const has = (role: string) => runningRole === role || queue.some((j) => j.role === role);
+  const runningRoles = new Set<string>();
+  const has = (role: string) => runningRoles.has(role) || queue.some((j) => j.role === role);
+
+  /**
+   * ★★★ 2026-10-21 · 峰值并发 1 → N（DESIGN §4「撤掉我加的保守东西」）
+   *
+   *   ★ 原来是 `if (running) return;` —— 一次只跑一个。
+   *     那是我在"成本"是 KPI 时的取舍；而现在设计者裁定**成本不是 KPI**。
+   *   ★★ 更要紧的是：串行是「广」的**硬上限** —— 排队 1193s 的专家就是它造成的
+   *     （收尾也因此拖到几分钟）。
+   *   ★ 默认 2（不是 3）：先观察 `peakConcurrent` 与报错，别把并发一次拉满。
+   *     可用 `HUNT_FIRE_CONCURRENCY` 调。
+   */
+  const MAX_INFLIGHT = (() => {
+    const v = Number(process.env.HUNT_FIRE_CONCURRENCY);
+    return Number.isFinite(v) && v > 0 ? Math.floor(v) : 2;
+  })();
 
   const drain = (): void => {
-    // ★ 一次只跑一个 —— 这就是整个设计
-    if (running) return;
+    // ★ 并发到上限就停（★ 不是"一次只跑一个"了）
+    if (inflight >= MAX_INFLIGHT) return;
     // ★★★ 2026-10-21 修：`closing` **只挡新进队，不挡已排队的执行**
     //
     //   ★ 原来是 `if (opts.closing()) return;` —— 与「收尾时要等队列跑空」**互成死锁**：
@@ -171,6 +187,7 @@ export function makeDrainer(opts: {
 
     running = true;
     runningRole = job.role;
+    runningRoles.add(job.role);
     firedCount++;
     byRole[job.role] = (byRole[job.role] ?? 0) + 1;
     inflight++;
@@ -199,8 +216,9 @@ export function makeDrainer(opts: {
         }
       })
       .finally(() => {
-        running = false;
-        runningRole = null;
+        runningRoles.delete(job.role);
+        runningRole = runningRoles.size ? [...runningRoles][0]! : null;
+        running = runningRoles.size > 0;
         inflight--;
         // ★ 跑完立刻看队列里还有没有 —— 有就接着跑（★ 仍然一次一个）
         //
@@ -208,7 +226,8 @@ export function makeDrainer(opts: {
         //   ⇒ **收尾后不再接力** ⇒ 队列里剩下的两位永远跑不到，
         //     而收尾循环还在等"队列跑空" ⇒ **死锁**。
         //   ★ 收尾的正确语义是「不再进新活，**已排的跑完**」（AGENTS §三之二）。
-        if (queue.length) drain();
+        // ★ 队列还有、且并发没满 ⇒ 接力（可以同时跑多位）
+        while (queue.length && inflight < MAX_INFLIGHT) drain();
       });
   };
 
@@ -229,7 +248,7 @@ export function makeDrainer(opts: {
       drain();
     },
     drain,
-    busy: () => running,
+    busy: () => inflight > 0,
     queued: () => queue.length,
     fired: () => firedCount,
     /** ★ 每个座位被派了几次（★ 用来查「哪个角度没在干活」） */
