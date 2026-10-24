@@ -235,6 +235,7 @@ export function makeDrainer(opts: {
     /** ★ 每个座位被派了几次（★ 用来查「哪个角度没在干活」） */
     byRole: () => ({ ...byRole }),
     peakConcurrent: () => peak,
+    /** ★ 丢掉**排队未开工**的（收尾用：排队 ≠ 已在跑） */
     clear: () => {
       queue.length = 0;
     },

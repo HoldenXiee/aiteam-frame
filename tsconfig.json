@@ -37,6 +37,8 @@
     "research/demox/lab-1/work",
     "research/demox/work",
     "dev/test/_sbx*",
-    "research/clusters/*/micro/_sandbox*"
+    "research/clusters/*/micro/_sandbox*",
+    "research/labfirst",
+    "research/clusters/hunt/pre"
   ]
 }

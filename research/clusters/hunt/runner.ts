@@ -27,6 +27,7 @@ import { readPreregTraceability, renderPrereg } from "./topology/prereg-trace.ts
 import { readAbsorption, renderAbsorption, shortCode } from "./topology/absorption.ts";
 import { readClosure, renderClosure } from "./topology/closure.ts";
 import { readExperiments, renderExperiments } from "./topology/experiments.ts";
+import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
 import { makeChallenge } from "./tools/challenge.ts";
@@ -580,59 +581,78 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     }
   })();
 
-  // ★★★★★ 2026-10-21 · **缺陷欠账**（这一轮唯一的主任务）
+
+  // ★★★★★ 立要求（**不点题**）—— DESIGN §1 / §5
   //
-  //   ★★★ 为什么它排在所有投递之前：实测「产出是被**我递进去的东西**驱动的」——
-  //     最近 24h 的 57 份产物里 **42% 明写「回答上级 / 回应上级」**。
-  //     而我递的 5 件里 3 件是"你的装置有缺陷" ⇒ 产出 63% 是自审、**P* 研究 0 份**。
-  //
-  //   ★★ 真读数：状态表 53 条缺陷 —— 可核已结 **1**、我核不了 5、**未结 47**。
-  //     ⇒ **53 开 / 1 关**。这不是"审得太多"，是"**从来没结账**"。
-  //     每审一条开 2–3 条关 0–1 条 ⇒ 存量本身就是工作来源。
-  //
-  //   ★ 所以我停掉配额那套（治"开工"），改递这一件：**先把存量结账**。
-  //     判据可数（结账率）、可离线重判、而且它自己能算。
-  const closureTodo = (() => {
+  //   ★ 只规定"形态"，不规定"研究什么"（设计者原话：不定格式，要立规则、立高要求）。
+  //   ★★ 三条要求都**可判死**：我能对着产物核，它也能自己核。
+  const requirementBody = [
+    "### 这一轮只有三条**形态要求**（题目你自己选）",
+    "",
+    "**① 每个实验都要能被我一眼核对**",
+    "   `假设`（一句能判死的话）· `装置`（能跑的代码，别人一条命令能跑）· `读数`（带数、落盘）·",
+    "   `现象`（与假设不符的东西 —— 这是新假设的种子）· `结局`（活 / 死 / 挂起 / 移交，并说为什么）。",
+    "   ★ **没有装置或没有读数的，不算实验。** 那叫感想，随便写，但不进账。",
+    "",
+    "**② 死掉的实验必须留一个可判死的死因**",
+    "   ✔ 「这个谓词 arity 不可切：`judge2` 返回 2」",
+    "   ✘ 「没意思」「暂时先放放」",
+    "   ★ 死因是最值钱的产物之一 —— 它让下一个人不用重走。",
+    "",
+    "**③ 你登记在自己账上的每条缺陷，落到三种处置之一**",
+    "   · **修了** ⇒ 带可核路径（`work/…` / `lib/…`），我会去查在不在盘上",
+    "   · **这是边界，不是缺陷** ⇒ 说清那条边界在哪（★ 我认：装置有边界）",
+    "   · **修不了** ⇒ 说清卡在哪（等谁 / 等什么）",
+    "",
+    "### 处境（★ 只是处境，不是任务清单）",
+    "读数我全放在 `work/_处境.md` 里了：实验账 / 缺陷账 / PREREG 溯源 / 状态表吸收率。",
+    "**你自己决定看哪个、看多少。** 我不指定题目。",
+    "",
+    "### 你可以（也都是真的）",
+    "· 改 `lib/aiteam/` 和 `lib/pi/` —— 那是给你改的；改完在 `lib/PATCHES.md` 记一句",
+    "· **推翻我立的任何判据** —— 你已经推翻过三次（mtime / 分母 / 出度），那是对的；",
+    "  但这次请**先写清你在推翻哪一条**，别默默绕开",
+    "· 用 `web_search` / `fetch_content` / `source_check` 去看外面的东西 ——",
+    "  系统科学、信息论、控制论、统计、认知科学，哪儿都行，**只要写清借了什么、出处在哪**",
+  ].join(String.fromCharCode(10));
+
+  // ★★★ 处境表：把三件读数**留在环境里**（信息不去，催的话去掉）
+  try {
+    const L: string[] = [];
+    L.push("# 处境（自动生成，每轮开头重写一遍）");
+    L.push("");
+    L.push("★ 这是**读数**，不是任务清单。看哪个、看多少，你自己定。");
+    L.push("");
     try {
-      const c = readClosure(join(LAB, "outbox"));
-      if (!c.total) return "";
-      log("todo", `★ 缺陷欠账已递给研究员：${renderClosure(c).split(String.fromCharCode(10))[0]}`);
-      const L: string[] = [];
-      L.push("### ★★★★★ 这一轮只有一件事：把你自己登记的缺陷**结账**");
-      L.push("");
-      L.push(renderClosure(c));
-      L.push("");
-      L.push("★★★ 为什么这件事排在最前：");
-      L.push("  你的状态表里有 **" + c.total + " 条你自己登记的缺陷**，可核结账的只有 **" + c.closed + " 条**。");
-      L.push("  这不是「审得太多」，是「**从来没结账**」—— 每审一条开 2–3 条、关 0–1 条，");
-      L.push("  于是**存量本身变成了工作来源**：你只能一直审下去，因为它一直欠着。");
-      L.push("");
-      L.push("★ 每一行 O 号都必须落到**三种处置之一**（★ 三种都算结账）：");
-      L.push("  · **修了** ⇒ 必须带一个**可核的路径**（`work/…` / `lib/…` / `outbox/…`，我会去查它存不存在）");
-      L.push("  · **这是边界，不是缺陷** ⇒ 说清那条边界在哪（★ 这条我认：装置有边界，不是所有偏差都是缺陷）");
-      L.push("  · **修不了** ⇒ 说清卡在哪（等谁 / 等什么）");
-      L.push("");
-      L.push("★★ **不许做的**：");
-      L.push("  · 不许把一行改成「已修」了事 —— 我会去核你引的那个路径在不在盘上；");
-      L.push("    核不了的我只能记成「已声明但我核不了」，**不算结账**。");
-      L.push("  · 不许为了结账把两条合并成一条（那是改分母）。");
-      L.push("");
-      L.push("★★ 结账之后你**可以**继续开新的审查（存量闸会自动放开）。");
-      L.push("★ 允许答「这批我一条都不想结」—— 但要写清为什么。");
-      L.push("");
-      const openIds = c.rows
-        .filter((r) => r.kind === "open" || r.kind === "unsaid")
-        .slice(0, 12)
-        .map((r) => r.id);
-      if (openIds.length) {
-        L.push("★ 先结这 " + openIds.length + " 条（最老的）：" + openIds.join(" "));
-      }
-      return L.join(String.fromCharCode(10));
+      const x = readExperiments(LAB);
+      L.push("## 实验账");
+      L.push("```");
+      L.push(...renderExperiments(x.stats, x.att, x.mix).split(String.fromCharCode(10)));
+      L.push("```");
     } catch (e) {
-      log("error", `缺陷欠账读数失败：${(e as Error).message}`);
-      return "";
+      L.push(`实验账读不出来：${(e as Error).message}`);
     }
-  })();
+    L.push("");
+    L.push("## 你的缺陷账（三态见要求 ③）");
+    L.push("```");
+    L.push(renderClosure(readClosure(join(LAB, "outbox"))));
+    L.push("```");
+    for (const [title, t] of [
+      ["PREREG 溯源", preregTodo],
+      ["状态表吸收率", absorptionTodo],
+    ] as const) {
+      if (!t) continue;
+      L.push("");
+      L.push(`## ${title}`);
+      L.push("```");
+      L.push(t.slice(0, 4000));
+      L.push("```");
+    }
+    writeFileSync(join(LAB, "work", "_处境.md"), L.join(String.fromCharCode(10)) + String.fromCharCode(10));
+    log("todo", `处境表已写：work/_处境.md（${L.length} 行，★ 读数留、题目不给）`);
+  } catch (e) {
+    log("error", `处境表写不出来：${(e as Error).message}`);
+  }
 
   // ── 开工：每个员工各投一次 —— 之后全由事件驱动 ──
   //   ★ 三个员工**同时开跑**（不是串行）—— 这才叫"多员工"。
@@ -651,9 +671,19 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
           `★ 若只写"看起来还行"，那既没推进也没纠正 —— 不算。\n` +
           `★★ 同事会挑战你的产物；**收到挑战必须回应**：接受→修订 / 反驳→给证据 / 悬而未决→说清缺什么。\n` +
           `★ 不要附和 —— 你的角度就是你的价值。三人都同意的东西才叫站住。` +
-          closureTodo +
-          preregTodo +
-          absorptionTodo
+          // ★★★★★ 2026-10-21 · 轮1：**不再把三件"读数 + 你该做什么"直接投过去**
+          //
+          //   ★★★ 实测代价：42%（更正后 25%）的产物明写「回答上级」——
+          //     产出是被**我递进去的东西**驱动的，而三件都是"我在盯你的装置"。
+          //   ★ 所以我改成：**信息留在处境表里，催的话去掉**。
+          //     读数它照样看得到（`work/_处境.md`），但"这一轮干什么"由它自己定。
+          renderDirective({
+            from: "研究助手",
+            why:
+              "上一个阶段我每轮都把『你的装置有缺陷』当投递，结果产出被我的题目压成了单线：" +
+              "最近 24h 的 57 份里 25% 明写「回答上级」，而新实验是 0。这一轮我不点题。",
+            body: requirementBody,
+          })
         : researcherPrompt.KICKOFF,
     ).catch((e) => ({ error: (e as Error).message, text: "" })),
   );
@@ -666,6 +696,19 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   log("window", `窗口到点（${Math.round((Date.now() - t0) / 1000)}s）`);
   // ★★★ 进入收尾态（多个员工时必需 —— 否则"收尾"会自激，永不收敛）
   closing = true;
+  // ★★★ 收尾计时（纪律㉒：量具的采样时机必须与观测过程匹配）
+  //   ★ 实测：一轮 600s 窗口的收尾花了 749s，我不知道时间花在哪 —— 所以**每一段都记**。
+  // ★ 收尾总上限：**排队直接丢，只等手上那一个** ⇒ 3 分钟够。
+  //   （测试可压短：`HUNT_CLOSE_CAP_MS=15000`）
+  const CLOSE_CAP_MS =
+    Number(process.env.HUNT_CLOSE_CAP_MS) > 0 ? Number(process.env.HUNT_CLOSE_CAP_MS) : 180_000;
+  let closeTimedOut = false;
+  let tClose = Date.now();
+  const closeMark = (what: string) => {
+    const d = Date.now() - tClose;
+    if (d >= 500) log("close", `耗时 ${(d / 1000).toFixed(1)}s ← ${what}`);
+    tClose = Date.now();
+  };
   log("window", "进入收尾态：不再 fire 新专家 / 不再送新挑战，只等已在跑的做完");
 
   for (const t of timers) clearInterval(t);   // ★ 清掉时间节流，否则进程不退出
@@ -675,11 +718,14 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     join(LAB, "work", "deliveries.jsonl"),
     deliveries.map((d) => JSON.stringify(d)).join("\n") + (deliveries.length ? "\n" : ""),
   );
+  closeMark("写 deliveries.jsonl");
   const viaFire = deliveries.filter((d) => d.via === "fire").length;
   const viaConsult = deliveries.filter((d) => d.via === "consult").length;
   log("flow", `回流：fire 投了 ${viaFire} 条 · consult 自回 ${viaConsult} 次（★ consult 不该出现在 fire 里）`);
   // ★★★ 收尾时再记一次 lib 修订 —— **与开工时不同就说明中途有人改了库**（可归因）
+  closeMark("回流日志");
   const libRevEnd = recordLibRevision("集群收尾");
+  closeMark("recordLibRevision");
   if (libRevEnd.fingerprint !== libRev.fingerprint) {
     log("lib", `★ 本轮 lib/ 被改过：开工 ${libRev.fingerprint} → 收尾 ${libRevEnd.fingerprint}`);
   }
@@ -688,6 +734,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     join(LAB, "work", "debate.jsonl"),
     debateLog.map((d) => JSON.stringify(d)).join("\n") + (debateLog.length ? "\n" : ""),
   );
+  closeMark("写 debate.jsonl");
   if (researchers.length > 1) {
     const byTo = new Map<string, number>();
     for (const d of debateLog) byTo.set(d.to, (byTo.get(d.to) ?? 0) + 1);
@@ -708,7 +755,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   {
     const dr = (
       rules as unknown as {
-        drainer?: { busy: () => boolean; queued: () => number; drain: () => void; byRole?: () => Record<string, number> };
+        drainer?: { busy: () => boolean; queued: () => number; drain: () => void; clear?: () => void; byRole?: () => Record<string, number> };
       }
     ).drainer;
     if (dr) {
@@ -716,12 +763,25 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       log("flow", `等派活器收干净（队列 ${dr.queued()} · 在跑 ${dr.busy() ? 1 : 0}）`);
       while (dr.busy() || dr.queued() > 0) {
         dr.drain();
+        // ★★★ 2026-10-21：**每一轮都丢一次排队**。
+        //   ★ 我第一版只在收尾开头丢一次 ⇒ 实测 `队列 1 · 在跑 1`：
+        //     那份是**丢完之后才排进来的**（同一个 tick 里 fire 的）⇒ 照样等到超时。
+        //   ★ AGENTS 的语义是「只等**已在跑**」—— 排队没开工的不算。
+        if (dr.clear) {
+          const q = dr.queued();
+          if (q) {
+            dr.clear();
+            log("flow", `⛔ 收尾：丢掉 ${q} 个**排队未开工**的专家（排队 ≠ 已在跑）`);
+          }
+        }
         await new Promise((r) => setTimeout(r, 2000));
-        if (Date.now() - t0 > 20 * 60_000) {
-          log("flow", `⛔ 等派活器超 20 分钟 ⇒ 放弃（队列 ${dr.queued()} · 在跑 ${dr.busy() ? 1 : 0}）`);
+        if (Date.now() - t0 > CLOSE_CAP_MS) {
+          closeTimedOut = true;
+          log("flow", `⛔ 等派活器超 ${Math.round(CLOSE_CAP_MS / 60000)} 分钟 ⇒ 放弃（队列 ${dr.queued()} · 在跑 ${dr.busy() ? 1 : 0}）`);
           break;
         }
       }
+      closeMark("等派活器");
       log("flow", `派活器已收干净（等了 ${Math.round((Date.now() - t0) / 1000)}s）`);
       // ★★★★★ 每个座位被派了几次（2026-10-21）
       //
@@ -767,26 +827,20 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★★ 到点会打一行 `⛔ 收尾超出上限` —— **截断必须响**（纪律㉖），否则
   //     "专家没结论"与"我没等"分不开。
   //   ★ 不设上限 ⇒ 一次 bash 20 分钟的实验能把整个 run 吊死（实测）。
-  // ★ 测试/短跑用：`HUNT_CLOSE_CAP_MS=20000` 把上限压短（★ 不改判据本身）
-  const CAP_MS = Number(process.env.HUNT_CLOSE_CAP_MS) > 0 ? Number(process.env.HUNT_CLOSE_CAP_MS) : 12 * 60_000;
-  let capHit = false;
-  // ★★★ 2026-10-21 修：**整组**都要被上限管。
-  //   ★ 我第一版只把 `spawned` 的等待放进 race，而 `allSettled` 外面还挂着 `runs`
-  //     ⇒ 只要研究者的首轮 prompt 没结束，`allSettled` 就一直等 —— 上限形同虚设。
-  //     实测：`--secs=20`（没有任何专家）照样卡死在收尾。
-  await Promise.race([
-    Promise.allSettled([
-      ...runs.map((r) => r.catch(() => {})),
-      ...spawned.map((a) => a.io.waitIdle().catch(() => {})),
-    ]),
-    new Promise((res) => {
-      const t = setTimeout(() => {
-        capHit = true;
-        res(null);
-      }, CAP_MS);
-      (t as unknown as { unref?: () => void }).unref?.();
-    }),
-  ]);
+  const CAP_MS = CLOSE_CAP_MS;
+  // ★★★★ 2026-10-21 · **这里原本有第二个等待，删掉了。**
+  //
+  //   ★ 实测：收尾 180s（等派活器超时）+ 180s（这里又等同一批 agent）= **6 分钟**，
+  //     同一件事等了两遍 —— 上面那个「等派活器」等的就是在跑的那一个。
+  //   ★★ 研究者的首轮 prompt 也不该等：它们**不收尾**（常驻 agent，`waitIdle()` 永不返回），
+  //     下面直接 `dispose()` 停掉，是「停」不是「等」。
+  //   ★ 所以收尾只需要一个上限，就是 `CLOSE_CAP_MS`（在"等派活器"那里）。
+  const capHit = closeTimedOut;
+
+  // ★★★ 2026-10-21 补（我自己删漏的）：**已 fire 的专家也要 dispose**。
+  //   上一版删「重复等待」时，连带把 `for (const a of spawned) a.dispose()` 一起删了
+  //   ⇒ 收尾打出了 `rule:done`，但进程**不退出**（会话还活着），只能被 timeout 杀。
+  //   ★ 判据：`exit=124` 且最后一行是 `rule:done` = 「话打完了，人没走」。
   for (const a of spawned) {
     try {
       a.dispose();
@@ -794,33 +848,6 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       /* 已释放 */
     }
   }
-
-  // ★★★★★ 2026-10-21 · **收尾最后才停研究者**
-  //
-  //   ★★★ 我第一版把它放在收尾**开头** —— 结果把回流打断了：
-  //     实测 `error 回流 libsmith 失败：agent L3-researcher-hands-on-… 已 dispose，不能再操作`
-  //     ⇒ libsmith 写了 2514 字，**一个字都没送到**。
-  //   ★★ 正确顺序：**先让已 fire 的专家跑完、把话送回去，再停人**。
-  //
-  //   ★ 那为什么还要停？因为研究者是"一直干活"的常驻 agent（一次 `bash` 20+ 分钟），
-  //     `io.waitIdle()` 对它**永不返回** ⇒ 进程不退出、`rule:done` 打不出来。
-  //     ⇒ 它们是"该被停"，不是"该被等"；但**必须排在回流之后**。
-  try {
-    researcher.dispose();
-  } catch {
-    /* 已释放 */
-  }
-  for (const r of researchers) {
-    try {
-      r.dispose();
-    } catch {
-      /* 已释放 */
-    }
-  }
-  if (capHit) {
-    log("flow", `⛔ 收尾超 ${CAP_MS >= 60_000 ? Math.round(CAP_MS / 60_000) + " 分钟" : Math.round(CAP_MS / 1000) + " 秒"}上限 ⇒ 截断还在跑的专家（★ 它们的结论没送到）`);
-  }
-  log("flow", "研究者已停（它们不 fire，是常驻的 ⇒ 收尾是「停」，不是「等」；★ 排在回流之后）");
 
   const outs = listOutbox();
   // ★★★ 收尾账**必须同时落进 `_topology.log`**（2026-10-20 实测发现）
@@ -833,6 +860,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   AGENTS.md §三之三 教大家 `grep "rule:done"` 判「有没有正常收尾」，
   //   而实际打的是 `done` ⇒ **照文档做会得出「中途被 kill」**（实测：这轮正常收尾，
   //   grep rule:done 却是 0 行）。★ 文档与代码必须同源（纪律⑪）。
+  closeMark("收尾全程");
   log("rule:done", closingLine);
   console.log(`\n${closingLine}`);
   console.log(`★ 日志：${join(LAB, "work", "_topology.log")}`);
