@@ -14,7 +14,7 @@ import { AUTH_SOURCE, labAt } from "./env.ts";
 import { deliverToResearcher, NOTE_CONSULT_ALREADY_FLOWS } from "./feedback.ts";
 import { recordLibState, recordLibRevision } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
-import { ALL_TOOLS, LAB, MODEL, REPO } from "./paths.ts";
+import { ALL_TOOLS, LAB, MODEL, READONLY_TOOLS, REPO, WEB_TOOLS } from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
 import { renderSeatLedger } from "./topology/dispatch.ts";
 import * as researcherPrompt from "./prompts/researcher.ts";
@@ -113,7 +113,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       id: `L3-${role}-${Date.now().toString(36)}`,
       model: MODEL,
       role: spec.role(why, focus), // ★ 提示词工厂（prompts/<role>.ts）
-      permissions: { only: [...spec.tools] }, // ★ 只读专家永远只读
+      permissions: { only: [...spec.tools, ...WEB_TOOLS] }, // ★ 只读专家仍然只读（web 是只读的）
     });
     attachGate(a);
     spawned.push(a);
@@ -296,7 +296,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       id: `L3-researcher-${myKey.replace("/", "-")}-${Date.now().toString(36)}`,
       model: MODEL,
       role: role + renderSeat(ang),
-      permissions: { only: [...ALL_TOOLS] },
+      // ★★ 白名单必须显式带上 web 工具 —— 否则扩展装了也进不来（P108 实测）
+      permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
       tools: { custom: [consult, spawnLine, challenge] },
     });
     attachGate(a);
@@ -669,6 +670,21 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       }
 
       P.push("");
+      P.push("");
+      P.push("### ★ 你的灵感来源（读数，不是评价）");
+      P.push(
+        `· 全部 ${x.mix.total} 份产物里：**外部材料 ${x.mix.external} 份** · ` +
+          `**跨学科 ${x.mix.interdisciplinary} 份** · 明写出处 ${x.mix.declared} 份`,
+      );
+      P.push(
+        "· `web_search` / `fetch_content` / `source_check` / `get_search_content` 都在你手上" +
+          "（★ 已实测能搜：一次返回 5 条，含 Springer 的条目）",
+      );
+      P.push("  但**外部材料引用是 0** —— 也就是说这几个工具**一次都没被用过**");
+      P.push("");
+      P.push("★ 不评价这件事好还是不好。只问一句：**这是有意的吗？**");
+
+      P.push("");
       P.push("### 一个问题（★ 必须回答）");
       P.push(
         `**你的实验账上有 ${x.stats.byOutcome.unsaid} 个实验没写结局。它们实际是什么状态？**`,
@@ -702,7 +718,13 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       const x = readExperiments(LAB);
       L.push("## 实验账");
       L.push("```");
-      L.push(...renderExperiments(x.stats, x.att, x.mix, x.outcomeSamples).split(String.fromCharCode(10)));
+      L.push(...renderExperiments(
+        x.stats,
+        x.att,
+        x.mix,
+        x.outcomeSamples,
+        x.ledgerConflicts.length ? `${x.ledgerConflicts.length} 个编号在两份账里结局不一致（记成未声明）` : "",
+      ).split(String.fromCharCode(10)));
       L.push("```");
     } catch (e) {
       L.push(`实验账读不出来：${(e as Error).message}`);
@@ -877,7 +899,13 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★ 模式自报家门：`inferred` = 从文件名推断（有偏差）；`ledger` = 它自己登记的账。
   try {
     const x = readExperiments(LAB);
-    for (const line of renderExperiments(x.stats, x.att, x.mix, x.outcomeSamples).split(String.fromCharCode(10))) {
+    for (const line of renderExperiments(
+        x.stats,
+        x.att,
+        x.mix,
+        x.outcomeSamples,
+        x.ledgerConflicts.length ? `${x.ledgerConflicts.length} 个编号在两份账里结局不一致（记成未声明）` : "",
+      ).split(String.fromCharCode(10))) {
       log("readout", line);
     }
   } catch (e) {
@@ -936,6 +964,27 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   而实际打的是 `done` ⇒ **照文档做会得出「中途被 kill」**（实测：这轮正常收尾，
   //   grep rule:done 却是 0 行）。★ 文档与代码必须同源（纪律⑪）。
   closeMark("收尾全程");
+  // ★★★ 2026-10-21 补账：**每轮必报成本**（AGENTS §七：报告必报成本；缺数据 ≠ 0）
+  //   ★ 之前五轮我只报了"量级 $1–3"，那是推的，不是量的。
+  try {
+    const spent = researchers.reduce(
+      (a: number, r: { usage?: { cost?: { total?: number } } }) => a + (r.usage?.cost?.total ?? 0),
+      0,
+    );
+    const tokens = researchers.reduce(
+      (a: number, r: { usage?: { input?: number; output?: number } }) =>
+        a + (r.usage?.input ?? 0) + (r.usage?.output ?? 0),
+      0,
+    );
+    if (spent > 0 || tokens > 0) {
+      log("cost", `本轮研究席：${(tokens / 1e6).toFixed(2)}M token · $${spent.toFixed(2)}（★ 不含已 fire 的专家）`);
+    } else {
+      log("cost", "本轮研究席：成本未声明（agent.usage 拿不到 —— 缺数据，不是 0）");
+    }
+  } catch (e) {
+    log("cost", `成本读数失败：${(e as Error).message}`);
+  }
+
   log("rule:done", closingLine);
   console.log(`\n${closingLine}`);
   console.log(`★ 日志：${join(LAB, "work", "_topology.log")}`);

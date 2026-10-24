@@ -52,6 +52,23 @@ export const DESIGN = join(REPO, "dev/docs/DESIGN.md");
 /** 能研究、能写自己的东西 */
 export const ALL_TOOLS = ["bash", "read", "write", "edit", "grep", "find", "ls"];
 
+/**
+ * ★★★ 外部材料通道的工具名（2026-10-21）。
+ *
+ * ★ 为什么必须单独列：本库的 `permissions.only` 是**硬白名单** —— 名单之外的
+ *   工具连注册表都进不去。研究员原来 `only: [...ALL_TOOLS]`，
+ *   而那 7 个名字里没有 web ⇒ 扩展明明装好了，**它手上 0 个 web 工具**。
+ * ★★ 这是集群自己抓到的（`outbox/P108-外部材料通道探针…`）：
+ *   「我的工具表里 **0 个** web 工具」—— 而我当时用一个**没设 `only`** 的探针 agent
+ *   验过"能搜"，于是误以为接上了（纪律㉖ 的又一层：接上 ≠ 它手上真的有）。
+ */
+export const WEB_TOOLS = [
+  "web_search",
+  "fetch_content",
+  "get_search_content",
+  "source_check",
+] as const;
+
 /** ★ 只读 —— 审查者/复审者/启发者/看门狗都用这个（它们不该改东西） */
 export const READONLY_TOOLS = ["bash", "read", "grep", "find", "ls"];
 

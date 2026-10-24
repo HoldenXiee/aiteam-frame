@@ -6,5 +6,13 @@
 import { readExperiments, renderExperiments } from "../hunt/topology/experiments.ts";
 
 const root = process.argv[2] ?? "research/labfirst/hunt";
-const { stats, att, mix, outcomeSamples } = readExperiments(root);
-console.log(renderExperiments(stats, att, mix, outcomeSamples));
+const { stats, att, mix, outcomeSamples, ledgerConflicts } = readExperiments(root);
+console.log(
+  renderExperiments(
+    stats,
+    att,
+    mix,
+    outcomeSamples,
+    ledgerConflicts.length ? `同一编号在两份账里结局不一致 ${ledgerConflicts.length} 个：${ledgerConflicts.slice(0, 6).join(" ")}（记成未声明，不悄悄挑一个）` : "",
+  ),
+);

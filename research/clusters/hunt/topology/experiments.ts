@@ -355,6 +355,8 @@ export function renderExperiments(
   mix: SourceMix,
   /** ★ 账里「结局」列实际长什么样（前几个不同的值）—— 用来判"表在、但没记四态" */
   outcomeSamples: string[] = [],
+  /** ★ 账之间冲突的提示（为一句话多传一个参数，比让调用方拼字符串更不容易漏） */
+  ledgerConflictsNote = "",
 ): string {
   const pct = (v: number | null) => (v === null ? "未声明" : `${Math.round(v * 100)}%`);
   const L: string[] = [];
@@ -382,6 +384,9 @@ export function renderExperiments(
         .map((v) => `\`${v.slice(0, 18)}\``)
         .join(" · ")}`,
     );
+  }
+  if (s.mode === "ledger" && ledgerConflictsNote) {
+    L.push(`   ⚠ ${ledgerConflictsNote}`);
   }
   if (s.mode === "inferred") {
     L.push(`   ⚠ 这是**从文件名推断**的读数，不是它自己登记的账 —— 有系统偏差，别当准绳`);
@@ -418,7 +423,15 @@ export function readArtifacts(outboxDir: string, limit = 400): Artifact[] {
 export function readExperiments(
   labRoot: string,
   now = Date.now(),
-): { stats: Stats; att: Attribution; mix: SourceMix; rows: Row[]; outcomeSamples: string[] } {
+): {
+  stats: Stats;
+  att: Attribution;
+  mix: SourceMix;
+  rows: Row[];
+  outcomeSamples: string[];
+  /** ★ 同一编号在两份账里结局不一致的（我判不了 ⇒ 记 unsaid，不悄悄挑一个）*/
+  ledgerConflicts: string[];
+} {
   if (labRoot.replace(/[\\/]+$/, "").endsWith("outbox") || labRoot.endsWith("work")) {
     throw new Error(
       `readExperiments 要的是**集群空间根**（如 research/labfirst/hunt），拿到的是「${labRoot}」。` +
@@ -440,17 +453,37 @@ export function readExperiments(
 
   let rows: Row[];
   let mode: Stats["mode"];
+  let ledgerConflicts: string[] = [];
   if (ledgerFiles.length) {
+    // ★★★ 2026-10-21 修（集群 `P107` 的指控：**同一编号在 14/60 个 id 上冲突**）：
+    //   原来"先读到 / 有结局的优先" ⇒ 悄悄挑一个，读数是**记账顺序的函数**，不是事实。
+    //   ⇒ 现在：结局**一致**才采纳；**不一致就记成 unsaid 并计入 conflicts**（我判不了就说判不了）。
     const byId = new Map<string, Row>();
+    const conflicts: string[] = [];
     for (const f of ledgerFiles) {
       for (const r of parseLedger(readFileSync(join(outboxDir, f), "utf8"))) {
-        // ★ 已有就不覆盖：先读到的（索引在前、分席位在后）以**有结局的**为准
+        // ★ 已经判过冲突的 id **不再被后面的账覆盖**（否则第三份账会把 unsaid 冲掉，
+        //   读数又变成"谁最后写谁算"）
+        if (conflicts.includes(r.id)) continue;
         const prev = byId.get(r.id);
-        if (!prev || (prev.outcome === "unsaid" && r.outcome !== "unsaid")) byId.set(r.id, r);
-        else if (!prev) byId.set(r.id, r);
+        if (!prev) {
+          byId.set(r.id, r);
+          continue;
+        }
+        const a = prev.outcome;
+        const b = r.outcome;
+        // ★ unsaid 不算冲突（一份账没写结局，另一份写了 ⇒ 用写了的那份）
+        if (a === b || b === "unsaid") continue;
+        if (a === "unsaid") {
+          byId.set(r.id, r);
+          continue;
+        }
+        conflicts.push(r.id);
+        byId.set(r.id, { ...prev, outcome: "unsaid", cause: `两份账的结局不一致（${a} vs ${b}）`, anchored: false });
       }
     }
     rows = [...byId.values()];
+    ledgerConflicts = [...new Set(conflicts)];
     mode = rows.length ? "ledger" : "inferred";
     if (!rows.length) rows = inferRows(arts);
   } else {
@@ -493,5 +526,5 @@ export function readExperiments(
     ...new Set(rows.filter((r) => r.cause).map((r) => r.cause.slice(0, 24))),
   ].slice(0, 6);
 
-  return { stats, att: deliveryDriven(arts), mix: sourceMix(arts), rows, outcomeSamples };
+  return { stats, att: deliveryDriven(arts), mix: sourceMix(arts), rows, outcomeSamples, ledgerConflicts };
 }
