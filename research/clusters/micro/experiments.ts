@@ -6,5 +6,5 @@
 import { readExperiments, renderExperiments } from "../hunt/topology/experiments.ts";
 
 const root = process.argv[2] ?? "research/labfirst/hunt";
-const { stats, att, mix } = readExperiments(root);
-console.log(renderExperiments(stats, att, mix));
+const { stats, att, mix, outcomeSamples } = readExperiments(root);
+console.log(renderExperiments(stats, att, mix, outcomeSamples));

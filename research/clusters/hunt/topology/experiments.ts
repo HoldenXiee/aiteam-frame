@@ -106,20 +106,63 @@ export function classifyOutcome(raw: string): Outcome {
 }
 
 /** `| P58 | 谓词 | 装置 | 2026-10-19 | 活：下一步跑 X |` ⇒ Row */
+/**
+ * ★★★ 2026-10-21 修（★ 集群把 `EXPERIMENTS.md` 写成了**索引**，账体在 `EXPERIMENTS-<seat>.md`）：
+ *   第一版把表格的**任何** `|` 行都当实验行 —— 于是索引表的「席位 | 文件 | 字节」
+ *   也会被当成实验，而且主观地把最后一格当结局。那是典型的「口径混进异物」（纪律㉞）。
+ * ★ 现在**认表头**：只有表头里同时出现 id 列词（编号/实验/id）与结局列词（结局/状态/结论/结果）
+ *   的表格才被解析，且**按列名取值**，不靠“最后一格”。
+ */
+const ID_HEAD = /^(编号|实验|实验号|id|ID|＃|#)$/;
+const OUT_HEAD = /^(结局|状态|结论|结果|verdict|Status)$/;
+
 export function parseLedger(text: string): Row[] {
   const rows: Row[] = [];
-  for (const line of text.split(String.fromCharCode(10))) {
+  const lines = text.split(String.fromCharCode(10));
+  let idCol = -1;
+  let outCol = -1;
+  let inTable = false;
+
+  const reset = () => {
+    idCol = -1;
+    outCol = -1;
+    inTable = false;
+  };
+
+  for (const line of lines) {
     const t = line.trim();
-    if (!t.startsWith("|")) continue;
+    if (!t.startsWith("|")) {
+      reset();
+      continue;
+    }
     const cells = t.split("|").map((c) => c.trim());
-    // cells[0] 是空（行首 |）；至少要有 id + 一个结局格
-    if (cells.length < 4) continue;
-    const id = cells[1] ?? "";
-    if (!id || /^[-:\s]+$/.test(id)) continue; // 分隔行
-    if (/^(编号|id|实验)/i.test(id)) continue; // 表头
-    // ★ 结局取**最后一格非空**（表头顺序可能变，取尾部最稳）
-    const tail = cells.slice(2).filter((c) => c && !/^[-:\s]+$/.test(c));
-    const last = tail.length ? tail[tail.length - 1]! : "";
+    // cells[0] 是空（行首 |）；跳过行首/行尾空单元
+    const body = cells.slice(1, cells.length - 1);
+    if (!body.length) continue;
+
+    const isSep = body.every((c) => /^[-:\s]*$/.test(c));
+    if (isSep) {
+      inTable = true;
+      continue;
+    }
+
+    if (!inTable) {
+      // 这行是**表头**：找列名
+      const i = body.findIndex((c) => ID_HEAD.test(c));
+      const o = body.findIndex((c) => OUT_HEAD.test(c));
+      if (i >= 0 && o >= 0) {
+        idCol = i;
+        outCol = o;
+      } else {
+        reset();
+      }
+      continue;
+    }
+
+    if (idCol < 0) continue; // 不在实验表里
+    const id = body[idCol] ?? "";
+    if (!id || /^[-:\s]+$/.test(id)) continue;
+    const last = outCol >= 0 ? (body[outCol] ?? "") : "";
     rows.push({ id, outcome: classifyOutcome(last), cause: last, anchored: hasAnchor(last) });
   }
   return rows;
@@ -294,7 +337,13 @@ export function experimentStats(
 }
 
 /** 渲染（★ 缺数据写「未声明」，绝不写 0 —— 纪律㉜） */
-export function renderExperiments(s: Stats, att: Attribution, mix: SourceMix): string {
+export function renderExperiments(
+  s: Stats,
+  att: Attribution,
+  mix: SourceMix,
+  /** ★ 账里「结局」列实际长什么样（前几个不同的值）—— 用来判"表在、但没记四态" */
+  outcomeSamples: string[] = [],
+): string {
   const pct = (v: number | null) => (v === null ? "未声明" : `${Math.round(v * 100)}%`);
   const L: string[] = [];
   L.push(
@@ -312,6 +361,14 @@ export function renderExperiments(s: Stats, att: Attribution, mix: SourceMix): s
     `   灵感出处：外部材料 ${mix.external} · 跨学科 ${mix.interdisciplinary} · 明写出处 ${mix.declared}` +
       `（共 ${mix.total}）`,
   );
+  if (s.mode === "ledger" && s.byOutcome.unsaid && outcomeSamples.length) {
+    L.push(
+      `   ⚠ 账读到了，但「结局」列认不出四态 —— 实际写在里面的是：${outcomeSamples
+        .slice(0, 4)
+        .map((v) => `\`${v.slice(0, 18)}\``)
+        .join(" · ")}`,
+    );
+  }
   if (s.mode === "inferred") {
     L.push(`   ⚠ 这是**从文件名推断**的读数，不是它自己登记的账 —— 有系统偏差，别当准绳`);
   }
@@ -347,7 +404,7 @@ export function readArtifacts(outboxDir: string, limit = 400): Artifact[] {
 export function readExperiments(
   labRoot: string,
   now = Date.now(),
-): { stats: Stats; att: Attribution; mix: SourceMix; rows: Row[] } {
+): { stats: Stats; att: Attribution; mix: SourceMix; rows: Row[]; outcomeSamples: string[] } {
   if (labRoot.replace(/[\\/]+$/, "").endsWith("outbox") || labRoot.endsWith("work")) {
     throw new Error(
       `readExperiments 要的是**集群空间根**（如 research/labfirst/hunt），拿到的是「${labRoot}」。` +
@@ -356,22 +413,52 @@ export function readExperiments(
   }
   const outboxDir = join(labRoot, "outbox");
   const arts = readArtifacts(outboxDir);
-  const ledgerPath = join(outboxDir, "EXPERIMENTS.md");
+  // ★★★ 2026-10-21：账可能是**分席位**的（`EXPERIMENTS-<seat>.md`），
+  //   而 `EXPERIMENTS.md` 只是索引 ⇒ 全部读、按 id 去重、别把索引当账。
+  let ledgerFiles: string[] = [];
+  try {
+    ledgerFiles = readdirSync(outboxDir)
+      .filter((f) => /^EXPERIMENTS.*\.md$/i.test(f))
+      .sort();
+  } catch {
+    ledgerFiles = [];
+  }
 
   let rows: Row[];
   let mode: Stats["mode"];
-  if (existsSync(ledgerPath)) {
-    rows = parseLedger(readFileSync(ledgerPath, "utf8"));
-    mode = "ledger";
+  if (ledgerFiles.length) {
+    const byId = new Map<string, Row>();
+    for (const f of ledgerFiles) {
+      for (const r of parseLedger(readFileSync(join(outboxDir, f), "utf8"))) {
+        // ★ 已有就不覆盖：先读到的（索引在前、分席位在后）以**有结局的**为准
+        const prev = byId.get(r.id);
+        if (!prev || (prev.outcome === "unsaid" && r.outcome !== "unsaid")) byId.set(r.id, r);
+        else if (!prev) byId.set(r.id, r);
+      }
+    }
+    rows = [...byId.values()];
+    mode = rows.length ? "ledger" : "inferred";
+    if (!rows.length) rows = inferRows(arts);
   } else {
     rows = inferRows(arts);
     mode = "inferred";
   }
 
   const byFile = new Map(arts.map((a) => [a.file, a]));
+  /**
+   * ★★★ 2026-10-21 修：账里的 id 往往**不是文件名**（`P58` vs `P58-有结局…md`）
+   *   ⇒ 第一版按 id 精确匹配 ⇒ 装置覆盖报 0%、新开率报 0（假读数）。
+   *   ★ 现在按**前缀**回找文件（`exact` → `id-*` → `id*`）。
+   */
+  const lookup = (id: string): Artifact | undefined => {
+    const exact = byFile.get(id);
+    if (exact) return exact;
+    const hit = arts.find((a) => a.file === id || a.file.startsWith(id + "-") || a.file.startsWith(id));
+    return hit;
+  };
   const refsByRow = new Map<string, string[]>();
   for (const r of rows) {
-    const a = byFile.get(r.id);
+    const a = lookup(r.id);
     refsByRow.set(r.id, a ? deviceRefs(a.text) : []);
   }
   const stats = experimentStats(
@@ -380,13 +467,17 @@ export function readExperiments(
       refsFor: (id) => refsByRow.get(id) ?? [],
       exists: (p) => existsSync(join(labRoot, p)) || existsSync(join(labRoot, "..", "..", "..", p)),
     },
-    { now, mtimeOf: (id) => byFile.get(id)?.mtimeMs },
+    { now, mtimeOf: (id) => lookup(id)?.mtimeMs },
     mode,
     rows.filter((r) => {
-      const a = byFile.get(r.id);
+      const a = lookup(r.id);
       return a ? /(活|死|挂起|移交)/.test(a.text) : false;
     }).length,
   );
 
-  return { stats, att: deliveryDriven(arts), mix: sourceMix(arts), rows };
+  const outcomeSamples = [
+    ...new Set(rows.filter((r) => r.cause).map((r) => r.cause.slice(0, 24))),
+  ].slice(0, 6);
+
+  return { stats, att: deliveryDriven(arts), mix: sourceMix(arts), rows, outcomeSamples };
 }

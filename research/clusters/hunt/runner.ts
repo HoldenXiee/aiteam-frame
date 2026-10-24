@@ -27,6 +27,7 @@ import { readPreregTraceability, renderPrereg } from "./topology/prereg-trace.ts
 import { readAbsorption, renderAbsorption, shortCode } from "./topology/absorption.ts";
 import { readClosure, renderClosure } from "./topology/closure.ts";
 import { artifactMix, readArtifacts, readExperiments, renderExperiments } from "./topology/experiments.ts";
+import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
@@ -650,16 +651,39 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       );
       P.push(`· 外部材料引用：**${x.mix.external}** 处（\`web_search\`/\`fetch_content\` 已经在你手上）`);
       P.push("");
-      P.push("### 一个问题（★ 必须回答，三选一）");
-      P.push("**「装置审查一条接一条地开、新实验不开」—— 这是你想干的吗？**");
+      // ★★★ E2：forge → hunt（DESIGN §5）—— **递处境，不递题目**
       P.push("");
-      P.push("(a) **是** —— 说清为什么（比如：现在装置真的不可信，先把尺修好再量）");
-      P.push("(b) **不是**，我要转到 ________ —— 说清转到哪，**并且当场开一个新实验**");
-      P.push("    （假设 / 装置 / 读数 / 现象 / 结局，见上面要求 ①）");
-      P.push("(c) **想转但转不动** —— 说清卡在哪一步（等谁 / 缺什么工具 / 不知道从哪下手）");
+      P.push("### ★ 另一边的状态（`forge` 那边，跟你的活不是一回事，只是让你知道世界多大）");
+      try {
+        P.push(
+          renderBookState(
+            readBookState({
+              bookDir: join(REPO, BOOK_DIR),
+              publishPath: join(REPO, "research/labfirst/forge/work/publish.md"),
+              forgeWorkDir: join(REPO, "research/labfirst/forge/work"),
+            }),
+          ),
+        );
+      } catch (e) {
+        P.push(`（读不到：${(e as Error).message}）`);
+      }
+
       P.push("");
-      P.push("★ 允许答 (a) 或 (c)，**答了不算病** —— 我要的是你**想清楚了**，不是要你改口。");
-      P.push("★★ 唯一不许的是**不答**：绕过去接着开下一条审查，那这一问就等于没发生。");
+      P.push("### 一个问题（★ 必须回答）");
+      P.push(
+        `**你的实验账上有 ${x.stats.byOutcome.unsaid} 个实验没写结局。它们实际是什么状态？**`,
+      );
+      P.push("");
+      P.push("(a) **大部分根本没做** —— 只是当时写了个想法。说个数，然后把它们标成「没做」");
+      P.push("(b) **做过，有结论，但没记** —— ★ 这是最值钱的一种。**死因**要可判死");
+      P.push("    （「这个谓词 arity 不可切：`judge2` 返回 2」✔ /「没意思」✘）");
+      P.push("(c) **还活着** —— 那下一步是什么（★ 具体动作，不是「继续研究」）");
+      P.push("(d) **混着** —— 那就给一份拆分：几成 (a)、几成 (b)、几成 (c)");
+      P.push("");
+      P.push("★ 记法：在 `outbox/EXPERIMENTS.md` 写一张表（`| 编号 | 谓词 | 装置 | 结局 |`）就行，");
+      P.push("  **不用改那些老文件**。我会去读这张表 —— 有表之后，我的读数就从「文件名推断」换成「你的账」。");
+      P.push("★★ 允许答 (a)：**没做是合法的**，我不会因此说你什么。");
+      P.push("  只有一种情况算病：**明明没做却写成做了** —— 我会去核你引的路径在不在盘上。");
       return P.join(String.fromCharCode(10));
     } catch (e) {
       log("error", `结构读数失败：${(e as Error).message}`);
@@ -678,7 +702,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       const x = readExperiments(LAB);
       L.push("## 实验账");
       L.push("```");
-      L.push(...renderExperiments(x.stats, x.att, x.mix).split(String.fromCharCode(10)));
+      L.push(...renderExperiments(x.stats, x.att, x.mix, x.outcomeSamples).split(String.fromCharCode(10)));
       L.push("```");
     } catch (e) {
       L.push(`实验账读不出来：${(e as Error).message}`);
@@ -853,7 +877,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★ 模式自报家门：`inferred` = 从文件名推断（有偏差）；`ledger` = 它自己登记的账。
   try {
     const x = readExperiments(LAB);
-    for (const line of renderExperiments(x.stats, x.att, x.mix).split(String.fromCharCode(10))) {
+    for (const line of renderExperiments(x.stats, x.att, x.mix, x.outcomeSamples).split(String.fromCharCode(10))) {
       log("readout", line);
     }
   } catch (e) {
