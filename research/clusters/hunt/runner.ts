@@ -26,6 +26,7 @@ import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "
 import { readPreregTraceability, renderPrereg } from "./topology/prereg-trace.ts";
 import { readAbsorption, renderAbsorption, shortCode } from "./topology/absorption.ts";
 import { readClosure, renderClosure } from "./topology/closure.ts";
+import { readExperiments, renderExperiments } from "./topology/experiments.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
 import { makeChallenge } from "./tools/challenge.ts";
@@ -732,6 +733,21 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
         const counts = dr.byRole?.() ?? {};
         const all = [...usedAngles.map((a) => a.key), "inspector", "archivist", "inspirer", "watchdog", "libsmith"];
         log("flow", renderSeatLedger(counts, all));
+
+  // ★★★★★ 2026-10-21 · **实验账**（DESIGN §9 的主判据）
+  //
+  //   ★★★ 为什么必须每轮报：在这之前我手上只有"产物份数"这种与探索无关的数。
+  //     而 hunt 的失败长在「实验开得够不够宽」上 —— 不报它，我就分不清
+  //     「没发生」和「发生了但我没看见」（纪律㉖）。
+  //   ★ 模式自报家门：`inferred` = 从文件名推断（有偏差）；`ledger` = 它自己登记的账。
+  try {
+    const x = readExperiments(LAB);
+    for (const line of renderExperiments(x.stats, x.att, x.mix).split(String.fromCharCode(10))) {
+      log("readout", line);
+    }
+  } catch (e) {
+    log("error", `实验账读数失败：${(e as Error).message}`);
+  }
       } catch (e) {
         log("flow", `座位派活账打不出来：${(e as Error).message}`);
       }

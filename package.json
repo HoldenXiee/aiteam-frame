@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "readout": "npx tsx research/clusters/forge/micro/readout.ts",
     "book": "npx tsx research/clusters/forge/micro/readout-book.ts",
+    "exp": "npx tsx research/clusters/micro/experiments.ts",
     "libdrift": "npx tsx research/clusters/micro/libdrift.ts"
   },
   "dependencies": {
