@@ -33,7 +33,7 @@ async function probe(throttle: number): Promise<Arm> {
 
   const rules = makeRules({
     state,
-    fire: async (role) => {
+    fireNow: async (role) => {
       fired.push(role);
       if ((role === "inspirer" || role === "archivist") && detectedAfter === null) detectedAfter = toolCalls;
       return "VERDICT: CONTINUE";

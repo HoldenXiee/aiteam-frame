@@ -60,7 +60,7 @@ async function probe(scenario: "tick先记账" | "两个变量分开"): Promise<
 
   const rules = makeRules({
     state: st as never,
-    fire: async (role) => { fired.push(role); return "VERDICT: CONTINUE"; },
+    fireNow: async (role) => { fired.push(role); return "VERDICT: CONTINUE"; },
     trace: () => { /* */ },
   });
 

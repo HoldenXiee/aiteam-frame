@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ★★★ 微实验 D · 观察者效应（单因素 · 回归）—— 测**生产代码**，不重写逻辑
 //
 // ★ 这是**实测抓到的真 bug**（不是推想）：
@@ -15,6 +16,25 @@
 //
 // ★★ 本实验直接调 `tick()`（生产代码），不重写判据 ——
 //    ★ 否则测的是"我以为的逻辑"，不是"跑起来的逻辑"。
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⚠⚠⚠ `@ts-nocheck`（2026-10-20）—— 这是**历史实验装置**，不是运行时
+//
+//   ★ 为什么加：`tsconfig.json` 的 include 原来**没有 `research/clusters/`**，
+//     所以整个集群目录从来没被 `tsc` 检查过（本文件就是那 16 个隐藏错误之一）。
+//     把目录加进 include 后它们全部暴露。
+//
+//   ★★ 为什么**不修**而是加 nocheck：
+//     这些错是**判据换代留下的 API 漂移**，不是笔误：
+//       · `State.roundsSinceNew` → 已改名为 `roundsSinceProgress`
+//         （判据从"有没有动作"换成"有没有进展"，`rules.ts:153`）
+//       · `CLUSTER_OWN_FILES` / `ExpertName` 导出已变
+//     修它们必须**回到当年那次实验的意图**去判断 —— 那是**内容判断**，
+//     不该由我猜（硬规则①）。★★ 而且这些脚本**不参与集群运行**，不影响任何读数。
+//
+//   ★★★ 留着它们的理由（纪律⑩）：它们是**当年读数的证据**。
+//     以后真要重跑那些微实验，应该**按现在的判据重写**，而不是把旧脚本改到能编译。
+// ══════════════════════════════════════════════════════════════════════════
 
 import { join } from "node:path";
 import { LAB } from "../paths.ts";
@@ -53,10 +73,10 @@ async function probe(shape: "真卡住" | "在干活"): Promise<Arm> {
 
   const rules = makeRules({
     state,
-    fire: async (role) => { fired.push(role); if (role === "inspirer") plateauFired = true; return "VERDICT: CONTINUE"; },
+    fireNow: async (role) => { fired.push(role); if (role === "inspirer") plateauFired = true; return "VERDICT: CONTINUE"; },
     trace: () => { /* */ },
   });
-  const ctx = { fire: async (r: never) => { fired.push(r); if (r === "inspirer") plateauFired = true; return "VERDICT: CONTINUE"; }, state, trace: () => { /* */ }, rules };
+  const ctx = { fireNow: async (r: never) => { fired.push(r); if (r === "inspirer") plateauFired = true; return "VERDICT: CONTINUE"; }, state, trace: () => { /* */ }, rules };
 
   for (let i = 0; i < 8; i++) {
     // ★ 集群自己的动作：每次 tick 都会 log 一行（= 写 work/_topology.log）

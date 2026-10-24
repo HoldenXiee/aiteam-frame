@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "test": "node --test --test-timeout=60000 \"dev/test/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "readout": "npx tsx research/clusters/forge/micro/readout.ts",
+    "book": "npx tsx research/clusters/forge/micro/readout-book.ts",
+    "libdrift": "npx tsx research/clusters/micro/libdrift.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "file:dev/pi/packages/ai",

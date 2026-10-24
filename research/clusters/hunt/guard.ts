@@ -39,9 +39,15 @@ export interface Bounds {
   isSource: boolean;
 }
 
-/** 用当前集群的真实配置造一份 Bounds */
+/**
+ * 用当前集群的真实配置造一份 Bounds
+ *
+ * ★★★ 2026-10-20 拆分：原来是 `isSource: CLUSTER === SOURCE_CLUSTER`。
+ *   hunt **就是第一集群** ⇒ 这个判断恒为 `true`，直接写死。
+ *   （forge 那份对应地恒为 `false`。）
+ */
 function ownBounds(): Bounds {
-  return { lab: LAB, sourceLab: SOURCE_LAB, isSource: CLUSTER === SOURCE_CLUSTER };
+  return { lab: LAB, sourceLab: SOURCE_LAB, isSource: true };
 }
 
 /** 是不是"本集群空间之内" */

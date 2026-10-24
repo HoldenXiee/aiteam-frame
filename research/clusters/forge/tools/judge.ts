@@ -35,6 +35,24 @@ import { AUDIENCES, BOOK_THRESHOLD, type TeamKey } from "../prompts/lines.ts";
 
 export type Choice = TeamKey | "都不够";
 
+/**
+ * ★★★ 把「题目」归一化后再比（2026-10-20）。
+ *
+ * ★ 为什么必须有：规则里写的题目**带反引号**，而观众存下来的**没有**：
+ *   ```
+ *   规则：`x.md` 这份东西该不该进书，哪一方的说法最站得住？
+ *   落盘：x.md 这份东西该不该进书，哪一方的说法最站得住？
+ *   ```
+ * ⇒ 精确比较**永远不匹配** ⇒ 实测后果：
+ *   `voteCoverage` 一直算出 0 ⇒ 同一批产物被**无限重推**。
+ *
+ * ★★ 纪律⑪：**判据与指令必须同源**。这里是同源的具体做法 ——
+ *   不信任任何一边的书写格式，**两边都归一化**。
+ */
+export function normQuestion(t: string): string {
+  return t.replace(/`/g, "").replace(/\s+/g, " ").trim();
+}
+
 export interface Vote {
   at: string;
   /** 观众 key（operator / skeptic / newcomer / builder）*/
@@ -64,7 +82,8 @@ export function resolveVotes(
   /** ★ 没表态的观众 */
   silent: string[];
 } {
-  const q = votes.filter((v) => v.question === question);
+  const want = normQuestion(question);
+  const q = votes.filter((v) => normQuestion(v.question) === want);
   const voted = new Map(q.map((v) => [v.by, v]));
   const silent = AUDIENCES.map((a) => a.key).filter((k) => !voted.has(k));
   const total = AUDIENCES.length;
@@ -231,4 +250,159 @@ export function writeVerdicts(path: string, votes: Vote[]): { decided: number; o
   }
   writeFileSync(path, lines.join("\n") + "\n");
   return { decided, open: questions.length - decided };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ★★★ 「能不能照做」的**硬门槛**（2026-10-20）
+//
+// ══════════════════════════════════════════════════════════════════════════
+// 为什么要它（实测出来的病）
+//
+//   设计者对第二集群的裁定：
+//     「追求写的东西**描述的准确、有深度**，可以**用作「工具」**」
+//
+//   ★★★ 而实测（2026-10-20，34 份书稿）：
+//     · 含 ≥20 处 `work/` 实验路径的份：**27/34 = 79%**
+//     · 观众达成 90% 共识：**0/24**
+//     · newcomer 没投票：**15/24 = 62%**
+//     · 投「都不够」：**21 票**
+//   ⇒ newcomer 自己的诊断（逐字）：
+//     「『说服我它是对的』和『说服我能照做』是**两件事**，我卡在后者」
+//     「它现在是一份给同行看的**实验报告**，不是给新人的**说明书**」
+//
+// ★★★ 根因：`missions.ts` 写着「**没长出新概念的内容，不算这本教科书的内容**」，
+//   但 `grep "概念|定义|模型" rules.ts` ⇒ **12 条规则里 0 条提到**。
+//   ⇒ 这条最重的禁令**零出口** ⇒ 纪律㉕：「写在文档里的规则 = 没有规则」。
+//
+// ══════════════════════════════════════════════════════════════════════════
+// ★★★ 我为什么不动 `BOOK_THRESHOLD = 0.9`，而是**另加一条**
+//
+//   90% 门槛是设计者原话：「所有观众支持（或 9 成）就结束争辩写入 book」——
+//   它回答的是「**该写哪一方的说法**」（三个团队里选一个）。
+//
+//   ★★ 但它回答不了「**这份东西能不能用**」—— 那是**另一类问题**：
+//     · 三个团队都写得很"对"，读者照样看不懂（这是实测的常态）
+//     · 44 票选 landing / 24 practice / 21 theory / **21 都不够**
+//       ⇒ 四观点并存时 90% **结构上永远达不到** ⇒ 观众机制 0/24 触发
+//
+//   ⇒ 所以这里是**并列的两个门**，不是替换：
+//     `resolveVotes`  —— 选谁的口径（0.9 门槛，不动）
+//     `usabilityGate` —— 这份能不能进书（★ 新，见下）
+// ══════════════════════════════════════════════════════════════════════════
+
+/** ★ 可用性判据的输入（全部来自已落盘的 votes.jsonl，可离线重判）*/
+export interface UsabilityInput {
+  /** 题目（= 被评的那份产物）*/
+  question: string;
+  /** 该题目的所有票 */
+  votes: Vote[];
+}
+
+export interface UsabilityVerdict {
+  /** ★ 能不能进书 */
+  usable: boolean;
+  /** ★ 谁说了「不够用」（点名，可追）*/
+  blockers: { by: string; missing: string }[];
+  /** ★ 谁没被问过（沉默）*/
+  silent: string[];
+  /** ★ 一句话理由（进日志）*/
+  why: string;
+}
+
+/**
+ * ★★★ 「能不能照做」的硬门槛。
+ *
+ * ★ 为什么这样定（而不是拍一个阈值）：
+ *
+ *   ① **newcomer 说「不够」⇒ 直接卡**
+ *      ★ 理由：`newcomer` 的定义就是「没有这本书背后的全部上下文的人」。
+ *        他不能照做 ⇒ 读者也不能。（这是**定义推出来的**，不是我拍的数）
+ *
+ *   ② **其他观众说「不够」⇒ 要有人替他说话才算**（不必单独卡）
+ *      ★ 理由：skeptic 可能是「证据不够」，那是另一道门的事（`sign_off`）；
+ *        但如果**两个以上**观众都说不够 ⇒ 不能当作偶然。
+ *
+ *   ③ **newcomer 沉默 ⇒ 不算通过**
+ *      ★★ 理由：实测 62% 的份 newcomer **根本没被叫去投**。
+ *        "没表态"不能当成"没问题"—— 那是**沉默即认同**的老病。
+ *
+ *   ★★★ 三条都不含"我觉得"，全是结构量。
+ *
+ * @param input  题目 + 该题目的票
+ * @param opts   ★ 可选调整（默认：newcomer 必须表态且说够用）
+ */
+export function usabilityGate(
+  input: UsabilityInput,
+  opts?: {
+    /** ★ 关键的观众（默认 newcomer）*/
+    keyViewer?: string;
+    /** ★ 其他观众里，几个说不够就算数（默认 2）*/
+    othersNeeded?: number;
+  },
+): UsabilityVerdict {
+  const keyViewer = opts?.keyViewer ?? "newcomer";
+  const othersNeeded = opts?.othersNeeded ?? 2;
+  const want = normQuestion(input.question);
+  const q = input.votes.filter((v) => normQuestion(v.question) === want);
+  const voted = new Map(q.map((v) => [v.by, v]));
+
+  const silent = AUDIENCES.map((a) => a.key).filter((k) => !voted.has(k));
+
+  // ① newcomer 必须表态，且必须说"够用"
+  const nc = voted.get(keyViewer);
+  const blockers: { by: string; missing: string }[] = [];
+  if (!nc) {
+    return {
+      usable: false,
+      blockers: [],
+      silent,
+      why: `★ ${keyViewer} 从没被问过 ⇒ 不能当"没问题"（沉默 ≠ 认同）`,
+    };
+  }
+  if (nc.choice === "都不够") {
+    blockers.push({ by: nc.by, missing: nc.missing ?? "（没说缺什么）" });
+  }
+
+  // ② 其他观众：>= othersNeeded 人说不够 ⇒ 也算
+  const othersNo = q.filter((v) => v.by !== keyViewer && v.choice === "都不够");
+  if (othersNo.length >= othersNeeded) {
+    for (const v of othersNo) blockers.push({ by: v.by, missing: v.missing ?? "（没说缺什么）" });
+  }
+
+  if (blockers.length) {
+    return {
+      usable: false,
+      blockers,
+      silent,
+      why: `${blockers.map((b) => b.by).join("、")} 说「都不够」⇒ 读者照不了做`,
+    };
+  }
+  return {
+    usable: true,
+    blockers: [],
+    silent,
+    why: `${keyViewer} 认可（选了 ${nc.choice}）`,
+  };
+}
+
+/** ★ 把一批题目的可用性汇总成读数（收尾打日志用）*/
+export function usabilitySummary(
+  votes: Vote[],
+): { total: number; usable: number; blocked: number; neverAsked: number; blockers: Record<string, number> } {
+  const byQ = new Map<string, Vote[]>();
+  for (const v of votes) byQ.set(v.question, [...(byQ.get(v.question) ?? []), v]);
+  let usable = 0;
+  let blocked = 0;
+  let neverAsked = 0;
+  const blockers: Record<string, number> = {};
+  for (const [question] of byQ) {
+    const r = usabilityGate({ question, votes });
+    if (r.usable) usable++;
+    else {
+      blocked++;
+      if (!r.blockers.length) neverAsked++;
+      for (const b of r.blockers) blockers[b.by] = (blockers[b.by] ?? 0) + 1;
+    }
+  }
+  return { total: byQ.size, usable, blocked, neverAsked, blockers };
 }

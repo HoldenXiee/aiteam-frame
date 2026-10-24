@@ -10,8 +10,8 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveVotes, type Vote, type Choice } from "../../research/clusters/hunt/tools/judge.ts";
-import { AUDIENCES, BOOK_THRESHOLD } from "../../research/clusters/hunt/prompts/lines.ts";
+import { resolveVotes, type Vote, type Choice } from "../../research/clusters/forge/tools/judge.ts";
+import { AUDIENCES, BOOK_THRESHOLD } from "../../research/clusters/forge/prompts/lines.ts";
 
 const Q = "落地失败的根因是哪一段";
 

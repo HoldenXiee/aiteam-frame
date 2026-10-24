@@ -21,6 +21,7 @@
     "src",
     "dev/test",
     "dev/demo",
+    "research/clusters",
     "research/demox",
     "dev/examples"
   ],
@@ -34,6 +35,8 @@
     "dev/demo/work",
     "dev/spike",
     "research/demox/lab-1/work",
-    "research/demox/work"
+    "research/demox/work",
+    "dev/test/_sbx*",
+    "research/clusters/*/micro/_sandbox*"
   ]
 }

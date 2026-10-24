@@ -72,7 +72,8 @@ export const TERRITORY = {
    *   ② 没有属于自己的历史（说不出"上一批沉淀到哪"）
    *   ③ 边界靠守卫守，而不是靠"它本来就没有那个路径"
    */
-  source: CLUSTER === SOURCE_CLUSTER ? undefined : LAB,
+  // ★★★ 2026-10-20 拆分：hunt 就是第一集群 ⇒ 没有 source（自己就是原料来源）
+  source: undefined,
 } as const;
 
 /** ★ 它的工具（不变：能力是集群形态的一部分） */

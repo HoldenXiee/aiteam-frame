@@ -17,8 +17,6 @@
 //   **凡"测试会删除东西"的地方，必须先问：这地方是不是活的？**
 // ══════════════════════════════════════════════════════════════════
 
-import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 
 /**
  * ★★★ 微实验专用的沙箱空间 —— **与真集群的 `LAB` 完全隔离**。
@@ -56,7 +54,8 @@ export function resetSandbox(): void {
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LAB } from "../paths.ts";
-import { listOutbox, makeRules, newState, type ExpertName, type State } from "../topology/rules.ts";
+import { listOutbox, makeRules, newState, type State } from "../topology/rules.ts";
+import type { ExpertName } from "../prompts/index.ts";
 
 /** 一次微实验的产物 */
 export type MicroResult = {
@@ -99,7 +98,7 @@ export async function runArm(
 
   const rules = makeRules({
     state,
-    fire: async (role) => {
+    fireNow: async (role) => {
       fired.push(role);
       return "VERDICT: CONTINUE";
     },

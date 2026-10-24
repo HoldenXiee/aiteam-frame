@@ -10,29 +10,25 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
-import { labAt } from "./env.ts";
+import { AUTH_SOURCE, labAt } from "./env.ts";
 import { deliverToResearcher, NOTE_CONSULT_ALREADY_FLOWS } from "./feedback.ts";
 import { recordLibState, recordLibRevision } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
 import { ALL_TOOLS, LAB, MODEL, REPO } from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
+import { renderSeatLedger } from "./topology/dispatch.ts";
 import * as researcherPrompt from "./prompts/researcher.ts";
 // ★★★ 同一身份多员工：角度的定义（设计者交办 2026-10-19）
 import { ANGLES, renderAngle } from "./prompts/angles.ts";
-// ★★★ 两个集群的"多员工"含义完全不同（2026-10-19）：
-//   · hunt ：三个**角度**（同一种活=探索的三种偏好）⇒ 多员工 = 找盲区
-//   · forge：三条**工作线**（三种不同的活）⇒ 多员工 = 一条产不出教科书
-import { DEFAULT_TEAMS, TEAMS, renderTeam, AUDIENCES, renderAudience, BOOK_THRESHOLD } from "./prompts/lines.ts";
-import { makeJudge, loadVotes, writeVerdicts, type Vote } from "./tools/judge.ts";
-import { CLUSTER } from "./paths.ts";
-import { SOURCE_CLUSTER } from "./prompts/missions.ts";
+// ★★★ 2026-10-20 拆分：hunt 的"多员工" = 三个**角度**（同一种活=探索的三种偏好）。
+//   ★ forge 的"团队 × 成员"那套（lines.ts）**不在这个目录里**了。
 import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "./topology/rules.ts";
+import { readPreregTraceability, renderPrereg } from "./topology/prereg-trace.ts";
+import { readAbsorption, renderAbsorption, shortCode } from "./topology/absorption.ts";
+import { readClosure, renderClosure } from "./topology/closure.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
 import { makeChallenge } from "./tools/challenge.ts";
-import { makeSignOff, loadSignOffs, writeAgreedIndex, gateVerdict, renderSignOff, type SignOffTable } from "./tools/signoff.ts";
-import { makeJointExperiment, type JointProposal } from "./tools/joint.ts";
-import { publishAndReport } from "./tools/publish.ts";
 import { makeSpawnLine } from "./tools/spawn-line.ts";
 
 /** 拓扑日志（★ 它会不会用 consult，看这个） */
@@ -40,6 +36,28 @@ function log(kind: string, detail: string): void {
   mkdirSync(join(LAB, "work"), { recursive: true });
   appendFileSync(join(LAB, "work", "_topology.log"), `${new Date().toISOString()}  ${kind.padEnd(11)} ${detail}\n`);
   process.stdout.write(`  ${kind.padEnd(11)} ${detail}\n`);
+}
+
+/**
+ * ★★★★★ 起哪几个角度 —— **按角色选，不按序号**
+ *
+ * ★★★ 为什么必须有这个函数（2026-10-21 事故）：
+ *   原来是 `ANGLES.slice(0, employees)`，而 `ANGLES` 顺序是
+ *     [falsifier(先证伪), instrument-skeptic(先怀疑量具), **hands-on(先动手做)**]
+ *   ⇒ **任何截断都先切掉唯一建设性的那个**。
+ *   ★★ 后果可数：最近 80 条提交 = falsifier 35 · instrument-skeptic 18 · **hands-on 0**。
+ *   ★★★ 而我当时把它诊断成「集群变成了审计员」—— 它只是**只拿到了审计员**。
+ *
+ * ★ 规则：**`hands-on` 永远在名单里**，其余按原顺序补。
+ *   ★ 理由：三个角度里只有它承载「**把想法做出来**」；
+ *     另两个（先证伪 / 先怀疑）都是对抗性的，缺了它就没有任何东西被推进。
+ *
+ * @param n 想要几个角度（≥1，超出上限就全给）
+ */
+export function pickAnglesN<T extends { key: string }>(n: number, angles: readonly T[]): T[] {
+  const constructive = angles.filter((a) => a.key === "hands-on");
+  const others = angles.filter((a) => a.key !== "hands-on");
+  return [...constructive, ...others].slice(0, Math.max(1, Math.min(n, angles.length)));
 }
 
 export async function runCluster(secs: number, dry = false, employees = 1) {
@@ -153,50 +171,56 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //     要么给反例/缺陷，要么**明确说"我同意"**（逼它表态，`P7`/`B8`）。
   //   ★ 为什么不能是"你们去讨论吧"（`P3`）：不要指望模型自己分工 ——
   //     所以给的是**工具**（能挑战谁、要写什么），不是一句"请辩论"。
-  // ★★★ forge 的三条线：默认三条（一个人做三件事必然偏向最顺手的那件 ⇒ 三条线各一人）。
-  //   ★ 但 `--employees=N` **说了算**（设计者 2026-10-19：先 1 人暴露问题，再加到多员工）。
-  //   ★★ 实测发现的 bug：原写 `Math.max(2, employees)` ⇒ **传 1 也起 2 条线**，
-  //      与"先跑 1 人"的意图相反。现在就是 `employees`。
-  const isForge = CLUSTER !== SOURCE_CLUSTER;
-  // ★★★ forge = **团队 × 队内员工**（设计者：「多个团队、多个员工」—— 两层）
-  //   ★ `--employees=N` 现在是**每个团队几个人**（1 或 2）。
-  //   ★★ 首跑实测教训：我把「三条线」当成三个员工，结果它们各写各的、无人合成。
-  //      现在每个团队至少 1 人，默认 2 人（一人提概念 / 一人连线，真的会吵）。
-  const perTeam = Math.max(1, Math.min(2, employees));
-  const seats = isForge
-    ? DEFAULT_TEAMS.flatMap((tk) =>
-        TEAMS[tk].members.slice(0, perTeam).map((m) => ({
-          key: perTeam > 1 ? `${tk}/${m.key}` : tk,
-          teamKey: tk as string,
-          memberKey: m.key,
-          stance: TEAMS[tk].stance,
-          render: () => renderTeam(tk, m.key),
-        })),
-      )
-    : ANGLES.slice(0, employees).map((a) => ({
-        key: a.key,
-        teamKey: "",
-        memberKey: "",
-        stance: a.stance,
-        render: () => renderAngle(a),
-      }));
-  /** ★ 真正要起的座位（forge 是 团队×成员，hunt 是 角度） */
-  const usedAngles: { key: string; teamKey: string; stance: string; render: () => string }[] = seats;
-  /** ★★ 共识门要的"全体团队"（forge 按团队算，hunt 按员工算） */
-  const ALL_TEAMS: string[] = isForge
-    ? DEFAULT_TEAMS.filter((tk) => seats.some((s2) => s2.teamKey === tk))
-    : usedAngles.map((s2) => s2.key);
-  // ★★★ 观众（设计者 2026-10-19）：
-  //   「加一个『观众』，最后观众**最被说服哪个观点就写哪个观点**」
-  //   「所有观众都支持某个观点（或达到 9 成支持）就**结束争辩写入 book**」
-  //   ★★ 观众**不生产产物**，只表态 ⇒ 它们的 role 是另一套（renderAudience）。
-  //   ★ 每人有**自己的想法**（operator / skeptic / newcomer / builder）⇒ 不是橡皮图章。
-  const audienceSeats = isForge ? AUDIENCES.map((a) => ({ audience: a })) : [];
-  /** ★ 统一的渲染入口：两个集群各自的"多员工含义" */
+  // ★★★ 2026-10-20 拆分：这里原来有 `const isForge = CLUSTER !== SOURCE_CLUSTER`
+  //   和一对 `?:` 三元。★ 现在**只剩 hunt 这一侧** ——
+  //   forge 的团队/观众分支在 `research/clusters/forge/runner.ts`，这里不再有它们的影子。
+  //
+  // ★ hunt 的多员工 = **几个探索角度**（不是团队 × 成员）。
+  //   ★ `--employees=N` = 起几个角度（最多 3，见 `ANGLES`）。
+  // ★★★★★ 2026-10-21 · 「广探索」= 起了几个角度，这必须是**可见读数**
+  //
+  //   ★★★ 实测事故：我连续很多轮用 `--employees=2`，而 `ANGLES` 的顺序是
+  //     [falsifier(先证伪), instrument-skeptic(先怀疑量具), hands-on(先动手做)]
+  //     ⇒ `slice(0,2)` **把唯一建设性的角度切掉了**。
+  //   ★★ 后果可数：最近 80 条提交 = falsifier 35 + instrument-skeptic 18 + hands-on **0**。
+  //     而我当时把这个现象诊断成「集群变成了审计员」—— ★ 它只是**只拿到了审计员**。
+  //   ★ 教训（纪律㉖）：**没有名字 = 没发生** —— 起几个角度不进日志，这个错就永远静默。
+  // ★★★★★ 2026-10-21 · **选中按角色，不按序号**
+  //
+  //   ★★★ 原来的写法是 `ANGLES.slice(0, employees)`，而 `ANGLES` 的顺序是
+  //     [falsifier(先证伪), instrument-skeptic(先怀疑量具), hands-on(先动手做)]
+  //     ⇒ **任何截断都先切掉唯一建设性的那个**。
+  //   ★★ 后果可数：最近 80 条提交 = falsifier 35 · instrument-skeptic 18 · hands-on **0**；
+  //     而我当时把它诊断成「集群变成了审计员」。
+  //   ★★★ 我此前写的「不要规定形态，要立要求」在这里同样成立：
+  //     **`hands-on` 是「有没有人把想法做出来」的唯一承载者，它不能被省掉。**
+  const pickAngles = (n: number) => pickAnglesN(n, ANGLES);
+
+  log(
+    "seat",
+    `★ 广探索度：起 ${employees} 个角度 = ${pickAngles(employees).map((a) => a.key).join(" + ")}` +
+      (employees < ANGLES.length
+        ? ` · ★★ 未起：${ANGLES.filter((a) => !pickAngles(employees).some((p2) => p2.key === a.key)).map((a) => a.key).join("/")}（${ANGLES.length} 个才是广探索）`
+        : " · ✔ 三种角度齐全"),
+  );
+
+  const seats = pickAngles(employees).map((a) => ({
+    key: a.key,
+    stance: a.stance,
+    render: () => renderAngle(a),
+  }));
+  /** ★ 真正要起的座位（hunt = 角度） */
+  const usedAngles: { key: string; stance: string; render: () => string }[] = seats;
+  /**
+   * ★★ 「全体」的口径。
+   *
+   * ★ hunt **没有共识门**（它不出书，见设计者裁定：hunt 的产物是原料，book 只归 forge 管）
+   *   ⇒ 这个名单在 hunt 里**没有门用它**，只作为"当前有哪些座位"的读数。
+   */
+  const ALL_TEAMS: string[] = usedAngles.map((s2) => s2.key);
+  /** ★ 统一的渲染入口 */
   const renderSeat = (seat: { render: () => string }) => seat.render();
   const researcherByKey = new Map<string, Agent>();
-  /** ★ 观众（只在 forge）—— 把它们的话送回去要用 */
-  const audienceByKey = new Map<string, Agent>();
 
   // ★ 挑战的投递路由：把文本作为消息送到目标员工
   //
@@ -249,73 +273,33 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   };
 
   const researchers: Agent[] = [];
-  // ★★★ 共识签字表（跨员工共享，且**从落盘读回** ⇒ 重启不丢）
-  const signoffTable: SignOffTable = loadSignOffs(join(LAB, "work", "signoffs.jsonl"));
-  /** ★ 联合实验提案表 */
-  const jointTable = new Map<string, JointProposal>();
+  // ★★★ 2026-10-20 拆分：hunt **没有**共识门 / 联合实验 / 观众。
+  //   ★ 设计者裁定（2026-10-20）：「hunt 的 97 份产物**不进 book**（它是原料，给 forge 用），
+  //     **book 只交给 forge 来管**」⇒ 不出书 ⇒ 不需要出书的门与观众。
+  //   ★★ 这三个机制（`sign_off` / `joint_experiment` / `judge`）的代码
+  //      现在只在 `research/clusters/forge/` 里。
   for (const ang of usedAngles) {
-    const myKey = ang.key; // ★ forge 是 `team/member`，hunt 是角度名
+    const myKey = ang.key; // ★ hunt 的座位 key = 角度名
     // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
-    //   ★★ forge 要能挑战**别的团队**（同团队内也可挑）⇒ peers 用 myKey 判
     const challenge = makeChallenge({
       deliver: deliverTo,
       selfKey: myKey,
       peers: () =>
         usedAngles
           .filter((x) => x.key !== myKey)
-          .map((x) => ({ key: x.key, stance: x.stance || (x.teamKey ? `团队 ${x.teamKey}` : "") })),
-    });
-    // ★★★ 共识门（设计者 2026-10-19：「最后争辩出一个都认同的结果才能写进 book」）
-    //   ★ 每位员工都有 `sign_off`；门要求**全体团队**都表态（沉默不算认同）。
-    const signOff = makeSignOff({
-      selfKey: ang.teamKey || ang.key,
-      allTeams: () => ALL_TEAMS,
-      recordPath: join(LAB, "work", "signoffs.jsonl"),
-      table: signoffTable,
-      outboxDir: join(LAB, "outbox"),
-    });
-    // ★★ 联合实验（设计者：「各个团队可以设计实验，或共同设计实验来验证」）
-    const joint = makeJointExperiment({
-      selfKey: ang.teamKey || ang.key,
-      allTeams: () => ALL_TEAMS,
-      recordPath: join(LAB, "work", "joint.jsonl"),
-      table: jointTable,
-      workDir: join(LAB, "work", "joint"),
+          .map((x) => ({ key: x.key, stance: x.stance })),
     });
     const a = await lab.createAgent({
       id: `L3-researcher-${myKey.replace("/", "-")}-${Date.now().toString(36)}`,
       model: MODEL,
       role: role + renderSeat(ang),
       permissions: { only: [...ALL_TOOLS] },
-      // ★★ forge 多两件工具：`sign_off`（共识门）+ `joint_experiment`（联合设计实验）
-      tools: { custom: isForge ? [consult, spawnLine, challenge, signOff, joint] : [consult, spawnLine, challenge] },
+      tools: { custom: [consult, spawnLine, challenge] },
     });
     attachGate(a);
     spawned.push(a);
     researchers.push(a);
     researcherByKey.set(ang.key, a);
-  }
-  // ★★★ 起观众（只在 forge）：它们**不写产物**，只回答"谁最说服了我"
-  const audiences: Agent[] = [];
-  const votes: Vote[] = loadVotes(join(LAB, "work", "votes.jsonl"));
-  for (const seat of audienceSeats) {
-    const a = seat.audience;
-    const judge = makeJudge({
-      selfKey: a.key,
-      recordPath: join(LAB, "work", "votes.jsonl"),
-      votes,
-    });
-    const ag = await lab.createAgent({
-      id: `L3-audience-${a.key}-${Date.now().toString(36)}`,
-      model: MODEL,
-      role: renderAudience(a),
-      permissions: { only: [...ALL_TOOLS] },
-      tools: { custom: [judge, consult] },
-    });
-    attachGate(ag);
-    spawned.push(ag);
-    audiences.push(ag);
-    audienceByKey.set(a.key, ag);
   }
 
   const researcher = researchers[0];
@@ -323,15 +307,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   log(
     "setup",
     `★ 研究席位 ${researchers.length} 个：${usedAngles.map((a) => a.key).join(" / ")}` +
-      (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge / sign_off / joint_experiment）` : ""),
+      (researchers.length > 1 ? ` · ★ 辩证机制已开（challenge / consult / spawn_line）` : ""),
   );
-  if (isForge && audiences.length) {
-    log(
-      "setup",
-      `★★ 观众 ${audiences.length} 位：${AUDIENCES.map((a) => a.key).join(" / ")}` +
-        ` · ★★★ 观众最被谁说服就写谁的观点（门槛 ${Math.round(BOOK_THRESHOLD * 100)}%）`,
-    );
-  }
 
   // ── ★ lib/ 自检：它改了库，得能看见、也得能撤销（防"改坏 → 撞死"）──
   const libState = recordLibState();
@@ -341,6 +318,10 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★★ 用内容哈希（`git hash-object`），不是 commit —— 因为改动往往**没提交**。
   const libRev = recordLibRevision("集群开工");
   log("lib", `修订指纹 ${libRev.fingerprint}（work/_lib-rev.jsonl）`);
+  // ★★★ 凭证来源必须打进日志（2026-10-20）：
+  //   换 key 后若还跑失败，第一件事是确认"它到底读了哪个来源"。
+  //   ★ 只记来源名，**不记 key 本身** —— 日志会进 git，key 不会。
+  log("auth", `凭证来源：${AUTH_SOURCE}（不记录 key 值）`);
 
   // ── ★★★ 事件规则（集群的骨架，配置时挂好 —— 之后不再动它）──
   const state = newState();
@@ -361,7 +342,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   let closing = false;
 
   const rules = makeRules({
-    fire,
+    fireNow: fire,
     state,
     trace: (rule, detail) => log(`rule:${rule}`, detail),
     // ★★★ 辩证（2026-10-19）：把“去挑战同事”的**处境**送到员工面前。
@@ -369,20 +350,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     //   ★★ 只有多员工时才接（单员工不接 ⇒ 行为与旧版完全一致）。
     challenge: researchers.length > 1 ? deliverTo : undefined,
     peerKeys: researchers.length > 1 ? () => usedAngles.map((a) => a.key) : undefined,
-    // ★★★ 观众通道（只在 forge）：请观众评"哪一方的说法最站得住"
-    audience: audiences.length > 0 ? () => [...audienceByKey.keys()] : undefined,
-    // ★★★ 共识门的状态（供 onConsensus 规则判断"谁还没签字"）
-    signoffState: (artifact: string) => signoffTable.get(artifact),
-    allTeams: () => ALL_TEAMS,
-    tellAudience:
-      audiences.length > 0
-        ? (key: string, text: string): { ok: boolean; reason?: string } => {
-            const ag = audienceByKey.get(key);
-            if (!ag) return { ok: false, reason: `没有这位观众：${key}（有：${[...audienceByKey.keys()].join("、")}）` };
-            void ag.io.steer(text).catch((e: unknown) => log("error", `观众投递失败：${(e as Error).message}`));
-            return { ok: true };
-          }
-        : undefined,
+    // ★★★ 2026-10-20 拆分：hunt **不接**观众/共识门/联合实验
+    //   （它们都是出书的机制，book 只归 forge 管）。
     // ★ 收尾态：窗口到点后不再 fire 新专家、不再送新挑战（只等现有的做完）
     closing: () => closing,
   });
@@ -407,6 +376,18 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   let tickBusy = false; // ★ 上一次还没跑完就不叠加（否则卡住时会把规则堆成队列）
   /** ★★ 两路节流都调**同一个** tick（判据与指令必须同源，P11） */
   const throttledTick = (src: string) => {
+    // ★★★★★ 2026-10-21 · **收尾后不再 tick**
+    //
+    //   ★★★ 实测（`--secs=30 --employees=3`，收尾读数打完之后）：
+    //     日志继续刷 `rule:tick outbox=151 audited=0 …`，**永远不停**，
+    //     进程一直不退出，`rule:done` 打不出来。
+    //   ★ 根因：`clearInterval` 只停了"时间节流"（路②），
+    //     但**路①（工具调用触发）还在**：研究者 agent 收尾后仍在跑，
+    //     每次工具调用都走一遍 `throttledTick` ⇒ 收尾后还在 tick。
+    //   ★★ 后果不只是浪费：`await waitIdle()` 永远等不到空闲 ⇒
+    //     **`rule:done` 永不打出来** ⇒ 按 AGENTS「没这行 = 中途被 kill」，
+    //     一轮正常收尾的 run 会被**误判成崩了**。
+    if (closing) return;
     if (tickBusy) {
       // ★★★ 记一笔被挡下的（2026-10-19 长跑实测）：
       //   `tick()` 里的 `await rules.onSettled()` 会 `fire` 一个审查员，
@@ -420,10 +401,15 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     tickBusy = true;
     void (async () => {
       try {
-        await tick({ fire, state, trace: (r, d) => log(`rule:${r}`, d), rules });
+        await tick({ fireNow: fire, state, trace: (r, d) => log(`rule:${r}`, d), rules });
       } catch (e) {
         log("error", `规则（${src}）跑挂了：${(e as Error).message}`);
       } finally {
+        // ★★★ tick 跑完就**派活**（00: 派活器一次只跑一位，所以这行几微秒返回）
+        //   ★ 这一行是整套修复的关键：**观察**（tick）与**派活**（drain）分开，
+        //     所以 tick 不再被专家卡住 —— 下一个 tick 照常跑。
+        const dr = (rules as unknown as { drainer?: { drain: () => void; busy: () => boolean; queued: () => number } }).drainer;
+        dr?.drain();
         tickBusy = false;
       }
     })();
@@ -462,7 +448,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   // 别让定时器把进程吊住（收尾时要 clear）—— 挂到 spawned 清理那一步
   timers.push(timer);
 
-  log("setup", `装置就绪 · 窗口 ${secs}s · 5 个专家（按需起）· ${isForge ? `团队 ${ALL_TEAMS.length} 个 × 座位 ${researchers.length} 个` : `研究员 ${researchers.length} 个`}（常驻）`);
+  log("setup", `装置就绪 · 窗口 ${secs}s · 5 个专家（按需起）· 研究员 ${researchers.length} 个（常驻）`);
   log("setup", `researcher 的自定义工具：consult / spawn_line`);
 
   if (dry) {
@@ -470,6 +456,182 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     researcher.dispose();
     return { dry: true };
   }
+
+  // ★★★★★ 2026-10-21 · 把「判据 → 数据」的断链摆到它面前（**集群自己发现的缺陷**）
+  //
+  //   ★ 来源：`onInstrumentReview` 第一次真跑，`inspirer` 挑了「判据冻结」这件
+  //     它反复用了 72 次的东西，查出 **0/1750 行能反查回判据**。
+  //   ★★ 它自己的措辞（比我可能给的任何说法都准）：
+  //     「不是「没有链接」，是「**链接看起来有、实际只有 43% 能恢复**」」
+  //
+  //   ★★★ 我只做两件事：① 把它做成**可复算的读数**；② 递给它一个必须回答的问题。
+  //     怎么修（hash 写进行里 / 换一种记录方式 / 说清为什么不需要）**是它的设计**。
+  const preregTodo = (() => {
+    try {
+      const r = readPreregTraceability(join(LAB, "work"));
+      if (!r.batches) return "";
+      log("todo", `★ PREREG 可追溯性已递给研究员：${renderPrereg(r)}`);
+      const L: string[] = [];
+      L.push("### ★★★★★ 判据冻结了，但数据反查不回判据");
+      L.push("");
+      L.push(renderPrereg(r));
+      L.push("");
+      L.push("★★★ 为什么这一条比「某个结论错了」严重得多：");
+      L.push("  PREREG 是**整个实验方法的地基** —— 跑之前把「怎么算成功」写死，跑完不许改。");
+      L.push("  它是这个项目**唯一**防「事后挑判据」的办法。");
+      L.push("  如果数据和那份冻结的判据之间**没有可恢复的链接**，那么：");
+      L.push("    · 你无法证明「这些行是按那份判据算的」");
+      L.push("    · 你也无法证明「判据没被改过」");
+      L.push("  ⇒ **「跑前冻结」这件事，只在纸面上成立。**");
+      L.push("");
+      // ★★★ 修法已经有了（集群自己设计的 seal）⇒ 要求要跟着走，不能还停在"有没有链接"
+      if (r.sealedBatches > 0) {
+        // ★★★★★ 分母必须是「机制出生之后」——★ 集群纠正过我两次，这是第二个
+        const pct = Math.round((r.sinceBirth.sealed / Math.max(r.sinceBirth.batches, 1)) * 100);
+        L.push(
+          `★★★ **你已经解决了这个问题的一半**：机制出生后新增 ${r.sinceBirth.batches} 批，` +
+            `已封口 **${r.sinceBirth.sealed}**（${pct}%）。`,
+        );
+        L.push(
+          `   ★ 旧的 \`全库 ${r.sealedBatches}/${r.batches}\` **不要单独引用** —— ` +
+            `分母里有 ${r.batches - r.sinceBirth.batches} 批出生早于机制本身。`,
+        );
+        L.push("");
+        L.push("★ 那么现在的问题变成：**剩下的那些批，为什么还没走 seal？**");
+        L.push("★★ 这是你必须回答的（三选一都算）：");
+        L.push("  (a) 更便宜的做法存在 ⇒ 说清是什么，并**用一次实验**证明");
+        L.push("  (b) 它们不该走 seal ⇒ 说清是哪一类、为什么（例：一次性探针，没有判据可冻）");
+        L.push("  (c) 该走但没走 ⇒ 让它走，并给出**跑完之后**这个读数该变成多少");
+        L.push("");
+        L.push("★★ 允许答 (b) —— 但**不许不答**：现在这个状态等于");
+        L.push(`  「修法证明了能咬，但出生后仍有 ${r.sinceBirth.batches - r.sinceBirth.sealed} 批没走它」。`);
+        L.push("");
+        L.push("★ 不许做的：");
+        L.push("  · 事后给旧批补 seal —— 那不是封口，是**补签**（封口的价值全在「跑之前就定了」）");
+        L.push("  · 说「以后会走」—— 那没有判据，下一轮会一样");
+        return L.join(String.fromCharCode(10));
+      }
+
+      L.push("★★ **你必须回答，三选一都算**：");
+      L.push("  (a) 这是病 ⇒ 说清哪一种修法最便宜（例：让 run 记录自动带 `preregSha`），");
+      L.push("      并**用一次实验**证明修法有效（跑前冻结，跑完能反查）。");
+      L.push("  (b) 不算病 ⇒ 说清为什么不需要（例：判据住在 driver 里，driver 本身带 hash）。");
+      L.push("  (c) 只对**新数据**要求 ⇒ 说清旧数据怎么处理（保留但标注不可追溯？作废？）");
+      L.push("");
+      L.push("★★ 允许答 (b)/(c) —— 但**不许不答**：现在这个状态等于");
+      L.push("  「我们冻结了 72 次判据，但没人能证明哪份判据算出了哪批数」。");
+      L.push("");
+      L.push("★ 不许做的：");
+      L.push("  · 事后补 hash 到旧行里 —— 那不是恢复链接，是**伪造链接**");
+      L.push("  · 说「以后注意」—— 那没有判据，下一轮会一样");
+      return L.join(String.fromCharCode(10));
+    } catch (e) {
+      log("error", `PREREG 读数失败：${(e as Error).message}`);
+      return "";
+    }
+  })();
+
+  // ★★★★★ 2026-10-21 · 「发现」有没有进状态表（知识吸收率）
+  //
+  //   ★ 实测：11 份手段审查，只有 6 份进了 `CONVERGED.md`；
+  //     ★★ 未进的 5 份里 **3 份是最新的纠正**（手段VI / 手段VII / 手段续）。
+  //   ★★★ 后果可数：`O27` 写着「装置已证」，而 `手段VII` 已证明 seal 有洞。
+  //
+  //   ★ 这是 hunt 的核心问题：它的价值不是"产出多少份"，是**它维护的那张状态表**。
+  //     新发现不进表 ⇒ 表越来越像真的、实际越来越旧 —— 比没有表更危险。
+  const absorptionTodo = (() => {
+    try {
+      const a = readAbsorption(join(LAB, "outbox"));
+      if (!a.total) return "";
+      log("todo", `★ 状态表吸收率已递给研究员：${renderAbsorption(a)}`);
+      const L: string[] = [];
+      L.push("### ★★★★★ 你做出的发现，有多少进了你自己的状态表");
+      L.push("");
+      L.push(renderAbsorption(a));
+      L.push("");
+      if (!a.missing.length) {
+        L.push("★ 全部已进 —— 没有问题。");
+        return L.join(String.fromCharCode(10));
+      }
+      L.push("★ 未进的名单（★ 长的在前，它们通常是主产物）：");
+      for (const m of a.missing.slice(0, 10)) {
+        L.push(`   · \`${shortCode(m.name)}\`（${m.chars} 字）${m.name.slice(0, 46)}`);
+      }
+      L.push("");
+      L.push("★★★ 为什么这一条对 hunt 特别要紧：");
+      L.push("  你的价值**不是**「产出多少份」，是**你维护的那张状态表**");
+      L.push("  （哪些 claim 还成立 / 被取代 / 降级）。");
+      L.push("  ★ 如果新发现不进表，那张表就会**越来越像真的、实际越来越旧** ——");
+      L.push("    **比没有表更危险**（没有表时人会去查原始产物；有表时会信表）。");
+      L.push("");
+      L.push("★★ **你必须回答，三选一都算**：");
+      L.push("  (a) 该进 ⇒ 进表，并说清它们**改变了哪一条**（改状态 / 新增 O 号 / 降级）");
+      L.push("  (b) 不该进 ⇒ 说清为什么（例：它是实验装置的过程记录，不是 claim）");
+      L.push("  (c) 进表但需要合并 ⇒ 说清哪几条是同一条");
+      L.push("");
+      L.push("★★ 允许答 (b) —— 但**不许不答**。");
+      L.push("★ 不许做的：为了「全部已进」把文件名塞进表里 —— 那是刷指标，不是吸收。");
+      L.push("  （判据：进表的那一条必须说清**它改变了什么**。）");
+      return L.join(String.fromCharCode(10));
+    } catch (e) {
+      log("error", `吸收率读数失败：${(e as Error).message}`);
+      return "";
+    }
+  })();
+
+  // ★★★★★ 2026-10-21 · **缺陷欠账**（这一轮唯一的主任务）
+  //
+  //   ★★★ 为什么它排在所有投递之前：实测「产出是被**我递进去的东西**驱动的」——
+  //     最近 24h 的 57 份产物里 **42% 明写「回答上级 / 回应上级」**。
+  //     而我递的 5 件里 3 件是"你的装置有缺陷" ⇒ 产出 63% 是自审、**P* 研究 0 份**。
+  //
+  //   ★★ 真读数：状态表 53 条缺陷 —— 可核已结 **1**、我核不了 5、**未结 47**。
+  //     ⇒ **53 开 / 1 关**。这不是"审得太多"，是"**从来没结账**"。
+  //     每审一条开 2–3 条关 0–1 条 ⇒ 存量本身就是工作来源。
+  //
+  //   ★ 所以我停掉配额那套（治"开工"），改递这一件：**先把存量结账**。
+  //     判据可数（结账率）、可离线重判、而且它自己能算。
+  const closureTodo = (() => {
+    try {
+      const c = readClosure(join(LAB, "outbox"));
+      if (!c.total) return "";
+      log("todo", `★ 缺陷欠账已递给研究员：${renderClosure(c).split(String.fromCharCode(10))[0]}`);
+      const L: string[] = [];
+      L.push("### ★★★★★ 这一轮只有一件事：把你自己登记的缺陷**结账**");
+      L.push("");
+      L.push(renderClosure(c));
+      L.push("");
+      L.push("★★★ 为什么这件事排在最前：");
+      L.push("  你的状态表里有 **" + c.total + " 条你自己登记的缺陷**，可核结账的只有 **" + c.closed + " 条**。");
+      L.push("  这不是「审得太多」，是「**从来没结账**」—— 每审一条开 2–3 条、关 0–1 条，");
+      L.push("  于是**存量本身变成了工作来源**：你只能一直审下去，因为它一直欠着。");
+      L.push("");
+      L.push("★ 每一行 O 号都必须落到**三种处置之一**（★ 三种都算结账）：");
+      L.push("  · **修了** ⇒ 必须带一个**可核的路径**（`work/…` / `lib/…` / `outbox/…`，我会去查它存不存在）");
+      L.push("  · **这是边界，不是缺陷** ⇒ 说清那条边界在哪（★ 这条我认：装置有边界，不是所有偏差都是缺陷）");
+      L.push("  · **修不了** ⇒ 说清卡在哪（等谁 / 等什么）");
+      L.push("");
+      L.push("★★ **不许做的**：");
+      L.push("  · 不许把一行改成「已修」了事 —— 我会去核你引的那个路径在不在盘上；");
+      L.push("    核不了的我只能记成「已声明但我核不了」，**不算结账**。");
+      L.push("  · 不许为了结账把两条合并成一条（那是改分母）。");
+      L.push("");
+      L.push("★★ 结账之后你**可以**继续开新的审查（存量闸会自动放开）。");
+      L.push("★ 允许答「这批我一条都不想结」—— 但要写清为什么。");
+      L.push("");
+      const openIds = c.rows
+        .filter((r) => r.kind === "open" || r.kind === "unsaid")
+        .slice(0, 12)
+        .map((r) => r.id);
+      if (openIds.length) {
+        L.push("★ 先结这 " + openIds.length + " 条（最老的）：" + openIds.join(" "));
+      }
+      return L.join(String.fromCharCode(10));
+    } catch (e) {
+      log("error", `缺陷欠账读数失败：${(e as Error).message}`);
+      return "";
+    }
+  })();
 
   // ── 开工：每个员工各投一次 —— 之后全由事件驱动 ──
   //   ★ 三个员工**同时开跑**（不是串行）—— 这才叫"多员工"。
@@ -487,47 +649,16 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
           `  要么给出**反例/缺陷**（指到文件/数字），要么**明确说「我同意」**。\n` +
           `★ 若只写"看起来还行"，那既没推进也没纠正 —— 不算。\n` +
           `★★ 同事会挑战你的产物；**收到挑战必须回应**：接受→修订 / 反驳→给证据 / 悬而未决→说清缺什么。\n` +
-          `★ 不要附和 —— 你的角度就是你的价值。三人都同意的东西才叫站住。`
+          `★ 不要附和 —— 你的角度就是你的价值。三人都同意的东西才叫站住。` +
+          closureTodo +
+          preregTodo +
+          absorptionTodo
         : researcherPrompt.KICKOFF,
     ).catch((e) => ({ error: (e as Error).message, text: "" })),
   );
 
-  // ★★★ 观众也要**开工**（2026-10-19 夜间实测 bug）：
-  //   ★ 症状：`onAudience` 触发了 5 次、消息都送出去了，但**观众 0 票**。
-  //   ★★ 根因：观众建出来后**从来没被 `io.prompt` 投递过** ⇒ 它们没在跑 ⇒
-  //      `steer` 的消息排在「一次不存在的运行」后面 ⇒ **永远看不到**。
-  //   ★ 教训（同类第 3 次）：**"我把东西给它了" ≠ "它在跑"** ——
-  //     投递要发生在**已经启动的** agent 上。
-  const audienceRuns = audiences.map((a, i) =>
-    a
-      .io.prompt(
-        `★ 你是观众（${AUDIENCES[i]!.key}）。你**不写产物**，也不做研究。
-
-` +
-          `★★★ 你的唯一职责：等研究团队产出后，回答**谁最说服了我**。
-` +
-          `★ 三个团队（theory / practice / landing）在争同一个问题，各有立场。
-
-` +
-          `## 你现在该怎么做
-` +
-          `1. 先看 \`outbox/\` 里有什么（\`ls outbox/\`），挑最近的读。
-` +
-          `2. 读的时候按**你的身份**看（见你的定义里的「你怎么判断」）。
-` +
-          `3. 读完用 \`judge\` 工具表一个态。
-` +
-          `4. 然后**继续等**（会有新产物送过来）。
-
-` +
-          `★★ 不要客气。**「都不够」是完全有效的表态** —— 全体观众支持某一方时争辩才结束，
-` +
-          `   所以你的不同意见比附和重要得多。
-` +
-          `★ 若现在 outbox 还是空的，就等着；有东西了再用 \`judge\`。`,
-      )
-      .catch((e) => ({ error: (e as Error).message, text: "" })),
-  );
+  // ★★★ 2026-10-20 拆分：hunt 没有观众（观众是 forge 的验收机制）。
+  //   ★ 原代码在这里 `io.prompt` 启动 4 位观众 —— 那一段搬去了 `forge/runner.ts`。
 
   // ★ 只等窗口（不做任何"看状态/判断/起 agent"的事 —— 那都在事件规则里）
   await new Promise((r) => setTimeout(r, secs * 1000));
@@ -537,6 +668,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   log("window", "进入收尾态：不再 fire 新专家 / 不再送新挑战，只等已在跑的做完");
 
   for (const t of timers) clearInterval(t);   // ★ 清掉时间节流，否则进程不退出
+
   // ★★ 回流的审计账（写盘，可离线复核 —— 验收「同一份意见到了几次」就靠它）
   writeFileSync(
     join(LAB, "work", "deliveries.jsonl"),
@@ -567,8 +699,78 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     );
   }
 
+  // ★★★ 收尾前**先等派活器的队列跑空**（2026-10-21）
+  //
+  //   ★ 为什么（这是 forge 栽过的那个坑）：`dispose()` 会**截断正在跑的专家**。
+  //     没有这一步，收尾时队列里排着的那几位会被粗暴关掉 ⇒ 它们的工作白做、成本白花。
+  //   ★★ 而且日志里会显示"跑了"（fire 记过），但**没有 result** —— 与"专家挂了"无法区分。
+  {
+    const dr = (
+      rules as unknown as {
+        drainer?: { busy: () => boolean; queued: () => number; drain: () => void; byRole?: () => Record<string, number> };
+      }
+    ).drainer;
+    if (dr) {
+      const t0 = Date.now();
+      log("flow", `等派活器收干净（队列 ${dr.queued()} · 在跑 ${dr.busy() ? 1 : 0}）`);
+      while (dr.busy() || dr.queued() > 0) {
+        dr.drain();
+        await new Promise((r) => setTimeout(r, 2000));
+        if (Date.now() - t0 > 20 * 60_000) {
+          log("flow", `⛔ 等派活器超 20 分钟 ⇒ 放弃（队列 ${dr.queued()} · 在跑 ${dr.busy() ? 1 : 0}）`);
+          break;
+        }
+      }
+      log("flow", `派活器已收干净（等了 ${Math.round((Date.now() - t0) / 1000)}s）`);
+      // ★★★★★ 每个座位被派了几次（2026-10-21）
+      //
+      //   ★ 为什么要专门打这一行：实测事故是「`hands-on` 从头到尾 0 次」——
+      //     而那件事**在日志里完全看不见**（它只是没出现）。
+      //   ★★ 纪律㉖：没有名字 = 没发生。所以这一行把"谁跑了 0 次"也说清。
+      //   ★ 与 git log 数前缀不同：那个数的是**提交**，不是**派活**（0 次 ≠ 没干活）。
+      try {
+        const counts = dr.byRole?.() ?? {};
+        const all = [...usedAngles.map((a) => a.key), "inspector", "archivist", "inspirer", "watchdog", "libsmith"];
+        log("flow", renderSeatLedger(counts, all));
+      } catch (e) {
+        log("flow", `座位派活账打不出来：${(e as Error).message}`);
+      }
+    }
+  }
+
+
   // ── 关灯（不是干涉）：让在跑的收干净 ──
-  await Promise.allSettled([...runs, ...spawned.map((a) => a.io.waitIdle().catch(() => {}))]);
+  //
+  // ★★★ 2026-10-21：原来这里是**无限等** `waitIdle()` —— 而研究者是
+  //   "一直干活"的常驻 agent，收尾后它还在跑实验（一次 bash 可跑 20+ 分钟），
+  //   ⇒ `waitIdle()` **永不返回** ⇒ `rule:done` 打不出来、进程不退出。
+  // ★ 修法：给等一个**上限**（收尾态本来就"不再派新活"，跑着的让它跑完这点时间），
+  //   到点就 dispose —— 已落盘的产物不受影响。
+  // ★ 收尾态下"已 fire 的专家"给 **12 分钟**跑完（★ 原来写 3 分钟太短：
+  //   实测队列里有排队 1193s 的 inspector ⇒ 3 分钟等于把它砍掉）。
+  //   ★★ 到点会打一行 `⛔ 收尾超出上限` —— **截断必须响**（纪律㉖），否则
+  //     "专家没结论"与"我没等"分不开。
+  //   ★ 不设上限 ⇒ 一次 bash 20 分钟的实验能把整个 run 吊死（实测）。
+  // ★ 测试/短跑用：`HUNT_CLOSE_CAP_MS=20000` 把上限压短（★ 不改判据本身）
+  const CAP_MS = Number(process.env.HUNT_CLOSE_CAP_MS) > 0 ? Number(process.env.HUNT_CLOSE_CAP_MS) : 12 * 60_000;
+  let capHit = false;
+  // ★★★ 2026-10-21 修：**整组**都要被上限管。
+  //   ★ 我第一版只把 `spawned` 的等待放进 race，而 `allSettled` 外面还挂着 `runs`
+  //     ⇒ 只要研究者的首轮 prompt 没结束，`allSettled` 就一直等 —— 上限形同虚设。
+  //     实测：`--secs=20`（没有任何专家）照样卡死在收尾。
+  await Promise.race([
+    Promise.allSettled([
+      ...runs.map((r) => r.catch(() => {})),
+      ...spawned.map((a) => a.io.waitIdle().catch(() => {})),
+    ]),
+    new Promise((res) => {
+      const t = setTimeout(() => {
+        capHit = true;
+        res(null);
+      }, CAP_MS);
+      (t as unknown as { unref?: () => void }).unref?.();
+    }),
+  ]);
   for (const a of spawned) {
     try {
       a.dispose();
@@ -577,6 +779,33 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     }
   }
 
+  // ★★★★★ 2026-10-21 · **收尾最后才停研究者**
+  //
+  //   ★★★ 我第一版把它放在收尾**开头** —— 结果把回流打断了：
+  //     实测 `error 回流 libsmith 失败：agent L3-researcher-hands-on-… 已 dispose，不能再操作`
+  //     ⇒ libsmith 写了 2514 字，**一个字都没送到**。
+  //   ★★ 正确顺序：**先让已 fire 的专家跑完、把话送回去，再停人**。
+  //
+  //   ★ 那为什么还要停？因为研究者是"一直干活"的常驻 agent（一次 `bash` 20+ 分钟），
+  //     `io.waitIdle()` 对它**永不返回** ⇒ 进程不退出、`rule:done` 打不出来。
+  //     ⇒ 它们是"该被停"，不是"该被等"；但**必须排在回流之后**。
+  try {
+    researcher.dispose();
+  } catch {
+    /* 已释放 */
+  }
+  for (const r of researchers) {
+    try {
+      r.dispose();
+    } catch {
+      /* 已释放 */
+    }
+  }
+  if (capHit) {
+    log("flow", `⛔ 收尾超 ${CAP_MS >= 60_000 ? Math.round(CAP_MS / 60_000) + " 分钟" : Math.round(CAP_MS / 1000) + " 秒"}上限 ⇒ 截断还在跑的专家（★ 它们的结论没送到）`);
+  }
+  log("flow", "研究者已停（它们不 fire，是常驻的 ⇒ 收尾是「停」，不是「等」；★ 排在回流之后）");
+
   const outs = listOutbox();
   // ★★★ 收尾账**必须同时落进 `_topology.log`**（2026-10-20 实测发现）
   //   ★ 原来只 `console.log` 到 stdout ⇒ 一个只看 `_topology.log` 的新会话
@@ -584,7 +813,11 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★★ 这是我自己的纪律㉖ 的反面教材：「接上了的唯一证据是日志里出现」——
   //      而我把**唯一的证据**留在了 stdout，脚本日志一删就没了。
   const closingLine = `★ 收尾：outbox ${outs.length} 份 · 起过 ${spawned.length - 1} 次专家/支线 · 判停 ${state.verdict ?? "（无）"}`;
-  log("done", closingLine);
+  // ★★★ 2026-10-21：标签从 `done` 改成 `rule:done` ——
+  //   AGENTS.md §三之三 教大家 `grep "rule:done"` 判「有没有正常收尾」，
+  //   而实际打的是 `done` ⇒ **照文档做会得出「中途被 kill」**（实测：这轮正常收尾，
+  //   grep rule:done 却是 0 行）。★ 文档与代码必须同源（纪律⑪）。
+  log("rule:done", closingLine);
   console.log(`\n${closingLine}`);
   console.log(`★ 日志：${join(LAB, "work", "_topology.log")}`);
   return { outputs: outs.length, fired: spawned.length - 1, verdict: state.verdict };

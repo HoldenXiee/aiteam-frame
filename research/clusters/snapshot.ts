@@ -35,19 +35,37 @@
 //   ③ forge 的空间里**只有它自己的东西** ⇒ 边界变成物理事实
 // ──────────────────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════
+// ★★★ 2026-10-20 拆分：这个文件**两集群共用一份**，放在 `research/clusters/` 顶层。
+//
+//   ★ 为什么它可以共用（而其它件按裁定各复制一份）：
+//     它是一个**单向搬运器** —— 读 hunt、写 forge，方向固定。
+//     ★ 它**不属于任何一个集群的运行时**：集群跑起来之后不会调它。
+//     ⇒ 复制两份只会带来"两边快照逻辑分叉"的风险，没有任何好处。
+//
+//   ★★ 原来它 import `./paths.ts` 的 `CLUSTER` 来判断"我现在是谁"。
+//     拆分后**没有"当前集群"这个概念了** —— 这个文件只知道两端：
+//       源 = hunt（第一集群）· 目标 = forge（第二集群）
+// ══════════════════════════════════════════════════════════════════
+
 import { cpSync, existsSync, mkdirSync, readdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { REPO, CLUSTER } from "./paths.ts";
-import { SOURCE_CLUSTER } from "./prompts/missions.ts";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+/** 仓库根（从 research/clusters/ 往上 3 层） */
+const REPO = join(here, "..", "..");
 
 /**
- * ★★★ 第二集群的名字与空间（★ 快照**永远**往它那儿拷，不管当前跑的是谁）。
+ * ★★★ 快照的两端 —— 都是**常量**，不再是"当前集群"。
  *
- * ★ 为什么不能直接用 `LAB`：`LAB` 是**当前集群**的空间 ——
- *   在 hunt 里调 `LAB` 得到 hunt，于是快照会拷进 hunt 自己（实测踩过这个坑）。
+ * ★ 为什么不能再用 `LAB`：`LAB` 曾经是"当前集群"的空间 ——
+ *   在 hunt 里调它得到 hunt，于是快照会拷进 hunt 自己（实测踩过这个坑）。
  *   ★★ 快照的方向是**单向且固定**的：hunt → forge。
  */
+export const SOURCE_CLUSTER = "hunt";
 export const SECOND_CLUSTER = "forge";
+const SOURCE_LAB = join(REPO, "research/labfirst", SOURCE_CLUSTER);
 const FORGE_LAB = join(REPO, "research/labfirst", SECOND_CLUSTER);
 
 /** 快照落在哪：★ forge 自己空间里的一个子目录 */
@@ -161,10 +179,7 @@ function measure(dir: string): { files: number; bytes: number } {
  *   ⇒ 每批一个目录：`source/batch-001/`、`source/batch-002/`…
  */
 export function takeSnapshot(opts: { force?: boolean } = {}): SnapshotResult {
-  const src = join(REPO, "research/labfirst", SOURCE_CLUSTER);
-  if (CLUSTER === SOURCE_CLUSTER) {
-    // ★ 在 hunt 里跑快照 = 把主线的东西拷给沉淀线，这是**正常用法**（研究助手手动做）
-  }
+  const src = SOURCE_LAB;
   if (!existsSync(src)) {
     throw new Error(
       `快照失败：找不到第一集群 \`${SOURCE_CLUSTER}\` 的空间：${src}\n` +

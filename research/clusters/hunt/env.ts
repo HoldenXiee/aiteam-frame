@@ -20,19 +20,19 @@
 // ★★ 风险与对策：它可能把 lib/ 改坏 → 实验起不来。
 //    ⇒ lib/ 是**独立 git 仓库**（见 runner.ts 开工前的自检），改坏可回退。
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ★★★ 这一行是分层的关键：import 研究员可写的那份库
 //   ★★ 用**动态 import**（`await import(LAB_ENTRY)`）—— 静态 import 要求字面量路径，
 //     而我们要让它从 `paths.ts` 算出来（同一份代码能跑不同集群）。
-import { LAB_ENTRY, DOCS, LAB, MODEL } from "./paths.ts";
+import { LAB_ENTRY, DOCS, LAB, MODEL, REPO } from "./paths.ts";
 // ★ Windows 路径必须转 `file://` URL 才能动态 import（`D:\...` 会被当成协议）
 import { pathToFileURL } from "node:url";
-const aiteam = (await import(pathToFileURL(LAB_ENTRY).href)) as typeof import("../../src/index.ts");
+const aiteam = (await import(pathToFileURL(LAB_ENTRY).href)) as typeof import("../../../src/index.ts");
 export const { createLab } = aiteam;
-import type { Lab as _Lab } from "../../src/index.ts";
+import type { Lab as _Lab } from "../../../src/index.ts";
 export type Lab = _Lab;
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,13 +41,71 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const AGENT_DIR = join(DOCS, "装置/agent");
 const AUTH = join(AGENT_DIR, "auth.json");
 
-if (!existsSync(AUTH)) {
-  throw new Error(
-    `集群需要自己的凭证，但没有：${AUTH}\n` +
-      `  · 放一份 auth.json 进去（gitignored）\n` +
-      `  · ★ 别指向宿主 ~/.pi/agent —— pi 会整文件写回，把别的 provider 凭证抹掉`,
-  );
+// ══════════════════════════════════════════════════════════════════
+// ★★★ 凭证来源（2026-10-20 设计者要求）：
+//
+//   「现在实验用的key的额度已经没了，我把新的key放在 `D:\space\aiteam\test\key`
+//     文件里面了，建议把这个文件设为所有实验所用的key，千万要把这个文件gitignore」
+//
+//   ★ 设计：**仓库根的 `./key` 是唯一真相源**，`auth.json` 在启动时由它生成。
+//     · 换 key ⇒ 只改 `./key` 一个文件
+//     · 不会有"两份副本不同步"的问题
+//     · `.gitignore` 里已有 `/key` 与 `key`（★ 入库 = 泄露）
+//
+//   ★★ 为什么不在仓库里存 auth.json 作为真相源：
+//     它是**生成物**，而且本项目吃过「一个状态两个写者」的亏（判据恒 false）。
+//     ⇒ 单一来源 + 启动时派生。
+//
+//   ★★★ 回退（向后兼容）：若 `./key` 不存在，就用已有的 `auth.json`。
+//     这让旧的 checkout 不断 —— 但**不会静默用旧 key 冒充新 key**：
+//     两样都没有时直接报错，不猜。
+// ══════════════════════════════════════════════════════════════════
+
+/** ★ 所有实验共用的 key 文件（仓库根）*/
+export const KEY_FILE = join(REPO, "key");
+/** ★ 这个 key 属于哪个 provider（与 auth.json 的顶层键一致）*/
+const KEY_PROVIDER = "opencode-go";
+
+/**
+ * ★ 读 `./key` 并把 `auth.json` 写成它。返回是哪个来源生效的（可打进日志）。
+ *
+ * ★★ 每一步失败都**必须响亮**（纪律：失败不响 = 静默用错凭证）。
+ */
+function ensureAuth(): "key文件" | "已有auth.json" {
+  if (!existsSync(KEY_FILE)) {
+    if (!existsSync(AUTH)) {
+      throw new Error(
+        `集群找不到凭证：两处都没有。\n` +
+          `  · 推荐：在仓库根放一份 \`key\`（裸 key，已被 gitignore）\n` +
+          `  · 或：放一份 \`${AUTH}\`（gitignored）\n` +
+          `  · ★ 别指向宿主 ~/.pi/agent —— pi 会整文件写回，把别的 provider 凭证抹掉`,
+      );
+    }
+    return "已有auth.json"; // ★ 回退：兼容旧 checkout
+  }
+
+  // ★ 读到什么就是什么：去空白（文件尾常有换行）
+  const raw = readFileSync(KEY_FILE, "utf8").trim();
+  if (!raw) {
+    throw new Error(`凭证文件是空的：${KEY_FILE}\n  ★ 空的 key 比没有更危险 —— 它会带着 "" 去请求。`);
+  }
+  // ★ 粗检格式：本项目的 key 是一行，不含空白与大括号
+  if (/\s/.test(raw) || raw.length < 16 || /[{}]/.test(raw)) {
+    throw new Error(
+      `凭证文件格式不对：${KEY_FILE}\n` +
+        `  · 期望：一行裸 key（无空格、无引号、无 JSON）\n` +
+        `  · 实际：${raw.length} 字符${/\s/.test(raw) ? "、含空白" : ""}${/[{}]/.test(raw) ? "、含花括号" : ""}\n` +
+        `  ★ 如果你填的是 JSON，请只留裸 key 那一串。`,
+    );
+  }
+
+  mkdirSync(AGENT_DIR, { recursive: true });
+  writeFileSync(AUTH, JSON.stringify({ [KEY_PROVIDER]: { type: "api_key", key: raw } }, null, 2));
+  return "key文件";
 }
+
+/** ★ 本进程用的是哪个来源（打进日志，可核对）*/
+export const AUTH_SOURCE = ensureAuth();
 
 /**
  * 起一个实验室。

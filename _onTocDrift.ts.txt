@@ -1,0 +1,60 @@
+
+  /**
+   * ★ 猜想 F · 书的自洽：**目录必须列出书里的每一份**。
+   *
+   * ★★★ 已用真实数据确定性证实（`tools/summary.ts`，0 API）：
+   *   书里 **27 份**，`SUMMARY.md` 只列 **10 份** ⇒ **17 份读者看不到**（等于不存在）。
+   *   章号：**9 个**被引用但不存在，238 次引用里 **106 次落空（44.5%）**。
+   *
+   * ★★ 为什么这是 forge 的病而不是 hunt 的：
+   *   AGENTS.md：「forge 失败时看起来像 —— **还在散记，只是写得更长**」。
+   *   我以前把"进了书"当目标 ⇒ 把散记从 10 份放进书变成 27 份 ⇒ **让病更重了**。
+   *
+   * ★ 判据是**纯函数**（`syncSummary` 的 dryRun + `chapterDrift`），不需要模型。
+   * ★★ 它只负责**让集群知道**；修（合并章、废引用、补目录）是集群的事。
+   */
+  async function onTocDrift(): Promise<void> {
+    if (ctx.closing?.()) return;
+    if (Date.now() - (state.firedAt["archivist"] ?? 0) < COOLDOWN_MS) return;
+
+    const bookSrc = join(REPO, "research/book/src");
+    // ★ 只算不写（真正的同步在发布门路径上做 —— 这里只要读数）
+    const toc = syncSummary({ bookSrc, subdir: "05-集群产出", dryRun: true });
+    const drift = chapterDrift({ bookSrc, subdir: "05-集群产出" });
+
+    const missing = toc.added.length;
+    const dangling = drift.dangling.size;
+    if (!missing && !dangling) {
+      ctx.trace("onTocDrift", `书自洽（${toc.total} 份全在目录 / ${drift.totalRefs} 次引用都有落点）`);
+      return;
+    }
+
+    const lost = [...drift.dangling.values()].reduce((a, b) => a + b, 0);
+    const listed = toc.total - missing;
+    const parts: string[] = [];
+    if (missing) {
+      parts.push(`· 书里有 **${toc.total} 份**，目录只列 **${listed} 份** ⇒ **${missing} 份读者根本看不到**`);
+    }
+    if (dangling) {
+      const names = [...drift.dangling.keys()].sort((a, b) => a - b).map((n) => `第${n}章`).join("、");
+      const pct = ((lost / drift.totalRefs) * 100).toFixed(1);
+      parts.push(`· **${dangling} 个章号**被引用但不存在（${names}）`);
+      parts.push(`  ⇒ ${drift.totalRefs} 次引用里 **${lost} 次落空（${pct}%）**`);
+    }
+
+    state.firedAt["archivist"] = Date.now();
+    ctx.trace("onTocDrift", `缺 ${missing} 份目录 · 悬空 ${dangling} 章`);
+
+    await fire(
+      "archivist",
+      `**书散着，读者用不了**：\n` +
+        parts.join("\n") +
+        `\n\n★★ 这就是这个集群失败时的样子：**还在散记，只是写得更长**。\n` +
+        `多写几份不叫推进 —— **读者能用起来**才叫推进。\n\n` +
+        `请做一次**收束**（不是再写一份新的）：\n` +
+        `· 目录缺的：\`SUMMARY.md\` 要能被读者按顺序读 —— 合并 / 归类，而不是平铺 ${toc.total} 条\n` +
+        `· 悬空章号：每个二选一 —— 真写出来，或改成**自足的说法**（不要让读者去查不存在的东西）\n` +
+        `★★★ 不许做的：把"多写了几份"当成推进。**读者找得到、看得懂**才算。`,
+    );
+  }
+

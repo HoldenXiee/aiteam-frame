@@ -26,8 +26,6 @@
 //   「第二集群的权限一样，也是**需要用实验来检验**体系化的正确性、可行性、局限等等」
 //   ⇒ 它有完整的实验能力，**它的结论也要有验证与成本**。
 
-import { CLUSTER } from "../paths.ts";
-
 /** 第一集群（被分析的对象）的空间 —— ★ 第二集群**只读**它 */
 export const SOURCE_CLUSTER = "hunt";
 
@@ -120,7 +118,13 @@ export const MISSIONS: Record<string, Mission> = {
   },
 };
 
-/** 取当前集群的使命（`CLUSTER` 环境变量决定） */
+/**
+ * 取本集群的使命。
+ *
+ * ★★★ 2026-10-20 拆分：原来是 `MISSIONS[CLUSTER] ?? MISSIONS.hunt` ——
+ *   一个环境变量决定它读哪条使命。★ 现在这份代码**只服务 `hunt`**。
+ *   （另一个集群的使命在 `research/clusters/forge/prompts/missions.ts`。）
+ */
 export function mission(): Mission {
-  return MISSIONS[CLUSTER] ?? MISSIONS.hunt;
+  return MISSIONS.hunt;
 }

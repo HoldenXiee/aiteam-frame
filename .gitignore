@@ -1,6 +1,21 @@
 node_modules/
 *.log
 
+# ──── 凭证（★ 绝不能入库）─────────────────────────────────────────
+# 2026-10-20：设计者把实验用的 key 放在仓库根 `./key`（51 字节裸 key）。
+#   ★ 它是**所有实验唯一的 key 来源** —— `env.ts` 启动时读它生成 auth.json。
+#   ★★ 为什么放在仓库根而不是 agent 目录：
+#     集群空间 `research/labfirst/*/` 是**独立 git 仓库**，只有它自己的 .gitignore，
+#     不容易保证两边都忽略。放在根目录**只靠这一处忽略**就够。
+#   ★★★ 加下面前先确认它是 untracked（git status 显示 `?? key`）。
+#     若哪天发现它已被跟踪 ⇒ 必须 `git rm --cached key` 并**立即换 key**
+#     （一旦进过 commit，历史里就有了，删文件不等于删历史）。
+/key
+key
+**/auth.json
+key.txt
+*.key
+
 # ── 目录结构（2026-10-15 整理后） ──────────────────────────────────────
 #   src/        库本体（被 dev/ 与 research/ 两边依赖，所以留顶层）
 #   dev/        库开发：pi/（克隆的 SDK 源码）+ test · examples · demo · spike · docs
@@ -32,7 +47,7 @@ research/docs/装置/work/*
 research/docs/装置/agent/auth.json
 research/docs/装置/agent/models.json
 research/docs/装置/agent/models-store.json
-research/docs/装置/agent/settings.json
+research/docs/装置/agent/npm/
 
 # ── dev/pi：克隆的 pi 源码（2026-10-15 加入） ──────────────────────────
 # 这是**上游源码的完整副本**（含 packages/*/src、test、docs、schemas），

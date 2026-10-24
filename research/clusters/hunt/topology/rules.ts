@@ -80,11 +80,166 @@ export const FRESH_FILES_THRESHOLD = 10;
 /** 同一专家的冷却时间（防刷屏） */
 export const COOLDOWN_MS = 20 * 60_000;
 
+/**
+ * ★★★★★ 多久回头审视一次**自己的手段**（2026-10-21）
+ *
+ * ★ 为什么是 90 分钟：一轮 hunt 窗口通常 60~120 分钟 ⇒ 一轮里最多问一次。
+ * ★★ 太短会把成本翻倍（这是个长跑专家）；太长就等于没有。
+ */
+export const REVIEW_EVERY_MS = 90 * 60_000;
+
+/**
+ * ★★★★★ 「提炼」的节拍：每新增这么多份研究结论，就必须问一次「它该变成什么」。
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ * 这条规则要治的病（实测，2026-10-21）
+ *
+ *   hunt 有 **58 份 P\*（研究结论）**，其中**真正像"创新"的至少 5 份**：
+ *
+ *     `P70` 同一条错规则：执行时 **0/24 反对**，被要求「审这条规则」时 **12/12 逮住**
+ *     `P63` 池子自己长出的技能：**白名单挡得住广告，挡不住读取**
+ *     `P72` 共享材料池：**广告面建 agent 时冻结，能力面当场 live**
+ *     `P69` 错了但明确的核验规则**会被忠实执行** —— 勤奋不保护
+ *     `P98` 先果后因 pilot：**goal-only 与给规则等价**
+ *
+ *   ★★★ 而 `58 份里只有 5 份（8%）`提到过「别人能不能用」。
+ *
+ * ★★★★ 这就是它造不出 MCP / skill 那一级创新的原因 —— 不是没有原料，
+ *   是**缺"把观察变成接口"这一步**。MCP 与 skill 都不是发现，
+ *   是**把"每个 agent 都在手工重做的同一件事"提成了**一个面**。
+ *
+ *   步是**我**替它走的（`enforce`/`correct`/`grant`/`write_skill` 都是我看着
+ *   它的产物造的）。⇒ 流水线断在中间：**它观察 → 我抽象 → 我发**。
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ★ 为什么用**节拍**而不是"检测哪份像创新"：
+ *   判"像不像创新"是**内容判断**（硬规则①，我不能碰）。
+ *   而「攒了 N 份新结论就该回头提炼一次」是**纯节拍**，不需要懂内容。
+ */
+export const GENERALIZE_EVERY = 3;
+
+/** ★ 测试/短跑用：`GENERALIZE_EVERY_N=1` 把节拍压到每份（★ 不改判据本身） */
+const GEN_EVERY =
+  Number(process.env.GENERALIZE_EVERY_N) > 0 ? Number(process.env.GENERALIZE_EVERY_N) : GENERALIZE_EVERY;
+
+/**
+ * ★★★★★ 该不该提炼（纯函数，可离线重判 —— 纪律⑦）
+ *
+ * 判据：**自上次提炼以来新增的研究结论数 ≥ 节拍**
+ *
+ * @param products   outbox 文件名
+ * @param sinceCount 上次提炼时 P* 的份数（0 = 从没提炼过）
+ * @returns 该提炼吗 + 新增几份（★ 报数是为了读数能解释）
+ */
+export function generalizeDue(
+  products: string[],
+  sinceCount: number,
+): { due: boolean; research: number; fresh: number; reason: string } {
+  const research = products.filter((f) => /^P\d/.test(f)).length;
+  const fresh = research - sinceCount;
+  if (fresh < GEN_EVERY) {
+    return {
+      due: false,
+      research,
+      fresh,
+      reason: `新增研究结论 ${fresh} 份 < 节拍 ${GEN_EVERY} 份 ⇒ 再攒攒`,
+    };
+  }
+  return {
+    due: true,
+    research,
+    fresh,
+    reason: `新增研究结论 ${fresh} 份 ≥ 节拍 ${GEN_EVERY} 份 ⇒ 该提炼了`,
+  };
+}
+
+/** ★ 测试/短跑用：`INSTRUMENT_REVIEW_MS=120000` 把间隔压短（★ 不改判据本身） */
+const REVIEW_MS =
+  Number(process.env.INSTRUMENT_REVIEW_MS) > 0 ? Number(process.env.INSTRUMENT_REVIEW_MS) : REVIEW_EVERY_MS;
+
 // ─────────────── 状态读取（★ 读磁盘，不读它的自述）───────────────
 
 export function listOutbox(): string[] {
   const d = join(LAB, "outbox");
   return existsSync(d) ? readdirSync(d).filter((f) => f.endsWith(".md")) : [];
+}
+
+/**
+ * ★★★★★ 自审的**配额**（2026-10-21，修我自己的规则造成的洞）
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ * 实测（真实数据，不是我推的）：
+ *
+ *   最近 60 条提交 —— 审装置/量具 **57 条** · 研究结论 P* **1 条**
+ *   ★ 最后一次真研究：2026-10-23（P99 修订）
+ *
+ * ★★★ 根因是 `onInstrumentReview` 没有两条判据：
+ *   ① 没有「这件东西审过了」—— 同一个 seal 被反复审了十几轮
+ *   ② 没有「自审能占多少产出」—— 审查产出本身算"有活动"，
+ *      ⇒ **审装置 → 产出 → 活动 → 又能审装置**（正反馈）
+ *
+ * ★★★★ 后果：一个**探索者**被我变成了**审计员**。
+ *   而 hunt 的使命是「广探索 / 冗余 / 创新」—— 审装置是 forge 的活。
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ★ 判据（纯函数，可离线重判 —— 纪律⑦）：
+ *
+ *   **自审类产物数 不得 ≥ 研究结论类产物数。**
+ *   一旦相等就已经是"审得不比干得多"，再多就是偏了。
+ *
+ * ★ 为什么是"数产物"而不是"数时间"：
+ *   时间判据要靠时长参数（我已经被人纠正过三次"分母不对"）。
+ *   **产物是可数的、可离线重判的、不依赖窗口位置**（纪律㉛）。
+ *
+ * @param products outbox 的文件名清单
+ * @returns 允许自审吗 + 两侧各几份（★ 报数是为了让读数能解释）
+ */
+export function auditQuota(
+  products: string[],
+  isRecent: (file: string) => boolean = () => true,
+): {
+  allowed: boolean;
+  selfAudit: number;
+  total: number;
+  share: number;
+  reason: string;
+} {
+  const recent = products.filter(isRecent);
+  // ★ 自审类：`INSPIR*` / `手段*` / `装置缺陷*`（"审我们自己在用的东西"）
+  const selfAudit = recent.filter((f) => /^(INSPIR|手段|装置缺陷)/.test(f)).length;
+  const total = recent.length;
+  const share = total ? selfAudit / total : 0;
+
+  if (total === 0) {
+    return { allowed: false, selfAudit: 0, total: 0, share: 0, reason: "最近没有产物 ⇒ 先干活" };
+  }
+  // ★★★ 判据：**自审不得占到一半以上**。
+  //
+  //   ★ 为什么不是「自审 < 研究结论」（我第一版，写错了两处）：
+  //     ① 「研究结论」我原来只数 `P<数字>` ⇒ **把 `面-denom` 这类真研究漏掉了**
+  //        （它是那一轮最有价值的产物，却不计数）⇒ 纪律㉞：口径太窄。
+  //     ② 拿两类相比，会随"另一类攒了多少"漂移。
+  //   ★★ 直接用**占比** —— 它量的正是那个病：**自审有没有吃掉一切**。
+  //
+  //   ★ 为什么是一半：三个角度里 `先怀疑量具` 就占 **1/3**，
+  //     再留一点余量给"顺手发现装置缺陷" ⇒ 上限 50% 是宽裕的。
+  //     实测生病时 **62%**（54 份里 34 份）—— 超过一半就被拦。
+  if (share >= 0.5) {
+    return {
+      allowed: false,
+      selfAudit,
+      total,
+      share,
+      reason: `最近自审 ${selfAudit}/${total} 份 = ${Math.round(share * 100)}% ≥ 50% ⇒ 配额用完，先去做别的`,
+    };
+  }
+  return {
+    allowed: true,
+    selfAudit,
+    total,
+    share,
+    reason: `最近自审 ${selfAudit}/${total} 份 = ${Math.round(share * 100)}% < 50% ⇒ 还有余量`,
+  };
 }
 
 /**
@@ -109,7 +264,12 @@ export function listOutbox(): string[] {
 // ─────────────── 规则表 ───────────────
 
 export type TriggerCtx = {
-  fire: (role: ExpertName, why: string, focus?: string) => Promise<string>;
+  /**
+   * ★ 真正去叫专家（会跑 3–6 分钟）。
+   * ★★ 规则里**不要直接用它** —— 用 makeRules 里的 `fire`（排队）。
+   *    只有派活器（dispatch.ts）该调它。
+   */
+  fireNow: (role: ExpertName, why: string, focus?: string) => Promise<string>;
   state: State;
   /**
    * ★★★ 规则级日志 —— 填的是归因分析里那个**测不了**的洞：
@@ -129,18 +289,9 @@ export type TriggerCtx = {
   challenge?: (toKey: string, text: string) => void;
   /** ★ 当前活着的员工 key（用于“新产物该交给谁挑战”） */
   peerKeys?: () => string[];
-  /**
-   * ★★★ 观众（设计者 2026-10-19）：「加一个『观众』，最后观众最被说服哪个观点就写哪个观点」
-   *
-   * ★ 未接（hunt / 无观众的 forge）时为 `undefined` ⇒ `onAudience` 直接不触发。
-   */
-  audience?: () => string[];
-  /** ★ 把话送到某位观众 */
-  tellAudience?: (key: string, text: string) => void;
-  /** ★★ 查某份产物的签字表（共识门的状态）*/
-  signoffState?: (artifact: string) => Map<string, unknown> | undefined;
-  /** ★ 全体团队（门的判据）*/
-  allTeams?: () => string[];
+  // ★★★ 2026-10-20 拆分：这里原来还有 `audience` / `tellAudience` /
+  //   `signoffState` / `allTeams` 四个通道 —— 它们服务于 onAudience / onConsensus /
+  //   onDispute 三条**出书机制**的规则，而 hunt 不出书。★ 现在它们在 forge 那份里。
   /**
    * ★★★ 收尾态（2026-10-19）：窗口到点后为 `true`。
    *
@@ -171,6 +322,14 @@ export type State = {
    * ★ 活动的定义 = **outbox 有新产物** 或 **work/ 有改动**。
    */
   lastActiveAt: number;
+  /** ★ 上次回头审视手段的时间（0 = 从没审过） */
+  lastInstrumentReviewAt: number;
+  /** ★★★★★ 上次提炼时 P* 的份数（-1 = 从没提炼过） */
+  lastGeneralizeAt: number;
+  /** ★★★★★ 辩证轮转的起点（★ 否则永远只送给排在前面的几位） */
+  challengeOffset: number;
+  /** ★★★★★ 已按「面」处理过的产物名（★ 避免同一份反复触发） */
+  auditedNames: string[];
   /**
    * ★★★ v2 修正（微实验 D 实测）：`work/` 里**最大的 mtime**。
    *
@@ -203,12 +362,8 @@ export type State = {
    *   ★ 三条规则三个账：审的、看的、辩的。
    */
   challengedOutputs: string[];
-  /** ★★★ 已请观众评过的产物（设计者 2026-10-19）*/
-  audienceAsked: string[];
-  /** ★★★ 已请过签字的产物 */
-  signedAsked: string[];
-  /** ★★★ 已送过"联合实验"处境的产物 */
-  disputeAsked: string[];
+  // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
+  //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
 
 export function newState(): State {
@@ -219,12 +374,13 @@ export function newState(): State {
     roundsSinceProgress: 0,
     firedAt: {},
     lastActiveAt: Date.now(),
+    lastInstrumentReviewAt: 0,
+    lastGeneralizeAt: -1,
+    challengeOffset: 0,
+    auditedNames: [],
     lastWorkMtime: 0,
     lastConvergedMtime: convergedMtime(),
     challengedOutputs: [],
-    audienceAsked: [],
-    signedAsked: [],
-    disputeAsked: [],
     lastTickAt: Date.now(),
   };
 }
@@ -236,6 +392,40 @@ export function newState(): State {
  *   v1 是把这段逻辑**内联在 runner 的事件回调里**的。加了第二个观察点之后，
  *   如果两处各写一遍，就会出现"settle 走一套、工具调用走另一套"的静默分叉。
  */
+/**
+ * ★★★★★ 辩证该送给哪几位 —— **轮转，不是永远取前几位**
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ * ★★★ 这是同一类 bug 的**第二次**（2026-10-21）
+ *
+ *   原写法：`for (const k of peers.slice(0, n))` —— n=2，**永远取前两位**。
+ *   而 `peers` 的顺序是 `ANGLES` 的顺序：
+ *     [falsifier(先证伪), instrument-skeptic(先怀疑量具), hands-on(先动手做)]
+ *   ⇒ **`hands-on` 永远收不到挑战**。
+ *
+ *   ★★ 实测（早前记在 runner.ts 的注释里，但当时归因错了）：
+ *     「`hands-on` 整个窗口只收到 **5 次**挑战，另两位 **24/25** 次」
+ *     —— 我当时归因成"它几乎从不空闲 ⇒ 排在自己输出后面"，
+ *       还据此把 `queue` 改成了 `steer`。
+ *     ★★★ 真因更简单：**它根本不在收件名单里**（`slice(0,2)` 切掉了它）。
+ *
+ * ★ 教训：`slice(0, n)` 这种"按序取前 n"在本项目里已经咬过两次
+ *   （① `pickAnglesN` ② 这里）。**凡是集合按序截断，先问"最后那个是不是最不能少的"。**
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * @param peers  全部同事
+ * @param n      这次要送给几位
+ * @param offset 轮转起点（每次 +n，让每个人都被轮到）
+ */
+export function pickPeers(peers: string[], n: number, offset: number): string[] {
+  if (peers.length === 0 || n <= 0) return [];
+  const k = Math.min(n, peers.length);
+  const start = ((offset % peers.length) + peers.length) % peers.length;
+  const out: string[] = [];
+  for (let i = 0; i < k; i++) out.push(peers[(start + i) % peers.length]!);
+  return out;
+}
+
 export async function tick(
   ctx: TriggerCtx & {
     rules: {
@@ -243,9 +433,8 @@ export async function tick(
       onCapabilityGap: () => Promise<void>;
       onPlateau: () => Promise<void>;
       onNewFinding: () => Promise<void>;
-      onAudience: () => Promise<void>;
-      onConsensus: () => Promise<void>;
-      onDispute: () => Promise<void>;
+      onInstrumentReview: () => Promise<void>;
+      onGeneralize: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -292,27 +481,78 @@ export async function tick(
   //   ★★ 为什么必须有这条规则（实测教训）：
   //     给 `challenge` **工具** = 「允许它辩」⇒ **一次都没用过**（P13）。
   //     ⇒ 辩论不能是能力，必须是**处境**（由代码送到它面前）。
-  // ★★★ 顺序很重要（2026-10-19 夜间实测踩到两次）：
-  //   ① `onAudience` / `onConsensus` **必须排在 `onSettled` 之前**。
-  //      ★ 因为 `onSettled` 里 `await fire("inspector")` 会**等专家跑完（几分钟）**，
-  //        整个 tick 被卡住 ⇒ 排在它后面的规则**一个都轮不到**。
-  //      ★★ 实测症状：日志里 `fire inspector` 之后全是「tick 被跳过（上一次还在跑）」，
-  //        观众的 `onAudience` 一次都没出现 ⇒ 4 位观众零表态。
-  //   ② 这两条规则**不 fire 专家**（只给别人发消息），所以放在前面不会卡。
-  await rules.onAudience();
-  await rules.onConsensus();
-  await rules.onDispute();
+  // ★★★ 顺序很重要：**不 fire 专家的规则放前面，`onSettled` 放最后**。
+  //   ★ 因为 `onSettled` 里 `await fire("inspector")` 会**等专家跑完（几分钟）**，
+  //     整个 tick 被卡住 ⇒ 排在它后面的规则**一个都轮不到**。
+  //   ★★ 2026-10-20 拆分：原来这里还有 onAudience/onConsensus/onDispute
+  //      （它们属于 forge，搬走了）。
   await rules.onNewFinding();
-  await rules.onCapabilityGap();
-  await rules.onPlateau();
+  // ★★★ 2026-10-21 第 6 条：提炼（节拍判据，不靠内容判断）
+  await rules.onGeneralize();
+  // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
+  //
+  //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
+  //     日志里只有 `onNewFinding` 和 `onCapabilityGap` 两行，
+  //     **`onInstrumentReview` 一次都没出现**。
+  //   ★ 根因：`onCapabilityGap` 里有 `await fire("libsmith")` ——
+  //     **它会等专家跑完（几分钟）**，把整个 tick 卡在那里 ⇒ 排在它后面的规则全饿死。
+  //   ★★ 这与 AGENTS §三 `onSettled` 那个老坑**是同一个病**，
+  //     只是换了一条规则。⇒ 现在改成：**不 fire 的规则全部排在 fire 之前**。
+  await rules.onInstrumentReview();   // ★ 不 fire（除到期那次）→ 先跑，饿不死
+  await rules.onPlateau();            // ★ 同上
+  await rules.onCapabilityGap();      // ★ 会 await fire(libsmith) → 往后排
   // ★★★ `onSettled` **必须放最后**：它会 `await fire("inspector")`（等专家几分钟），
   //   是唯一会长时间阻塞 tick 的规则 ⇒ 放在前面会把后面的规则全部饿死。
   //   ★ 副作用提醒：`onSettled` 自己记 `auditedOutputs`，所以它之后不要再读那个字段。
   await rules.onSettled();
 }
 
+import { makeDrainer } from "./dispatch.ts";
+import { canOpenNewAudit, readClosure } from "./closure.ts";
+
 export function makeRules(ctx: TriggerCtx) {
-  const { state, fire } = ctx;
+  const { state } = ctx;
+
+  // ══════════════════════════════════════════════════════════════
+  // ★★★★ 2026-10-21 · 派活器（从 forge 搬来，治同一个病）
+  //
+  //   ★★★ 实测（这一轮的 hunt）：600 秒窗口里 **tick 只跑了 1 次**，
+  //     日志里刷着 `rule:skip 工具节流 被跳过（上一次 tick 还在跑——它在等专家）`。
+  //   ★ 根因：规则里 `await fire(...)` 会等专家跑完（3–6 分钟）⇒ 整个 tick 停在那里。
+  //
+  //   ★★ 修法与 forge 完全一致：**观察快、派活慢，两件事分开**
+  //     · 规则里 `fire(...)` = 「**记下**该派谁」，几微秒返回
+  //     · `drainer` 按「同一时刻只跑一位」的节奏真派
+  //
+  //   ★ 需要专家原话的（只有 `onSettled` 要读 `VERDICT`）用 `onDone` 回调。
+  // ══════════════════════════════════════════════════════════════
+  const drainer = makeDrainer({
+    doFire: (role, why, focus) => ctx.fireNow(role as ExpertName, why, focus),
+    trace: (what, detail) => ctx.trace(what, detail),
+    closing: () => !!ctx.closing?.(),
+  });
+
+  /** ★ 规则里用的 `fire` —— **记下**该派谁，立刻返回（返回值恒为 ""） */
+  const fire = ((role: ExpertName, why: string, focus?: string): Promise<string> => {
+    drainer.enqueue({ role, why, focus });
+    return Promise.resolve("");
+  }) as (role: ExpertName, why: string, focus?: string) => Promise<string>;
+
+  /** ★ 需要专家原话时用这个（★ 走派活器，不绕过"一次只跑一位"） */
+  const fireWait = (role: ExpertName, why: string, focus: string, onDone: (t: string) => void): void => {
+    drainer.enqueue({
+      role,
+      why,
+      focus,
+      onDone: (out) => {
+        try {
+          onDone(out);
+        } catch (e) {
+          ctx.trace("fire", `⛔ onDone 回调抛了：${(e as Error).message}`);
+        }
+      },
+    });
+  };
 
   /** 情况 A：有新产物 → 审查（★ 收敛时就顺便要它判停，C7） */
   async function onSettled(): Promise<void> {
@@ -326,10 +566,30 @@ export function makeRules(ctx: TriggerCtx) {
       const why = converged
         ? `研究员写了收敛声明（\`outbox/CONVERGED.md\`），且 outbox 现有 ${outs.length} 份成果。`
         : `研究员刚产出新东西（outbox 现有 ${outs.length} 份）。`;
-      const focus = converged ? (await import("../prompts/inspector.ts")).CONVERGED_FOCUS : "";
-      const out = await fire("inspector", why, focus);
-      const v = out.match(/VERDICT:\s*(STOP|CONTINUE)/i);
-      if (v) state.verdict = v[1]!.toUpperCase() as "STOP" | "CONTINUE";
+      // ★★★★★ 2026-10-21：focus 按**新产物的形式**选（不是内容判断）
+      //
+      //   · 宣布收敛   ⇒ CONVERGED_FOCUS（判"真探索完了还是想收工"）
+      //   · 新的是「面」⇒ INTERFACE_FOCUS（**去跑它**，不是读它）
+      //   · 其余       ⇒ 常规审查
+      //   ★ 判据是文件名前缀 `面-`（形式），与 `classifyForward` 同族。
+      const insp = await import("../prompts/inspector.ts");
+      const fresh = outs.filter((f) => !state.auditedNames.includes(f));
+      const hasInterface = fresh.some((f) => /^面[-_]/.test(f));
+      const focus = converged ? insp.CONVERGED_FOCUS : hasInterface ? insp.INTERFACE_FOCUS : "";
+      if (hasInterface) {
+        ctx.trace("onSettled", `新产物是「面」⇒ 要 inspector **去跑它**（不是读它）：${fresh.filter((f) => /^面[-_]/.test(f)).join("/")}`);
+        state.auditedNames.push(...fresh);
+      }
+      // ★★★ 走派活器 + onDone（★ 不 await：await 会卡住整个 tick）
+      //   ★ 语义与原来的 `await fire(...)` 完全一致，只是**不占住 tick**。
+      fireWait("inspector", why, focus, (out) => {
+        if (!out) {
+          ctx.trace("onSettled", `⛔ inspector 没说话（verdict 保持 ${state.verdict ?? "未定"}）`);
+          return;
+        }
+        const v = out.match(/VERDICT:\s*(STOP|CONTINUE)/i);
+        if (v) state.verdict = v[1]!.toUpperCase() as "STOP" | "CONTINUE";
+      });
     }
   }
 
@@ -374,6 +634,115 @@ export function makeRules(ctx: TriggerCtx) {
    *   进展 = · 交了新成果（`outbox` 变多） **或** · 更新了 `CONVERGED.md`
    *   ★ 两者都是**它自己写的、语义明确的"我推进了"信号**（不是我们替它判）。
    */
+  // ══════════════════════════════════════════════════════════════
+  // ★★★★★ 情况 E：回头看**自己用的手段**（2026-10-21，设计者提问驱动）
+  //
+  //   ★★★ 设计者原话（这一条规则的唯一来源）：
+  //     「按照道理来说，hunt 集群应该可以自己发现没用 skill，或重审目标，获取灵感时，
+  //       **应该能发现比 skill 更适合 agent 集群的东西**。
+  //       因为 hunt 集群本身就是探索，而且还有**修改底层库的权限**，
+  //       但是**为什么运行这么多次 hunt 后，非要到我提醒，才做这件事**」
+  //
+  //   ★★★ 我查到的根因（不是"它懒"，是**结构上没人问过它**）：
+  //     · 它的 4 条规则分别治：新产物要审 / 能力缺口要报 / 平台期要换路 / 产物要辩
+  //     · ★ **没有一条问"你手上反复用的那件东西，还好用吗"**
+  //     · 它每次都在**用**手段（跑实验、写脚本、改库），
+  //       但**从来没有一个时刻**被要求**退一步看这些手段本身**
+  //
+  //   ★★ 而且项目里早就写下过这条结论（`missions.ts` 里引用的 `C7`）：
+  //     「**它判不了自己的盲区** —— 所以「体系化」这件事不能在第一集群里做」
+  //     ⇒ 那条结论只被用来**分工**，**没被变成一条规则**。
+  //     ★★★ 这正是 AGENTS.md §二说的病：**结论写了，但没接上**。
+  //
+  //   ★★★ 所以这条规则不加"能力"，加的是**处境**（`P13` 的第 N+1 次）：
+  //     给它一个**周期**，到期就必须回答"我反复用的东西里，有没有该换掉的"。
+  //
+  //   ★ 判据（★ 可判死，不靠感觉）：
+  //     ① 距上次审视 ≥ REVIEW_EVERY_MS
+  //     ② 而且这段时间**确实在干活**（有过新产物或新文件）
+  //        —— ★ 没干活的时候不该问"手段好不好"，那时该问"该不该退休"
+  //   ★★ 冷却与 inspirer 共用同一套，避免同时派两个长跑专家把成本翻倍。
+  async function onInstrumentReview(): Promise<void> {
+    if (ctx.closing?.()) return;
+
+    const now = Date.now();
+    const last = state.lastInstrumentReviewAt ?? 0;
+    const elapsed = now - last;
+
+    ctx.trace(
+      "onInstrumentReview",
+      `距上次 ${Math.round(elapsed / 60_000)} 分钟 / 阈值 ${Math.round(REVIEW_MS / 60_000)} 分钟`,
+    );
+
+    // ① 周期没到
+    if (elapsed < REVIEW_MS) return;
+    // ② 这段时间没干活 ⇒ 该问的是别的（onPlateau 管）
+    if (state.lastActiveAt === 0 || now - state.lastActiveAt > REVIEW_MS) {
+      ctx.trace("onInstrumentReview", "这段时间没干活 ⇒ 跳过（那是 onPlateau 的事）");
+      return;
+    }
+    // ③ 冷却（与 inspirer 共用，避免同时起两个长跑专家）
+    if (now - (state.firedAt["inspirer"] ?? 0) < COOLDOWN_MS) return;
+
+    // ★★★★★ ④ 存量闸（2026-10-21 换成 WIP 判据）——
+    //
+    //   ★★★ 我第一版用的是「自审**产出占比** ≥ 50% 就停规则」：**治错了地方**。
+    //     实测：规则停了，产出仍然 63% 自审（36/57）。
+    //   ★ 真因：**每审一条开 2–3 条、关 0–1 条**（实测 53 开 / 1 可核关 = 开环）。
+    //     停"开工"没用 —— **存量本身就是工作来源**（47 条未结缺陷摆在那儿）。
+    //   ★★ 正确判据：**未结账存量**。它有明确分母（已登记的 O 行）、可数、
+    //     可离线重判、**而且喂得进它的决策**（"你还欠 47 条"是具体任务）。
+    //   （同源：Kanban 的 WIP limit —— 开工上限管不住，存量上限才管得住。）
+    const cl = readClosure(join(LAB, "outbox"));
+    const gate = canOpenNewAudit(cl.open + cl.unverifiable.length);
+    ctx.trace("onInstrumentReview", `存量闸：${gate.reason}`);
+    if (!gate.allowed) return;
+
+    state.lastInstrumentReviewAt = now;
+    state.firedAt["inspirer"] = now;
+
+    // ★★★ 派给 inspirer，但**换一个完全不同的问题**。
+    //   ★ 它平时的任务是"从别的学科借框架"；
+    //   ★ 这次的任务是"**审视我们自己在用的手段**"。
+    await fire(
+      "inspirer",
+      [
+        "★★★ 这一轮**不问研究内容**，问**你自己在用的手段**。",
+        "",
+        "★ 你不是「来提一条新想法」的 —— 是来回答一个具体问题：",
+        "",
+        "   **你（和你的同事）反复在用的那件东西，还好用吗？有没有更好的？**",
+        "",
+        "★★ 什么叫「手段」（不是研究内容）：",
+        "   · 你每次都要做的那个动作（写产物、跑实验、改库、发挑战）",
+        "   · 你反复套用的那个格式 / 那个清单 / 那个判据",
+        "   · 你手上那套工具本身（★ 包括库给你的那些面）",
+        "",
+        "★★★ 具体怎么问（照着做，别泛泛而谈）：",
+        "   ① 挑一件你**这轮至少用过 3 次**的东西",
+        "   ② 说出它**为什么是这样**（当初为了治什么病）",
+        "   ③ 问：那个病**现在还在吗**？不在了 / 变了 ⇒ 它可能该换",
+        "   ④ 再问：**有没有一件东西，你一直在手工做，而它本该是结构？**",
+        "      （★ 判据：这件事如果写成一条规则 / 一个工具 / 一道门，",
+        "        是不是就不用每次都靠「记得」了）",
+        "",
+        "★★ 特别注意一个盲区（项目里早就写下过，但从没被当成规则）：",
+        "   「**它判不了自己的盲区**」（`C7`）",
+        "   ⇒ 所以别问「我有什么没想到」（答不出来），",
+        "     要问「**我反复做的哪件事，其实可以交给结构**」。",
+        "",
+        "★ 产出要求：写进 `outbox/`，一条就够，但必须带",
+        "  · 你挑的是哪件东西、用过几次（**给数**）",
+        "  · 它当初治什么病、那个病现在还成不成立（**给证据**）",
+        "  · 更好的做法是什么，**为什么它更好（可判死的判据）**",
+        "",
+        "★★ 不许写的：",
+        "  · 泛泛的「应该多反思」—— 那不是发现",
+        "  · 直接改框架（规则表/门/席位）—— 那是研究助手的活，你只能**提议**",
+      ].join(String.fromCharCode(10)),
+    );
+  }
+
   async function onPlateau(): Promise<void> {
     // ★ 收尾态：不再 fire inspirer/archivist（它们是长跑专家，会让收尾永不结束）
     if (ctx.closing?.()) return;
@@ -478,169 +847,123 @@ export function makeRules(ctx: TriggerCtx) {
       `★★ 不要写“看起来还行” —— 那既没推进也没纠正。\n` +
       `★ 用你的角度去看：**别人会信什么，你就去找什么的反面**。\n` +
       `★ 若它站得住，说出来也是贡献 —— 那意味着三个人从三个方向都没找到问题。`;
-    for (const k of peers.slice(0, n)) {
+    // ★★★ 2026-10-21：`slice(0,n)` → **轮转**。
+    //   原写法永远取前两位 ⇒ 排在最后的 `hands-on` **一次都没收到过挑战**。
+    const targets = pickPeers(peers, n, state.challengeOffset ?? 0);
+    state.challengeOffset = (state.challengeOffset ?? 0) + n;
+    ctx.trace("onNewFinding", `本轮送给：${targets.join(" + ")}（轮转 offset=${state.challengeOffset - n}）`);
+    for (const k of targets) {
       const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
       if (r && !r.ok) ctx.trace("onNewFinding", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
     }
   }
 
   // ══════════════════════════════════════════════════════════════
-  // onAudience —— ★★★ 请观众表态（设计者 2026-10-19）
-  // ══════════════════════════════════════════════════════════════
-  //   设计者：「加一个『观众』，最后观众最被说服哪个观点就写哪个观点」
-  //          「所有观众都支持某个观点（或达到 9 成支持）就结束争辩写入 book」
+  // ★★★ 2026-10-20 拆分：`onAudience` / `onConsensus` / `onDispute` **不在这里了**。
   //
-  // ★★ 这个规则**只负责把话送到观众那儿**；判"是否结束争辩"在 `judge` 工具里
-  //    （纯函数 `resolveVotes`，可离线重判）。
-  // ★ 未接观众时（hunt / 单员工 forge）直接不触发。
-  async function onAudience(): Promise<void> {
-    if (!ctx.audience) return;
-    if (ctx.closing?.()) return;
-    const outs = listOutbox();
-    // ★ 至少要有产物可评
-    if (outs.length === 0) return;
-    // ★★ 一份产物只请一次（避免每 tick 都轰炸观众 —— 它们会被淹）
-    const target = outs.filter((f) => !state.audienceAsked.includes(f))[0];
-    if (!target) return;
-    state.audienceAsked.push(target);
-    ctx.trace(
-      "onAudience",
-      `请观众评 \`${target}\`（已评 ${state.audienceAsked.length}/${outs.length}）`,
-    );
-    const text =
-      `## 🎬 请你们评判：\`outbox/${target}\`
-
-` +
-      `★ 三个团队（theory / practice / landing）在争同一件事。
-` +
-      `★★★ 你的活只有一个：**谁最说服了你？**
-` +
-      `  · 用 \`judge\` 工具表态（theory / practice / landing / **都不够**）
-` +
-      `  · ★ 理由按**你自己的标准**说 —— 你就是按你的身份在看这件事的
-` +
-      `  · ★★ 若选「都不够」，**一定**填 missing 字段：缺什么才能说服你
-
-` +
-      `★★ 不要客气。全体观众支持某一方时争辩才结束 —— **你的不同意见很重要**。
-` +
-      `★ 问题（judge 的 question 参数请原样用这句）：**\`${target}\` 这份东西该不该进书，哪一方的说法最站得住？**`;
-    for (const k of ctx.audience()) {
-      const r = (ctx.tellAudience as unknown as (k: string, t: string) => { ok?: boolean; reason?: string })(k, text);
-      if (r && r.ok === false) ctx.trace("onAudience", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════
-  // onConsensus —— ★★★ 把「去签字」变成处境（不是能力）
-  // ══════════════════════════════════════════════════════════════
-  //   ★★★ 为什么必须有这条规则（我自己的实测规律 `P13`）：
-  //     上一版把 `sign_off` 只当**工具**给下去 ⇒ 与 `challenge` 工具版一模一样的坑
-  //     ⇒ **一次都不会用**。而共识门没签字 ⇒ 什么都进不了书。
-  //   ★★ 所以：产物一出现，就由**代码**把「请你团队去签字」送到其他团队面前。
+  //   ★ 这三条都是**出书的机制**：
+  //     · onAudience  —— 请观众评"哪一方最站得住"（观众是书的验收者）
+  //     · onConsensus —— 请缺席团队签共识门（门决定能不能进 book）
+  //     · onDispute   —— 门没开 ⇒ 送联合实验
+  //   ★★ 设计者裁定：「hunt 的产物**不进 book**（它是原料，给 forge 用），
+  //      **book 只交给 forge 来管**」⇒ hunt 没有书 ⇒ 这三条**一个都不该在 hunt 里**。
   //
-  //   ★ 只送一次（`signedAsked`），否则每 tick 都轰炸。
-  async function onConsensus(): Promise<void> {
-    if (!ctx.challenge || !ctx.peerKeys) return;
+  //   ★ 它们现在只活在 `research/clusters/forge/topology/rules.ts`。
+  // ══════════════════════════════════════════════════════════════
+
+  // ★★★ 把派活器交给 runner：它要在每个 tick 后 `drain()`，收尾时要「等队列跑空」
+  /**
+   * ★★★★★ 提炼：把「观察」推一步到「接口」（2026-10-21 新增，第 6 条规则）
+   *
+   * ★★ 为什么必须有这一条 —— 实测：
+   *   · hunt 有 58 份 P\*，其中至少 5 份是**治理机制级**的发现
+   *   · ★★★ 但 58 份里只有 **5 份（8%）**提到过「别人能不能用」
+   *   · 而 `enforce`/`correct`/`grant`/`write_skill` 这些**面**，
+   *     是**我**看着它的产物造的，不是它提炼的
+   *
+   * ⇒ 流水线断在中间：**它观察 → 我抽象 → 我发**。
+   *   MCP 和 skill 都不是这样的：它们是**从观察里长出来的接口**。
+   *
+   * ★ 判据是**节拍**（每新增 N 份研究结论问一次），
+   *   不是"检测哪份像创新" —— 后者是内容判断（硬规则①）。
+   */
+  async function onGeneralize(): Promise<void> {
     if (ctx.closing?.()) return;
-    if (!ctx.signoffState) return;
-    const outs = listOutbox();
-    if (outs.length === 0) return;
-    const teams = ctx.allTeams?.() ?? [];
-    // ★ 找一份「还没被全体团队表态」的产物
-    const target = outs.find((f) => {
-      const signs = ctx.signoffState!(f);
-      return teams.some((t) => !signs?.has(t));
-    });
-    if (!target || state.signedAsked.includes(target)) return;
-    state.signedAsked.push(target);
-    const signs = ctx.signoffState(target);
-    const missing = teams.filter((t) => !signs?.has(t));
-    ctx.trace("onConsensus", `请 ${missing.join("、")} 对 \`${target}\` 签字（已请 ${state.signedAsked.length} 份）`);
-    const text =
-      `## ✍️ 共识门：请你们团队对 \`outbox/${target}\` 签字
 
-` +
-      `★★★ 这个集群的规则是：**一份东西要进书，必须全体团队都签字**（沉默不算认同）。
-` +
-      `★ 目前还没表态的团队：**${missing.join("、")}**
+    const g = generalizeDue(listOutbox(), state.lastGeneralizeAt < 0 ? 0 : state.lastGeneralizeAt);
+    ctx.trace("onGeneralize", g.reason);
+    if (!g.due) return;
 
-` +
-      `---
-
-` +
-      `★ 读完后用 \`sign_off\` 表一个态：
-` +
-      `  · **认同** —— ★ 并写清你**核对了什么**才同意的（不能凭空点头）
-` +
-      `  · **有保留** —— 可以进书，但你的保留意见会**附在产物里**随它走
-` +
-      `  · **反对** —— ⛔ 它进不了书，★ 你必须写出**反证或替代解释**
-
-` +
-      `★★ 反对不是终点：之后用 \`joint_experiment\` 和对手**一起设计实验**来判定谁对。
-` +
-      `★ 按你团队的立场看 —— **你看不到的问题，正是别的团队存在的原因**。`;
-    // ★★★ 投递失败**必须响亮**（2026-10-19 夜间实测：静默失败导致三条规则空转 15 分钟）
-    for (const k of missing) {
-      const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
-      if (r && !r.ok) ctx.trace("onConsensus", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
+    // ★ 冷却（与 inspirer 共用）
+    if (Date.now() - (state.firedAt["inspirer"] ?? 0) < COOLDOWN_MS) {
+      ctx.trace("onGeneralize", "冷却中（inspirer 刚跑过）⇒ 下一 tick");
+      return;
     }
+
+    state.lastGeneralizeAt = g.research;
+    state.firedAt["inspirer"] = Date.now();
+
+    // ★★★★★ 派给谁：**建设性的那一位**（`hands-on`），不是 `inspirer`
+    //
+    //   ★ 为什么改（2026-10-21）：这个问题要的产出是**一个能跑的接口**
+    //     （写脚本 + 6 条人造答案 + 跨载体验证），那是 `先动手做` 的活。
+    //     `inspirer` 的任务是"从别的学科借框架" —— 借来还要有人做出来。
+    //   ★★ 实测：这道题第一次是被 `hands-on` 答的（`面-denom`），
+    //     而那一轮 `inspirer` 只是把它转达了。
+    //   ★ 没有 `hands-on`（单角度跑）时退回 `inspirer`。
+    // ★★★ 走哪条信道：**角度座位只能用 `challenge`（steer）**，
+    //   不能 `fire` —— `fire` 的 `ExpertName` 只含专家（inspector/archivist/
+    //   inspirer/watchdog/libsmith），角度座位不在其中。
+    //   ★ 这是实测踩出来的：`fire("hands-on")` 直接是类型错误 —— 好事，
+    //     它把"派给了不存在的座位"这种事挡在编译期（同族：`spawn_seat` 长出的
+    //     座位路由到空气那次）。
+    const hasHandsOn = (ctx.peerKeys?.() ?? []).includes("hands-on");
+    const prompt = [
+        "## ★★★★★ 这一轮的问题是：**你的发现，有没有变成别人能用的东西**",
+        "",
+        `★ 自上次问过之后，你新增了 **${g.fresh} 份研究结论**（P*）。`,
+        "",
+        "★★★ 先看清一件事：",
+        "  `MCP` 与 `skill` 都不是「发现」，是**把『每个 agent 都在手工重做的同一件事』提成了一个面**。",
+        "  ★ 而本项目里那些「面」（`enforce`/`correct`/`grant`/`write_skill`）",
+        "    **不是你提炼出来的** —— 是上级看着你的产物造的。",
+        "  ⇒ 流水线断在中间：**你观察 → 上级抽象 → 上级发**。",
+        "",
+        "★ 你现在要做的，是把中间那一步自己走一遍。",
+        "",
+        "### 必须回答（三选一都算，**不许不答**）",
+        "",
+        "**(a) 指出一条可以变成「面」的发现** —— 说清四件事：",
+        "    ① 它是什么（一句能判死的话，带数）",
+        "    ② **谁在重复做同一件手工事**（★ 说不出具体谁 ⇒ 它还不是面）",
+        "    ③ 如果做成接口，那个接口**长什么样**（输入/输出/谁能调）",
+        "    ④ **换一个载体还成立吗**（★ 这是 MCP 与普通观察的分界线）",
+        "",
+        "**(b) 说清现在为什么**还不能**变成面 —— 缺什么、要等什么",
+        "",
+        "**(c) 说清「这件事本质上不能变成面」** —— 为什么它只能是一次性判断",
+        "",
+        "★★ 允许答 (b)/(c) —— **但必须给出理由**。",
+        "★ 不许做的：",
+        "  · 把已有的某份 P* 改个标题说「它可以做成工具」（那是刷指标）",
+        "  · 提出一个**只有你能用**的接口（那还是 N=1）",
+        "",
+        "★★★ 判据：你答 (a) 的那一条，必须能让**另一个集群照着做**。",
+        "  做不到就老实答 (b)/(c)。",
+        "",
+        "依据可以查：`outbox/P*.md`（58 份研究结论）、`outbox/CONVERGED.md`。",
+    ].join(String.fromCharCode(10));
+
+    // ★ 优先给**建设性的那一位**（它要的是一个能跑的接口：写脚本 + 人造答案 + 跨载体）
+    //   ★ 没有它（单角度跑）⇒ 退回 `inspirer`
+    if (hasHandsOn && ctx.challenge) {
+      ctx.challenge("hands-on", prompt);
+      ctx.trace("onGeneralize", "→ hands-on（steer，问题当场注入）");
+      return;
+    }
+    await fire("inspirer", prompt);
+    ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // onDispute —— ★★★ 「有人反对」⇒ 请两方**共同设计一个实验**来判定
-  // ══════════════════════════════════════════════════════════════
-  //   ★★★ 为什么必须有这条（2026-10-19 夜间实测，判据跑前定死）：
-  //     实测：**20 次签字、4 张反对票，而 `joint.jsonl` 仍然是 0**。
-  //     ★ `joint_experiment` 和 `sign_off` 一样只作为**工具**给下去 ⇒ 与 `P13` 同型。
-  //   ★★ 逻辑：反对票 = 双方对事实判断不同 ⇒ **只有实验能判** ⇒ 这不是"建议"，是处境。
-  async function onDispute(): Promise<void> {
-    if (!ctx.challenge || !ctx.peerKeys) return;
-    if (ctx.closing?.()) return;
-    if (!ctx.signoffState) return;
-    const teams = ctx.allTeams?.() ?? [];
-    for (const f of listOutbox()) {
-      const signs = ctx.signoffState(f);
-      if (!signs) continue;
-      const id = `${f}`;
-      if (state.disputeAsked.includes(id)) continue;
-      // ★★★ 什么算"僵局"（2026-10-19 夜间 R9 实测修正）：
-      //   原来只认 `verdict === "反对"` ⇒ 但门收紧后，真实的僵局形态是
-      //   **「有保留但没给解除条件」**（那只算没表态）和 **「没表态」**。
-      //   ★ 若不认这两种 ⇒ **门关了，却没有任何机制推动它往前走** ⇒ 死锁。
-      //   ★★ 判据：一份产物**门没开**，且有团队**不是简单认同** ⇒ 就是僵局。
-      const against = teams.filter((t) => {
-        const rec = signs.get(t) as { verdict?: string; dislodge?: string } | undefined;
-        if (!rec) return true; // 没表态
-        if (rec.verdict === "反对") return true;
-        if (rec.verdict === "有保留") return !rec.dislodge || rec.dislodge.trim().length < 10;
-        return false; // 认同
-      });
-      if (against.length === 0) continue;
-      state.disputeAsked.push(id);
-      ctx.trace("onDispute", `\`${f}\` 有 ${against.length} 方反对（${against.join("、")}）⇒ 送去联合实验`);
-      const text =
-        `## 🔬 分歧已登记：\`outbox/${f}\`\n\n` +
-        `★★★ **这份东西现在过不了门** —— 这些团队还没给结论：**${against.join("、")}**。\n` +
-        `  （★ 反对票 / 有保留但没说解除条件 / 干脆没表态 —— 三种都算）\n` +
-        `★ 按这个集群的规则：**门没开 ⇒ 它进不了书**，必须先辩清楚。\n\n` +
-        `---\n\n` +
-        `★★ 而「谁对」**辩是辩不出来的** —— 只有实验能判。\n` +
-        `★ 所以请你们**用 \`joint_experiment\` 和对方一起设计一个判定实验**：\n` +
-        `  1. \`action="propose"\` —— 写清：要判什么（可判死的一句话）、几个臂、**判据（纯函数源码）**\n` +
-        `  2. 对方 \`action="sign"\` —— 认同 / **要求加臂** / 反对\n` +
-        `  3. 全体签好之后 \`action="run"\` 取回装置骨架，真跑\n\n` +
-        `★★ 为什么必须**共同**设计：单方设计的实验，对方**天然不信它的判据**。\n` +
-        `★ 若你只是「有保留」—— 要么给出**可执行的解除条件**（如「再加一个对照臂 N=8」），\n` +
-        `  要么直说你其实同意或反对。**没有结论的保留不算表态**，门会一直关着。`;
-      for (const k of [...new Set([...against, ...teams])]) {
-        const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
-        if (r && !r.ok) ctx.trace("onDispute", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
-      }
-      break; // ★ 一次只推一份，别把他们的上下文淹了
-    }
-  }
-
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onAudience, onConsensus, onDispute };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, drainer };
 }

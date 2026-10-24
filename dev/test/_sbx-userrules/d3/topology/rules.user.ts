@@ -1,0 +1,1 @@
+export const notRules = 1;

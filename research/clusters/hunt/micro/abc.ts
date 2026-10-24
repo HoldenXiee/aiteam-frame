@@ -63,7 +63,7 @@ async function probe(granularity: Granularity): Promise<ProbeResult> {
 
   const rules = makeRules({
     state,
-    fire: async (role) => {
+    fireNow: async (role) => {
       fired.push(role);
       if (role === "inspirer" || role === "archivist") detectedAfter ??= toolCalls;
       return "VERDICT: CONTINUE";

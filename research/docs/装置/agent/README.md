@@ -14,6 +14,7 @@
 |---|---|---|---|
 | `README.md` | ✅ | 人 | 就是本文件：环境规范。删掉只是少一份文档，不影响运行 |
 | `skills/<名>/SKILL.md` | ✅ | 人 | 技能。文件名目录名随你，**技能名取自 frontmatter 的 `name`**。删掉：靠它约束的行为失去依据 —— 技能是**软约束**（靠模型读了照做，不是代码强制）：`demo/lab.ts` 少掉 `env-style` 后照样 exit 0（这就是 S3 那条 mutation） |
+| `extensions/web-access.ts` | ✅ | 人 | ★ 把 `pi-web-access` 全部能力（`web_search`/`fetch_content`/`get_search_content`/`source_check`）装进本环境。**用扩展、不用 `packages`** —— 本库用内存 settings，装的包不生效 |
 | `extensions/<名>.ts` | ✅ | 人 | 扩展。`export default (pi: ExtensionAPI) => …`，在函数体里 `pi.registerTool(...)` / `pi.on(...)`。删掉：它注册的工具与钩子消失（`demo/check.ts` 第 7 项会因此变红） |
 | `auth.json` | ❌ gitignored | 人 | **唯一读的凭证**。删掉：跑 demo 会明确报错（给出出路），不会静默，
 |  |  |  | 漏掉 |
