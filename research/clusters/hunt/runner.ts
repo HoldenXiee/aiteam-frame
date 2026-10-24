@@ -26,7 +26,7 @@ import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "
 import { readPreregTraceability, renderPrereg } from "./topology/prereg-trace.ts";
 import { readAbsorption, renderAbsorption, shortCode } from "./topology/absorption.ts";
 import { readClosure, renderClosure } from "./topology/closure.ts";
-import { readExperiments, renderExperiments } from "./topology/experiments.ts";
+import { artifactMix, readArtifacts, readExperiments, renderExperiments } from "./topology/experiments.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
@@ -616,6 +616,57 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     "  系统科学、信息论、控制论、统计、认知科学，哪儿都行，**只要写清借了什么、出处在哪**",
   ].join(String.fromCharCode(10));
 
+  // ★★★★★ 2026-10-21 · 轮2：**递读数 + 逼回答三选一**
+  //
+  //   ★★★ 为什么换手法：轮1 我按 DESIGN 试了"只立要求、不点题"——
+  //     结果**产出结构没变**：删了装置题之后，41 份新产物里 39 份还是"手段审查"，
+  //     只有 `P100/P101` 两个实验；投递驱动词从 25% 掉到 0（好），但线没回来。
+  //   ★ 实测有效的只有一种手法（三次都灵）：
+  //     **给一个可判死的读数 + 一个具体的缺口 + 逼它三选一**。
+  //     （术语未定义 51%→0 · 吸收率 55%→100% · 结账率 2%→21%，全是这一手）
+  //   ★★ 所以这里不评价、不点题，只把**它自己的结构**摆出来，然后问一个问题。
+  const structureBody = (() => {
+    try {
+      const arts = readArtifacts(join(LAB, "outbox"));
+      const mix = artifactMix(arts);
+      const cutoff = Date.now() - 86_400_000;
+      const recent = arts.filter((a) => a.mtimeMs >= cutoff);
+      const rMix = artifactMix(recent);
+      const x = readExperiments(LAB);
+      const P: string[] = [];
+      P.push("");
+      P.push("### ★ 你现在的产出结构（这是读数，不是评价）");
+      P.push(
+        `· **编号实验 \`P*\`：${mix.experiments} 份**　` +
+          `**装置/审查类：${mix.apparatus} 份**（最长一条链：\`${mix.longestChain?.prefix ?? "-"}\` ${mix.longestChain?.n ?? 0} 层）`,
+      );
+      P.push(
+        `· 最近 24h 新产物 **${recent.length}** 份 —— 其中**实验 ${rMix.experiments} 份**，` +
+          `装置/审查类 **${rMix.apparatus}** 份`,
+      );
+      P.push(
+        `· 实验账：${x.stats.total} 个实验里**有结局的 ${x.stats.total - x.stats.byOutcome.unsaid} 个**` +
+          `（活 ${x.stats.byOutcome.active} / 死 ${x.stats.byOutcome.dead} / 挂起 ${x.stats.byOutcome.parked} / 移交 ${x.stats.byOutcome.handoff}）`,
+      );
+      P.push(`· 外部材料引用：**${x.mix.external}** 处（\`web_search\`/\`fetch_content\` 已经在你手上）`);
+      P.push("");
+      P.push("### 一个问题（★ 必须回答，三选一）");
+      P.push("**「装置审查一条接一条地开、新实验不开」—— 这是你想干的吗？**");
+      P.push("");
+      P.push("(a) **是** —— 说清为什么（比如：现在装置真的不可信，先把尺修好再量）");
+      P.push("(b) **不是**，我要转到 ________ —— 说清转到哪，**并且当场开一个新实验**");
+      P.push("    （假设 / 装置 / 读数 / 现象 / 结局，见上面要求 ①）");
+      P.push("(c) **想转但转不动** —— 说清卡在哪一步（等谁 / 缺什么工具 / 不知道从哪下手）");
+      P.push("");
+      P.push("★ 允许答 (a) 或 (c)，**答了不算病** —— 我要的是你**想清楚了**，不是要你改口。");
+      P.push("★★ 唯一不许的是**不答**：绕过去接着开下一条审查，那这一问就等于没发生。");
+      return P.join(String.fromCharCode(10));
+    } catch (e) {
+      log("error", `结构读数失败：${(e as Error).message}`);
+      return "";
+    }
+  })();
+
   // ★★★ 处境表：把三件读数**留在环境里**（信息不去，催的话去掉）
   try {
     const L: string[] = [];
@@ -682,7 +733,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
             why:
               "上一个阶段我每轮都把『你的装置有缺陷』当投递，结果产出被我的题目压成了单线：" +
               "最近 24h 的 57 份里 25% 明写「回答上级」，而新实验是 0。这一轮我不点题。",
-            body: requirementBody,
+            body: requirementBody + structureBody,
           })
         : researcherPrompt.KICKOFF,
     ).catch((e) => ({ error: (e as Error).message, text: "" })),

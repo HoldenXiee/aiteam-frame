@@ -52,6 +52,12 @@ export interface Stats {
   deviceCoverage: number | null;
   /** 引用了装置但**不在盘上**的（★ 这类是"证据落空"，单独报，不许并进覆盖率） */
   deviceMissing: number;
+  /**
+   * ★ 宽松口径对照：正文**任一处**出现四态词（活/死/挂起/移交）的份数。
+   * ★★ 这个数**不许当准绳** —— 「死」在"死循环"里、「活」在"活动"里到处都是。
+   *   报它是为了让读者看见「口径一换数就变」（P102 的教训）。
+   */
+  looseOutcome: number;
 }
 
 export interface Attribution {
@@ -125,9 +131,14 @@ export function inferRows(arts: Artifact[], prefixes = ["P"]): Row[] {
   return arts
     .filter((a) => re.test(a.file))
     .map((a) => {
-      const head = a.text.slice(0, 4000);
-      // ★ 「死」的推断只认明写的结局栏，不从语气猜
-      const m = head.match(/(?:结局|状态|结论)[：:]\s*([^\n]{0,80})/);
+      // ★★★ 2026-10-21 修（★ 这是集群用**我的真源码**复现后，第 5 次纠正我的量具）：
+      //   原来只扫**前 4000 字符**、只认 `结局|状态|结论` 三个词 ⇒
+      //   「有结局 0/58」其实是 **词表 × 前4000字符 × 标签形状** 三个谓词的合取，
+      //   真值随口径在 0…58 之间（它给了 8/8 人造答案复现，见 `outbox/P102…`）。
+      //   ⇒ 改成**扫全文** + 放宽标签词。★ 但仍只认**明写的结局栏**，不从语气猜。
+      const m = a.text.match(
+        /(?:^|\n)\s*(?:结局|状态|结论|结果|Verdict|Status)\s*[：:]\s*([^\n]{0,120})/,
+      );
       const outcome = m ? classifyOutcome(m[1]!) : "unsaid";
       return { id: a.file, outcome, cause: m?.[1] ?? "", anchored: hasAnchor(m?.[1] ?? "") };
     });
@@ -139,6 +150,54 @@ export function deviceRefs(text: string): string[] {
   const re = /(?:[\w.-]+\/)+[\w.-]+\.(?:mjs|mts|ts|js|sh|jsonl)/g;
   for (const m of text.matchAll(re)) out.add(m[0]);
   return [...out];
+}
+
+/**
+ * 产物结构 —— ★★★ 这一条是 2026-10-21 实测出来的核心读数：
+ *
+ *   58 份编号实验（`P*`）**全部在 10-19 之前**；
+ *   24 份「手段审查」+ 3 INSPIR + 12 回应 + 1 台账，**全在最近几天**。
+ *   ⇒ 它不是"不会做实验"，是被**自己审自己**的那条链吃满了 —— 手段 V→XXII 逐层审上一层。
+ *
+ * ★ 判据纯形式：按文件名前缀归类（前缀 → 计数），不做内容判断。
+ * ★ `auditChain` = 同一前缀的条数（近似链深：每一层审上一层的产物）。
+ */
+export interface ArtifactMix {
+  byPrefix: Record<string, number>;
+  total: number;
+  /** 编号实验（默认 `P`）占多少 */
+  experiments: number;
+  /** ★ 装置/审查类的合计（手段/INSPIR/回应/台账/量具/装置/审查） */
+  apparatus: number;
+  /** 最长的那条自审链（前缀 → 条数） */
+  longestChain: { prefix: string; n: number } | null;
+}
+
+const APPARATUS_PREFIXES = ["手段", "INSPIR", "回应", "台账", "量具", "装置", "审", "实验"];
+
+export function artifactMix(arts: Artifact[], expPrefixes = ["P"]): ArtifactMix {
+  const byPrefix: Record<string, number> = {};
+  const expRe = new RegExp(`^(${expPrefixes.join("|")})[0-9]+`, "i");
+  let experiments = 0;
+  for (const a of arts) {
+    if (expRe.test(a.file)) {
+      experiments++;
+      byPrefix[expPrefixes[0]!] = (byPrefix[expPrefixes[0]!] ?? 0) + 1;
+      continue;
+    }
+    const hit = APPARATUS_PREFIXES.find((p) => a.file.startsWith(p));
+    const key = hit ?? "(其它)";
+    byPrefix[key] = (byPrefix[key] ?? 0) + 1;
+  }
+  const apparatus = Object.entries(byPrefix)
+    .filter(([k]) => APPARATUS_PREFIXES.includes(k))
+    .reduce((a, [, n]) => a + n, 0);
+  let longestChain: { prefix: string; n: number } | null = null;
+  for (const [k, n] of Object.entries(byPrefix)) {
+    if (!APPARATUS_PREFIXES.includes(k)) continue;
+    if (!longestChain || n > longestChain.n) longestChain = { prefix: k, n };
+  }
+  return { byPrefix, total: arts.length, experiments, apparatus, longestChain };
 }
 
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
@@ -192,6 +251,8 @@ export function experimentStats(
   devices: { refsFor: (id: string) => string[]; exists: (p: string) => boolean },
   times: { now: number; mtimeOf: (id: string) => number | undefined },
   mode: "ledger" | "inferred",
+  /** ★ 宽松口径（正文任一处出现四态词）—— 由调用方数好传进来，这里不算 */
+  looseOutcome = 0,
 ): Stats {
   const byOutcome: Record<Outcome, number> = { active: 0, dead: 0, parked: 0, handoff: 0, unsaid: 0 };
   for (const r of rows) byOutcome[r.outcome]++;
@@ -228,6 +289,7 @@ export function experimentStats(
     newLast7d,
     deviceCoverage: rows.length ? covered / rows.length : null,
     deviceMissing: missing,
+    looseOutcome,
   };
 }
 
@@ -241,6 +303,10 @@ export function renderExperiments(s: Stats, att: Attribution, mix: SourceMix): s
   );
   L.push(`   新开：24h ${s.newLast24h} · 7d ${s.newLast7d}   ← ★ 主判据（DESIGN §9）`);
   L.push(`   死因可判死：${pct(s.deadCauseJudgeable)}   装置覆盖：${pct(s.deviceCoverage)}（证据落空 ${s.deviceMissing} 条）`);
+  L.push(
+    `   ★ 口径：结局必须**明写在行首**（结局/状态/结论/结果），扫全文 · ` +
+      `宽松口径（正文任一处有四态词）会有 ${s.looseOutcome} 条 —— **那个数不准，只是给你看口径一换数就变**`,
+  );
   L.push(`   ★★ 投递驱动比：${pct(att.share)}（${att.deliveryDriven}/${att.total}）—— 反向指标，越低越好`);
   L.push(
     `   灵感出处：外部材料 ${mix.external} · 跨学科 ${mix.interdisciplinary} · 明写出处 ${mix.declared}` +
@@ -316,6 +382,10 @@ export function readExperiments(
     },
     { now, mtimeOf: (id) => byFile.get(id)?.mtimeMs },
     mode,
+    rows.filter((r) => {
+      const a = byFile.get(r.id);
+      return a ? /(活|死|挂起|移交)/.test(a.text) : false;
+    }).length,
   );
 
   return { stats, att: deliveryDriven(arts), mix: sourceMix(arts), rows };

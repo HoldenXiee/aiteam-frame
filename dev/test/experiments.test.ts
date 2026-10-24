@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  artifactMix,
   classifyOutcome,
   deliveryDriven,
   deviceRefs,
@@ -154,6 +155,17 @@ describe("experimentStats：三态与 null", () => {
     assert.equal(stats.byOutcome.unsaid, 1);
   });
   it("★ 死因可判死率按 dead+parked 算分母", () => assert.equal(stats.deadCauseJudgeable, 1));
+  it("★★ 宽松口径由调用方给（正文有四态词），默认 0 —— 不偷算", () => {
+    assert.equal(stats.looseOutcome, 0);
+    const s2 = experimentStats(
+      rows,
+      { refsFor: () => [], exists: () => false },
+      { now: 0, mtimeOf: () => undefined },
+      "ledger",
+      32,
+    );
+    assert.equal(s2.looseOutcome, 32);
+  });
   it("★★ 一条都没死 ⇒ null（不是 0，也不是 100%）", () => {
     const s = experimentStats(
       [{ id: "P1", outcome: "active", cause: "", anchored: false }],
@@ -208,6 +220,36 @@ describe("renderExperiments：缺数据必须写成「未声明」", () => {
   });
   it("★ 推断模式必须自报偏差", () => assert.ok(txt.includes("系统偏差"), txt));
   it("投递驱动比标成反向指标", () => assert.ok(txt.includes("反向指标"), txt));
+});
+
+describe("artifactMix：装置链 vs 实验（核心读数）", () => {
+  const arts = [
+    art("P58-a.md", ""),
+    art("P59-b.md", ""),
+    art("手段V-x.md", ""),
+    art("手段VI-y.md", ""),
+    art("手段VII-z.md", ""),
+    art("回应-falsifier-a.md", ""),
+    art("随便写点什么.md", ""),
+  ];
+  const m = artifactMix(arts);
+
+  it("编号实验与装置类分开数", () => {
+    assert.equal(m.experiments, 2);
+    assert.equal(m.apparatus, 4); // 手段×3 + 回应×1
+    assert.equal(m.total, 7);
+  });
+  it("★ 最长自审链 = 手段 3 条（链深的样子）", () => {
+    assert.deepEqual(m.longestChain, { prefix: "手段", n: 3 });
+  });
+  it("★ 归不进的进「(其它)」，不硬塞进任何一类", () => {
+    assert.equal(m.byPrefix["(其它)"], 1);
+  });
+  it("空集不炸", () => {
+    const e = artifactMix([]);
+    assert.equal(e.total, 0);
+    assert.equal(e.longestChain, null);
+  });
 });
 
 describe("readExperiments：传错根要抛错，不静默", () => {
