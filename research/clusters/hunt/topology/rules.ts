@@ -541,6 +541,7 @@ export async function tick(
   // ★ 非阻塞（steer）：排在所有会 fire 的规则之后（纪律㉚）
   await step("onExternal", () => rules.onExternal());
   await step("onPhenomenon", () => rules.onPhenomenon());
+  await step("onDebt", () => rules.onDebt());
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
