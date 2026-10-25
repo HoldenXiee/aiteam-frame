@@ -37,6 +37,8 @@ export interface Row {
   cause: string;
   /** ★ 死因/下一步里有没有**可核锚**：数字 / 路径 / 引号里的判据名 */
   anchored: boolean;
+  /** ★ 集群自己写的「能不能一条命令跑」；账里没有这一列 ⇒ **null（未声明）**，不是 false */
+  runnable?: boolean | null;
 }
 
 export interface Stats {
@@ -50,6 +52,21 @@ export interface Stats {
   newLast7d: number;
   /** 装置覆盖率：引用了**在盘上**的可跑装置的比例（分母 = total；0 条时 null） */
   deviceCoverage: number | null;
+  /**
+   * ★ 账里「能不能一条命令跑」= 能 的比例（分母 = 账里声明了这一格的）。
+   * ★★ 账里没这一列 ⇒ null（未声明）。**这不是 `deviceCoverage` 的替代** ——
+   *   覆盖率问"有没有装置"，这个问"装置跑不跑得起来"。
+   */
+  runnableRate: number | null;
+  /** 明确写了「不能一条命令跑」的条数 */
+  notRunnable: number;
+  /**
+   * ★★★ 账里**实际有哪些列**（2026-10-21 补）。
+   *   ★ 为什么要打出来：DESIGN 第1节的实验有 7 项（假设/装置/读数/现象/模型/猜想/结局），
+   *     而账现在只有 4 列 ⇒ 「现象 / 模型 / 猜想」根本没有格子。
+   *     那不是"我判不了"，是**账里没这一格** —— 每轮把它打出来，缺口就一直在眼前。
+   */
+  columns: string[];
   /** 引用了装置但**不在盘上**的（★ 这类是"证据落空"，单独报，不许并进覆盖率） */
   deviceMissing: number;
   /**
@@ -114,7 +131,9 @@ export function classifyOutcome(raw: string): Outcome {
  *   的表格才被解析，且**按列名取值**，不靠“最后一格”。
  */
 const ID_HEAD = /^(编号|实验|实验号|id|ID|＃|#)$/;
-const OUT_HEAD = /^(结局|状态|结论|结果|verdict|Status)$/;
+// ★★★ 2026-10-21 补「四态」：集群的裁决表用**四态**当列名，而这里原来不认它
+//   ⇒ 那张表整张读不到（同「判据永远匹配不上」）。
+const OUT_HEAD = /^(结局|状态|结论|结果|四态|verdict|Status)$/;
 /**
  * ★★★ 「死因」必须是**它自己的列**，不能拿整行当死因。
  *   第一版 `cause = body[outCol]` ⇒ 只拿到 `死` 这个字 ⇒ 死因可判死 0%（假读数）。
@@ -122,6 +141,27 @@ const OUT_HEAD = /^(结局|状态|结论|结果|verdict|Status)$/;
  *   ⇒ 只认**表头里明写**的死因列（死因/判死句/理由/为什么/原因）。没有这一列 ⇒ 未声明。
  */
 const CAUSE_HEAD = /(死因|判死句|理由|为什么|原因|why|because)/i;
+/**
+ * ★★★ 2026-10-21 补（DESIGN §7① 的判据）：「装置能跑」不等于「路径在盘上」。
+ *   集群自己在账里写了一列「能不能一条命令跑 / 不能一条命令跑」（`EXPERIMENTS.md` 57 次），
+ *   而我第一版只验 `existsSync` ⇒ 把"跑不起来"也记成覆盖了（纪律㉞）。
+ *   ★ 这一列是**它自己写的判定**，我只照抄，不自己跑（跑它的脚本有副作用）。
+ */
+const RUNNABLE_HEAD = /(能不能一条命令跑|能一条命令跑|可复跑|runnable)/i;
+
+/** ★ 只读表头，返回列名（给「账有哪些列」用） */
+export function ledgerColumns(text: string): string[] {
+  const cols: string[] = [];
+  for (const line of text.split(String.fromCharCode(10))) {
+    const t = line.trim();
+    if (!t.startsWith("|")) continue;
+    const body = t.split("|").slice(1, -1).map((c) => c.trim());
+    if (body.some((c) => ID_HEAD.test(c)) && body.some((c) => OUT_HEAD.test(c))) {
+      cols.push(...body);
+    }
+  }
+  return [...new Set(cols)];
+}
 
 export function parseLedger(text: string): Row[] {
   const rows: Row[] = [];
@@ -129,12 +169,14 @@ export function parseLedger(text: string): Row[] {
   let idCol = -1;
   let outCol = -1;
   let causeCol = -1;
+  let runCol = -1;
   let inTable = false;
 
   const reset = () => {
     idCol = -1;
     outCol = -1;
     causeCol = -1;
+    runCol = -1;
     inTable = false;
   };
 
@@ -160,10 +202,12 @@ export function parseLedger(text: string): Row[] {
       const i = body.findIndex((c) => ID_HEAD.test(c));
       const o = body.findIndex((c) => OUT_HEAD.test(c));
       const k = body.findIndex((c) => CAUSE_HEAD.test(c));
+      const rn = body.findIndex((c) => RUNNABLE_HEAD.test(c));
       if (i >= 0 && o >= 0) {
         idCol = i;
         outCol = o;
         causeCol = k;
+        runCol = rn;
       } else {
         reset();
       }
@@ -175,7 +219,14 @@ export function parseLedger(text: string): Row[] {
     if (!id || /^[-:\s]+$/.test(id)) continue;
     const state = outCol >= 0 ? (body[outCol] ?? "") : "";
     const cause = causeCol >= 0 ? (body[causeCol] ?? "") : "";
-    rows.push({ id, outcome: classifyOutcome(state), cause, anchored: hasAnchor(cause) });
+    const runCell = runCol >= 0 ? (body[runCol] ?? "") : "";
+    rows.push({
+      id,
+      outcome: classifyOutcome(state),
+      cause,
+      anchored: hasAnchor(cause),
+      runnable: runCol < 0 ? null : !/不能|不可|否|no/i.test(runCell),
+    });
   }
   return rows;
 }
@@ -308,6 +359,8 @@ export function experimentStats(
   mode: "ledger" | "inferred",
   /** ★ 宽松口径（正文任一处出现四态词）—— 由调用方数好传进来，这里不算 */
   looseOutcome = 0,
+  /** ★ 账里实际有哪些列（由调用方读表头后传进来） */
+  columns: string[] = [],
 ): Stats {
   const byOutcome: Record<Outcome, number> = { active: 0, dead: 0, parked: 0, handoff: 0, unsaid: 0 };
   for (const r of rows) byOutcome[r.outcome]++;
@@ -326,6 +379,13 @@ export function experimentStats(
     if (age <= 7 * DAY) newLast7d++;
   }
 
+  let declared = 0;
+  let ok = 0;
+  for (const r of rows) {
+    if (r.runnable === undefined || r.runnable === null) continue;
+    declared++;
+    if (r.runnable) ok++;
+  }
   let covered = 0;
   let missing = 0;
   for (const r of rows) {
@@ -343,7 +403,10 @@ export function experimentStats(
     newLast24h,
     newLast7d,
     deviceCoverage: rows.length ? covered / rows.length : null,
+    runnableRate: declared ? ok / declared : null,
+    notRunnable: declared - ok,
     deviceMissing: missing,
+    columns,
     looseOutcome,
   };
 }
@@ -366,6 +429,18 @@ export function renderExperiments(
   );
   L.push(`   新开：24h ${s.newLast24h} · 7d ${s.newLast7d}   ← ★ 主判据（DESIGN §9）`);
   L.push(`   死因可判死：${pct(s.deadCauseJudgeable)}   装置覆盖：${pct(s.deviceCoverage)}（证据落空 ${s.deviceMissing} 条）`);
+  L.push(
+    `   ★ 装置**能不能一条命令跑**：${pct(s.runnableRate)}（写明「不能」的 ${s.notRunnable} 条）` +
+      `—— 覆盖率只问"在不在"，这个问"跑不跑得起来"（DESIGN §7①）`,
+  );
+  if (s.columns.length) {
+    const need = ["现象", "模型", "猜想"];
+    const missing = need.filter((n) => !s.columns.some((c) => c.includes(n)));
+    L.push(
+      `   ★★ 账的列：${s.columns.map((c) => c.slice(0, 10)).join(" · ")}` +
+        (missing.length ? `　⇒ ★ 缺 ${missing.join("/")}（DESIGN §1 的 7 项里有 3 项**没有格子**）` : ""),
+    );
+  }
   L.push(
     `   ★ 口径：结局必须**明写在行首**（结局/状态/结论/结果），扫全文 · ` +
       `宽松口径（正文任一处有四态词）会有 ${s.looseOutcome} 条 —— **那个数不准，只是给你看口径一换数就变**`,
@@ -520,6 +595,7 @@ export function readExperiments(
       const a = lookup(r.id);
       return a ? /(活|死|挂起|移交)/.test(a.text) : false;
     }).length,
+    [...new Set(ledgerFiles.flatMap((f) => ledgerColumns(readFileSync(join(outboxDir, f), "utf8"))))],
   );
 
   const outcomeSamples = [

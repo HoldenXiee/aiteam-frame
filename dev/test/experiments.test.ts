@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 
 import {
   artifactMix,
+  ledgerColumns,
   classifyOutcome,
   deliveryDriven,
   deviceRefs,
@@ -234,6 +235,25 @@ describe("renderExperiments：缺数据必须写成「未声明」", () => {
   });
   it("★ 推断模式必须自报偏差", () => assert.ok(txt.includes("系统偏差"), txt));
   it("投递驱动比标成反向指标", () => assert.ok(txt.includes("反向指标"), txt));
+});
+
+describe("ledgerColumns：把「账有哪些列」打出来（DESIGN §1 缺口可见）", () => {
+  it("只读表头，去重", () => {
+    const t2 = [
+      "| 编号 | 谓词 | 装置 | 结局 |",
+      "| --- | --- | --- | --- |",
+      "| P1 | x | work/a.mjs | 活 |",
+    ].join(NL);
+    assert.deepEqual(ledgerColumns(t2), ["编号", "谓词", "装置", "结局"]);
+  });
+  it("不是实验表的表头不算", () => {
+    assert.deepEqual(ledgerColumns("| 席位 | 文件 | 字节 |"), []);
+  });
+  it("★★ 有「判死句 / 死因」列 ⇒ 认出来（那是死因的唯一合法来源）", () => {
+    // ★ 集群的账用「四态」当列名 —— 而 OUT_HEAD 原来不认它 ⇒ 整张表读不到（真 bug）
+    const t2 = ["| 编号 | 装置 | 四态 | 判死句 / 死因（要可核） |", "| --- | --- | --- | --- |"].join(NL);
+    assert.ok(ledgerColumns(t2).some((c) => c.includes("死因")));
+  });
 });
 
 describe("artifactMix：装置链 vs 实验（核心读数）", () => {
