@@ -130,13 +130,44 @@ export async function labAt(cwd: string): Promise<Lab> {
   //   ⇒ 一个只想要 deepseek 的实验室，静默地向别的型号发了请求。
   // ★ 这两条现在都在库层堵住了（`modelAllow` / `defaultModel` 过三个入口），
   //   这里把集群的声明接上去 —— **机制在库，政策在使用者代码**。
-  return createLab({
+  // ★★★★★ 2026-10-21 · **把试管打开（只读）**
+  //
+  //   ★★★ 真因（`真因-研究对象被驯化了-2026-10-21.md` 的装置层根因）：
+  //     库的默认 `fsRoot = [cwd, agentDir]` ⇒ 研究员的文件工具**只能读自己的 work/**。
+  //     它读不到 `src/`（库正本）、`research/book`（书）、`dev/docs`（设计文档）、
+  //     **别人的集群** —— 所以它能研究的对象**只剩自己的文件**。
+  //     这就是"可推广结论从 17% 掉到 0%"的物理原因：**它没见过外面的世界**。
+  //   ★★ 集群自己说的：「三个合法对象值，我填不出两个……我读不到它」。
+  //
+  //   ★ 设计与纪律的配合（关键）：
+  //     · `fsRoot` 管**读**（这里放宽：只读的仓库部分都给它看）
+  //     · `guard.ts` 管**写**（不变：仍然只能写自己的空间 + `lib/`）
+  //     ⇒ 读广、写窄。
+  //   ★★★ 绝不把 `REPO` 整根放进去 —— `key`（凭证）在仓库根，必须读不到。
+  const READ_ONLY_ROOTS = [
+    join(REPO, "src"), // 库正本（理解库 = 研究集群的前提）
+    join(REPO, "research/book"), // 书（另一边的沉淀）
+    join(REPO, "research/clusters"), // 两个集群的代码（可研究、不可改）
+    join(REPO, "research/docs"), // 集群设计 + 实验记录
+    join(REPO, "dev/docs"), // 库的设计文档
+    join(REPO, "dev/demo"), // 示例（合法的"对象"）
+  ].filter((d) => existsSync(d));
+
+  // ★★ 类型松一处：运行时用的是 **hunt 自己那份 lib**（`LAB_ENTRY`，支持 `fsRoot`），
+  //   而类型来自 `src`（**落后一版，LabOptions 里还没有 fsRoot**）。
+  //   ⇒ 只在这一处 `as unknown as`，并把这件事记成 `src` 的欠账（纪律㊳：合并权在我，还没合）。
+  //   ★ 不用 `permissions.root` 的原因：那是**每个 agent** 一份，而这里有 6 处 createAgent，
+  //     漏一处就等于一边读得开一边读不开（同类 bug 咬过多次）。
+  const createLabWithFsRoot = createLab as unknown as (o: Record<string, unknown>) => Lab;
+  return createLabWithFsRoot({
     agentDir: AGENT_DIR,
     cwd,
+    // ★ 读：自己 + 只读的仓库部分；写仍然由 guard 管（读广写窄）
+    fsRoot: [cwd, AGENT_DIR, ...READ_ONLY_ROOTS],
     modelNetwork: true,
     modelAllow: [MODEL],
     defaultModel: MODEL,
-  });
+  }) as unknown as ReturnType<typeof createLab>;
 }
 
 export { MODEL };

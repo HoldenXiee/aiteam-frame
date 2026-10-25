@@ -30,6 +30,18 @@ export interface ProjectRow {
   hasControl: boolean | null;
   /** 链深（这份想法被推到了第几轮）；表里没写 ⇒ null */
   chainDepth: number | null;
+  /**
+   * ★★★ 2026-10-21 补：「对象」—— 这个想法**在研究什么**。
+   * ★ 真因分析（`真因-研究对象被驯化了-2026-10-21.md`）：196 份里可推广的只有 9%，
+   *   而 10-19 之后 102 份只有 1 份 —— 研究对象从「集群」漂移成「本 lab 的测量装置」。
+   * ★★ 所以对象必须是**外部可控/可跑的**：一个 lab、别人的集群、或外部材料。
+   *   填本 lab 的 outbox / EXPERIMENTS / 量具 = **自指**，不算。
+   */
+  object: string;
+  /** true=外部（URL / 别人的集群 / 自己搭的 lab）· false=自指 · null=未声明 */
+  objectExternal: boolean | null;
+  /** ★ 有没有「可推广：…」+「边界：…」两句 */
+  generalizable: boolean | null;
 }
 
 export interface ProjectStats {
@@ -42,6 +54,16 @@ export interface ProjectStats {
   declared: number;
   /** 有猜想这一格且非空的项目数 */
   withConjecture: number;
+  /** ★ 对象**外部**的项目数（DESIGN 真因分析 §5.1）*/
+  external: number;
+  /** ★ 对象**自指**的项目数（本 lab 的 outbox / 量具 / 账）*/
+  selfReferential: number;
+  /** ★ 有「可推广 + 边界」两句的项目数 */
+  generalizable: number;
+  /** ★ 表里**声明了**「对象」这一格的行数（0 且 declaredObject=0 ⇒ 未声明，不是 0）*/
+  declaredObject: number;
+  /** ★ 表里声明了「可推广/边界」两列的行数 */
+  declaredGeneral: number;
 }
 
 // ───────────────────────── 形式判据 ─────────────────────────
@@ -52,6 +74,20 @@ const VER_H = /^(版本|version|v\d|当前版本)$/i;
 const IFACE_H = /(接口|装置|artifact|interface)/i;
 const CTRL_H = /(对照|control|相比)/i;
 const DEPTH_H = /(链深|轮次|版本数|depth)/i;
+const OBJ_H = /^(对象|object|研究对象)$/i;
+// ★ 可推广 / 边界 也做成**列**（按列名取，不靠正文里找句子 —— 正文里到处都是"边界"两个字）
+const GEN_H = /^(可推广|适用面|generalizable)$/i;
+const BND_H = /^(边界|不成立的条件|boundary)$/i;
+
+/** ★ 自指：对象指向本 lab 自己的读数 */
+export function isSelfObject(obj: string): boolean {
+  const t = obj.toLowerCase();
+  return /outbox|experiments|converged|本 ?lab|自己的账|量具/.test(t);
+}
+
+/** ★ 被判为重复的占位符（可推广/边界没写）*/
+const GENERIC_HEAD = /(可推广|推广给)/;
+const BOUNDARY_HEAD = /(边界|什么时候不成立|不成立的条件)/;
 
 /** 一格算不算"填了"：非空且不是占位符 */
 export function filled(cell: string | undefined): boolean {
@@ -101,6 +137,9 @@ export function parseProjects(text: string): ProjectRow[] {
           iface: find(IFACE_H),
           ctrl: find(CTRL_H),
           depth: find(DEPTH_H),
+          obj: find(OBJ_H),
+          gen: find(GEN_H),
+          bnd: find(BND_H),
         };
       }
       continue;
@@ -119,6 +158,18 @@ export function parseProjects(text: string): ProjectRow[] {
       hasInterface: cols.iface === undefined || cols.iface < 0 ? null : filled(cell("iface")),
       hasControl: cols.ctrl === undefined || cols.ctrl < 0 ? null : controlFilled(cell("ctrl")),
       chainDepth: Number.isFinite(depthNum) ? depthNum : null,
+      object: cell("obj") ?? "",
+      objectExternal:
+        cols.obj === undefined || cols.obj < 0
+          ? null
+          : filled(cell("obj"))
+            ? !isSelfObject(cell("obj") ?? "")
+            : null,
+      // ★ 可推广 / 边界：**两列都要非空**才算（只有"可推广"是口号）
+      generalizable:
+        cols.gen === undefined || cols.gen < 0 || cols.bnd === undefined || cols.bnd < 0
+          ? null
+          : filled(cell("gen")) && filled(cell("bnd")),
     });
   }
   return rows;
@@ -137,7 +188,25 @@ export function projectStats(rows: ProjectRow[]): ProjectStats {
     deep: rows.filter((r) => (r.chainDepth ?? 0) >= 3).length,
     declared: complete,
     withConjecture: rows.filter((r) => r.hasConjecture === true).length,
+    declaredObject: rows.filter((r) => r.objectExternal !== null).length,
+    declaredGeneral: rows.filter((r) => r.generalizable !== null).length,
+    external: rows.filter((r) => r.objectExternal === true).length,
+    selfReferential: rows.filter((r) => r.objectExternal === false).length,
+    generalizable: rows.filter((r) => r.generalizable === true).length,
   };
+}
+
+/**
+ * ★★★ 「可推广 + 边界」的判据（DESIGN 真因分析 §5.2）。
+ * ★ 为什么这两句一起要：只有「可推广」是口号；**边界**才让它可判死
+ *   （书里每章都有「这一章可以被判死的地方」）。
+ * ★ 只看**行首标记**，不靠正文里的语气。
+ */
+export function generalizableText(text: string): boolean {
+  return GENERIC_HEAD.test(text.split(String.fromCharCode(10)).find((l) => GENERIC_HEAD.test(l)) ?? "") &&
+    BOUNDARY_HEAD.test(
+      text.split(String.fromCharCode(10)).find((l) => BOUNDARY_HEAD.test(l)) ?? "",
+    );
 }
 
 /** 渲染（★ 缺数据写「未声明」，不写 0 —— 纪律㉜） */
@@ -151,6 +220,17 @@ export function renderProjects(s: ProjectStats, mode: "table" | "none"): string 
   L.push(
     `★ 项目账：共 ${s.total} 个 · ★★ **三段齐 ${s.complete}**（猜想+接口+对照）· ` +
       `链深≥3 的 ${s.deep} · 有猜想的 ${s.withConjecture}`,
+  );
+  L.push(
+    s.declaredObject === 0
+      ? `   ★ 对象：**未声明**（表里没有「对象」列）　← ★ 研究对象是「怎么设计集群」，不是「怎么量本 lab」`
+      : `   ★ 对象：**外部 ${s.external}** · 自指（本 lab 的账/量具）**${s.selfReferential}**` +
+          `（声明了 ${s.declaredObject}/${s.total} 行）　← ★ 对象必须是外部可控/可跑的`,
+  );
+  L.push(
+    s.declaredGeneral === 0
+      ? `   ★ 可推广+边界：**未声明**（表里没有这两列）—— 只有"可推广"是口号，**边界**才让它可判死`
+      : `   ★ 可推广+边界：${s.generalizable}/${s.declaredGeneral}`,
   );
   return L.join(String.fromCharCode(10));
 }
@@ -172,7 +252,18 @@ export function readProjects(labRoot: string): { rows: ProjectRow[]; stats: Proj
     files = [];
   }
   if (!files.length) {
-    const empty: ProjectStats = { total: 0, complete: 0, deep: 0, declared: 0, withConjecture: 0 };
+    const empty: ProjectStats = {
+      total: 0,
+      complete: 0,
+      deep: 0,
+      declared: 0,
+      withConjecture: 0,
+      external: 0,
+      selfReferential: 0,
+      generalizable: 0,
+      declaredObject: 0,
+      declaredGeneral: 0,
+    };
     return { rows: [], stats: empty, mode: "none" };
   }
   const byId = new Map<string, ProjectRow>();

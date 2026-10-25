@@ -13,6 +13,8 @@ import { describe, it } from "node:test";
 
 import {
   controlFilled,
+  generalizableText,
+  isSelfObject,
   filled,
   isComplete,
   parseProjects,
@@ -77,6 +79,9 @@ describe("isComplete / projectStats：三段齐必须三段都为真", () => {
     hasInterface: i,
     hasControl: o,
     chainDepth: d,
+    object: "",
+    objectExternal: null,
+    generalizable: null,
   });
 
   it("三段 true 才算齐", () => {
@@ -90,25 +95,64 @@ describe("isComplete / projectStats：三段齐必须三段都为真", () => {
     assert.equal(s.complete, 1);
     assert.equal(s.deep, 2); // 链深 5 和 3
     assert.equal(s.withConjecture, 3);
+    assert.equal(s.external, 0);
   });
   it("空表不炸", () => {
     const s = projectStats([]);
     assert.equal(s.total, 0);
     assert.equal(s.complete, 0);
   });
+  it("★★ 表里没声明对象 ⇒ declaredObject=0（渲染会写「未声明」而不是 0）", () => {
+    const s = projectStats([row(true, true, true, 1)]);
+    assert.equal(s.declaredObject, 0);
+    assert.equal(s.external, 0);
+  });
+});
+
+describe("★★★ 对象：自指不算（真因分析 §5.1）", () => {
+  it("isSelfObject 认得出本 lab 的读数", () => {
+    for (const v of ["outbox/EXPERIMENTS.md", "本 lab 的量具", "EXPERIMENTS-hands-on.md", "量具自己"])
+      assert.equal(isSelfObject(v), true, v);
+  });
+  it("外部对象不算自指", () => {
+    for (const v of ["work/PRJ-1/lab.ts", "research/clusters/forge", "https://arxiv.org/abs/1"])
+      assert.equal(isSelfObject(v), false, v);
+  });
+  it("表里有「对象」列 ⇒ 判出来", () => {
+    const t = [
+      "| 代号 | 一句话猜想 | 对象 | 接口 | 对照读数 |",
+      "| --- | --- | --- | --- | --- |",
+      "| A | 某想法 | work/A/lab.ts | work/a.mjs | 1→3 |",
+      "| B | 某想法2 | outbox/EXPERIMENTS.md | work/b.mjs | 1→3 |",
+    ].join(NL);
+    const rows = parseProjects(t);
+    assert.equal(rows[0]!.objectExternal, true);
+    assert.equal(rows[1]!.objectExternal, false);
+  });
+});
+
+describe("★★★ 可推广 + 边界：两句都要（只有可推广是口号）", () => {
+  it("两句都有 ⇒ true", () => {
+    const t = ["可推广：多座位并行时，判决要按写入顺序定", "边界：单座位时这条不成立"].join(NL);
+    assert.equal(generalizableText(t), true);
+  });
+  it("★ 只有「可推广」 ⇒ false", () => {
+    assert.equal(generalizableText("可推广：多座位并行时更好"), false);
+  });
+  it("空文本 ⇒ false", () => assert.equal(generalizableText(""), false));
 });
 
 describe("renderProjects：没有账 = 未声明，不是 0", () => {
   it("mode=none 时明确说未声明", () => {
     const txt = renderProjects(
-      { total: 0, complete: 0, deep: 0, declared: 0, withConjecture: 0 },
+      { total: 0, complete: 0, deep: 0, declared: 0, withConjecture: 0, external: 0, selfReferential: 0, generalizable: 0, declaredObject: 0, declaredGeneral: 0 },
       "none",
     );
     assert.ok(txt.includes("未声明"), txt);
     assert.ok(!/三段齐 0/.test(txt), txt);
   });
   it("有账时报三个数", () => {
-    const txt = renderProjects({ total: 4, complete: 1, deep: 2, declared: 1, withConjecture: 3 }, "table");
+    const txt = renderProjects({ total: 4, complete: 1, deep: 2, declared: 1, withConjecture: 3, external: 3, selfReferential: 1, generalizable: 2, declaredObject: 4, declaredGeneral: 4 }, "table");
     assert.ok(txt.includes("三段齐 1"), txt);
     assert.ok(txt.includes("链深≥3 的 2"), txt);
   });
@@ -118,8 +162,10 @@ describe("readProjects：传错根要抛错", () => {
   it("给 outbox 路径 ⇒ 抛", () => {
     assert.throws(() => readProjects("research/labfirst/hunt/outbox"), /集群空间根/);
   });
+  // ★ 不能用真 lab 当"没有账"的样本 —— 它现在已经建了 PROJECTS.md（活状态会变）。
+  //   用仓库里一个确定没有 outbox/PROJECTS.md 的目录。
   it("没有 PROJECTS.md ⇒ mode=none（不是报错）", () => {
-    const r = readProjects("research/labfirst/hunt");
+    const r = readProjects("dev");
     assert.equal(r.mode, "none");
     assert.equal(r.rows.length, 0);
   });
