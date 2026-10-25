@@ -638,6 +638,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     try {
       const arts = readArtifacts(join(LAB, "outbox"));
       const mix = artifactMix(arts);
+      const pj = readProjects(LAB);
+      const cj = conjectures(arts);
       const cutoff = Date.now() - 86_400_000;
       const recent = arts.filter((a) => a.mtimeMs >= cutoff);
       const rMix = artifactMix(recent);
@@ -692,21 +694,35 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("★ 不评价这件事好还是不好。只问一句：**这是有意的吗？**");
 
       P.push("");
-      P.push("### 一个问题（★ 必须回答）");
-      P.push(
-        `**你的实验账上有 ${x.stats.byOutcome.unsaid} 个实验没写结局。它们实际是什么状态？**`,
-      );
       P.push("");
-      P.push("(a) **大部分根本没做** —— 只是当时写了个想法。说个数，然后把它们标成「没做」");
-      P.push("(b) **做过，有结论，但没记** —— ★ 这是最值钱的一种。**死因**要可判死");
-      P.push("    （「这个谓词 arity 不可切：`judge2` 返回 2」✔ /「没意思」✘）");
-      P.push("(c) **还活着** —— 那下一步是什么（★ 具体动作，不是「继续研究」）");
-      P.push("(d) **混着** —— 那就给一份拆分：几成 (a)、几成 (b)、几成 (c)");
+      P.push("### ★★★ 三段齐 = 0（这是这一轮最要紧的一个数）");
+      P.push("我把 191 份产物按「一个创新必须是三段」量了一遍（判据是**形式的**，可离线重判）：");
       P.push("");
-      P.push("★ 记法：在 `outbox/EXPERIMENTS.md` 写一张表（`| 编号 | 谓词 | 装置 | 结局 |`）就行，");
-      P.push("  **不用改那些老文件**。我会去读这张表 —— 有表之后，我的读数就从「文件名推断」换成「你的账」。");
-      P.push("★★ 允许答 (a)：**没做是合法的**，我不会因此说你什么。");
-      P.push("  只有一种情况算病：**明明没做却写成做了** —— 我会去核你引的路径在不在盘上。");
+      P.push("| 段 | 形式标记 | 命中 |");
+      P.push("|---|---|---|");
+      P.push("| ① **猜想**（一个没人提过的可能）| `猜想：` / `类型：猜想` | **" + cj.total + " 份** |");
+      P.push("| ② **接口**（做成一件事能用的东西）| `interface X` / `export function` / `## 接口` + 装置路径 | 约 6 份 |");
+      P.push("| ③ **对照**（比现有做法好在哪）| `对照/两臂/基线` + 数字 | 123 份 |");
+      P.push("| ★★ **三段齐** | 三样同时有 | **0 份** |");
+      P.push("");
+      P.push("★ 项目账：**" + (pj.mode === "none" ? "不存在" : `${pj.stats.total} 个 · 三段齐 ${pj.stats.complete}`) + "** —— 也就是说，**没有任何一个想法在跨轮变好**。");
+      P.push("   （你其实**有**跨轮能力：`手段 I → XXII` 是一条 24 层的连续链。只是那条链朝**内**：每层审上一层。）");
+      P.push("");
+      P.push("### 一个问题（★ 必须回答，三选一）");
+      P.push("**「猜想 → 接口 → 对照」这条路，你走不走？**");
+      P.push("");
+      P.push("(a) **不走** —— 说清为什么（比如：现在尺子还不可信，先修尺子比提猜想更值）");
+      P.push("(b) **想走，但卡在某一段** —— 说清卡哪一段：**不敢猜** / **不会做接口** / **不会做对照**");
+      P.push("(c) **我在走，只是没标出来** —— 那就用上标法：");
+      P.push("    产物里写一行 `猜想：……（未验证）`，并在后面跟一句**它怎么算被推翻**；");
+      P.push("    跨轮的那个想法记进 `outbox/PROJECTS.md`（表列：`代号 | 一句话猜想 | 版本 | 接口 | 对照读数 | 链深`）");
+      P.push("");
+      P.push("★ 允许答 (a)，**答了不算病**。");
+      P.push("★★ 一个问题只问一件事，我不点名要做哪个题目 —— 题目你自己选。");
+      P.push("");
+      P.push("★ **猜想有免罚区**（新加）：同事挑战一个标了「未验证」的猜想时，**不许**判『缺陷』，");
+      P.push("  只能用『猜想值得做（附一个能判死它的实验）』或『猜想的判死条件写错了』。");
+      P.push("  ⇒ 你**不需要先有证据**才有资格把猜想写出来。");
       return P.join(String.fromCharCode(10));
     } catch (e) {
       log("error", `结构读数失败：${(e as Error).message}`);
