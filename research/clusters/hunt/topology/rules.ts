@@ -387,6 +387,8 @@ export type State = {
   externalAsked: number;
   /** ★ 上一次问"审别人的现象"的时刻（2026-10-25 大改）*/
   lastPhenomenonAt: number;
+  /** ★ 上一次催「收敛欠账」的时刻（2026-10-25）*/
+  lastDebtAt: number;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -410,6 +412,7 @@ export function newState(): State {
     lastExternalAt: 0,
     externalAsked: 0,
     lastPhenomenonAt: 0,
+    lastDebtAt: 0,
     lastTickAt: Date.now(),
   };
 }
@@ -480,6 +483,7 @@ export async function tick(
       onGeneralize: () => Promise<void>;
       onExternal: () => Promise<void>;
       onPhenomenon: () => Promise<void>;
+      onDebt: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -560,6 +564,7 @@ import { canOpenNewAudit, readClosure } from "./closure.ts";
 import { readProjects } from "./projects.ts";
 import { externalUsage, readArtifacts } from "./experiments.ts";
 import { readStructured } from "../tools/record-experiment.ts";
+import { convergenceDebt } from "./converged-gate.ts";
 
 export function makeRules(ctx: TriggerCtx) {
   const { state } = ctx;
@@ -989,6 +994,51 @@ export function makeRules(ctx: TriggerCtx) {
    *   不是"检测哪份像创新" —— 后者是内容判断（硬规则①）。
    */
   // ══════════════════════════════════════════════════════════════
+  // ★★★★ onDebt —— 催「收敛欠账」（2026-10-25）
+  //
+  //   ★ 为什么必须做成规则、不能写在投递里：
+  //     投递一轮只发一次，而主目标轮换是**按 run** 的（一个 run 55 分钟只有一个主目标）
+  //     ⇒ "清欠账"平均 4 轮才轮到一次。实测：上一轮列了 3 条，**清 0**。
+  //   ★★ 规则可以反复触发（每 15 分钟），而且**带具体行号**派给具体的人 ——
+  //     这和历史上有过效果的两次同形（onPhenomenon、onExternal）。
+  // ══════════════════════════════════════════════════════════════
+  async function onDebt(): Promise<void> {
+    if (ctx.closing?.()) return;
+    if (!ctx.challenge) return;
+    const now = Date.now();
+    if (now - state.lastDebtAt < 15 * 60_000) return;
+    const rows = readStructured(LAB);
+    if (rows.length === 0) return;
+    // 只催**已审过的**欠账：未审的引不进状态表，催它等于白催
+    const debt = convergenceDebt(LAB, rows).uncited.filter((u) => u.reviewed);
+    if (debt.length === 0) return;
+    state.lastDebtAt = now;
+
+    const peers = ctx.peerKeys?.() ?? [];
+    const who = peers[(state.externalAsked ?? 0) % Math.max(peers.length, 1)];
+    if (!who) return;
+    const item = debt[0]!;
+    ctx.trace("onDebt", `欠账 ${debt.length} 条（已审的）⇒ 派 ${who} 处置 ${item.id}`);
+    ctx.challenge(
+      who,
+      [
+        `## ★★★★ 收敛欠账：处置 \`${item.id}\`（一条已审过的实验）`,
+        "",
+        "**它的 claim**：" + item.claim,
+        "",
+        "### 三选一，必须落到 `outbox/CONVERGED.md` 的状态表里",
+        "",
+        "1. **引它进状态表** —— 在「证据 id」列写 `" + item.id + "`，并写清它支持哪一条 claim",
+        "2. **说明它不算证据** —— 写进状态表或产物：为什么它不能承重（边界？样本？载体？）",
+        "3. **说明还缺什么** —— 缺对照臂 / 缺第二个载体 / 缺审查",
+        "",
+        "★ 允许处置为「不算」，但**不许不处置**：不处置，下一轮这张清单还是它。",
+        "★★ 判据（我机械可查）：处置后 `收敛欠账` 里应该少一条。",
+      ].join(String.fromCharCode(10)),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // ★★★★★ onPhenomenon —— 让**另一位**去审「这格现象是真意外还是补的」
   //
   //   ★ 为什么必须是规则、不能只写在投递里（实测）：
@@ -1195,5 +1245,5 @@ export function makeRules(ctx: TriggerCtx) {
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, drainer };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, drainer };
 }
