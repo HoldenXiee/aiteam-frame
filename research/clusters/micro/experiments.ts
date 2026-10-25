@@ -24,6 +24,7 @@ import {
   renderGeneralizability,
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
+import { readStructured, renderSeven, sevenStats } from "../hunt/tools/record-experiment.ts";
 import { readProjects, renderProjects } from "../hunt/topology/projects.ts";
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -54,6 +55,7 @@ console.log(
     renderLoci(artifactLoci(root, Date.now() - 3 * 3600_000)),
     renderExternal(externalUsage(readArtifacts(root + "/outbox"))),
     renderItemGap(itemGap(ledgerTextOf(root))),
+    renderSeven(sevenStats(readStructured(root))),
     renderProvided(
       providedUsage(
         readArtifacts(root + "/outbox"),

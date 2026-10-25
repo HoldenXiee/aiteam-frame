@@ -144,7 +144,11 @@ export function parseProjects(text: string): ProjectRow[] {
       }
       continue;
     }
-    const id = body[cols.id ?? -1] ?? "";
+    // ★★★ 2026-10-25：**去掉反引号** —— 集群把代号写成 `` `X2-IS` ``，
+    //   原来原样返回 ⇒ `record_experiment` 的 project 校验把**所有代号都拒了**
+    //   （包括它自己列出来的那几个）。这是集群第一轮就抓到的（`outbox/缺陷-P127`）。
+    const rawId = body[cols.id ?? -1] ?? "";
+    const id = rawId.replace(/[`*]/g, "").trim();
     if (!id || /^[-:\s]+$/.test(id)) continue;
     const cell = (k: string) => (cols[k] >= 0 ? body[cols[k]!] : undefined);
     const depthRaw = cell("depth");

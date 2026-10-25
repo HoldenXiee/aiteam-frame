@@ -979,8 +979,12 @@ export function makeRules(ctx: TriggerCtx) {
       `外部材料 ${ratio.n}/${ratio.total}（${ratio.share === null ? "未声明" : Math.round(ratio.share * 100) + "%"}）< 目标 ⇒ 问第 ${state.externalAsked}/${EXTERNAL_MAX_PER_WINDOW} 次`,
     );
 
+    // ★★★★ 2026-10-25：**轮转所有座位**，不是永远问 falsifier。
+    //   实测：外部材料只有 3%，而一轮产出 15–20 份 —— 一个座位一次问只能到 ~25% 上限。
+    //   每个座位都该有外部材料配额（"谁搜"不该固定成一个人）。
     const peers = ctx.peerKeys?.() ?? [];
-    const who = peers.includes("falsifier") ? "falsifier" : peers.includes("hands-on") ? "hands-on" : peers[0];
+    const idx = state.externalAsked ?? 0;
+    const who = peers.length > 0 ? peers[idx % peers.length] : undefined;
 
     const prompt = [
       "## ★★★★★ 这一轮只做一件事：**去外面找一条能判死（或支持）你自己结论的材料**",
@@ -1008,7 +1012,7 @@ export function makeRules(ctx: TriggerCtx) {
 
     if (who && ctx.challenge) {
       ctx.challenge(who, prompt);
-      ctx.trace("onExternal", `→ ${who}（steer，web 优先）`);
+      ctx.trace("onExternal", `→ ${who}（steer，web 优先 · 轮转 ${(state.externalAsked ?? 0) % Math.max(ctx.peerKeys?.().length ?? 1, 1)}/${ctx.peerKeys?.().length ?? 1}）`);
     }
   }
 

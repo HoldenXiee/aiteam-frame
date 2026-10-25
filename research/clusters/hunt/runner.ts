@@ -51,6 +51,7 @@ import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
 import { makePortRun } from "./tools/port-run.ts";
+import { makeRecordExperiment, sevenStats, readStructured, renderSeven } from "./tools/record-experiment.ts";
 import { portStats, readPort, readPortTorn, renderPort } from "./tools/port-run.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
@@ -314,6 +315,12 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const myKey = ang.key; // ★ hunt 的座位 key = 角度名
     // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
     const portRun = makePortRun({ lab: LAB, selfKey: myKey });
+    const recordExperiment = makeRecordExperiment({
+      lab: LAB,
+      selfKey: myKey,
+      // ★ 项目行号从 PROJECTS.md 读，不写死 —— 链深靠这个键
+      projectIds: () => readProjects(LAB).rows.map((r) => r.id),
+    });
     const challenge = makeChallenge({
       deliver: deliverTo,
       selfKey: myKey,
@@ -336,7 +343,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       role: role + renderSeat(ang),
       // ★★ 白名单必须显式带上 web 工具 —— 否则扩展装了也进不来（P108 实测）
       permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
-      tools: { custom: [consult, spawnLine, challenge, portRun] },
+      tools: { custom: [consult, spawnLine, challenge, portRun, recordExperiment] },
     });
     // ★ 研究员**不能**写 `lib/`（它的路是「写成缺口报告」，见 `LIB_BLOCK_REASON`）—— 保持默认 policy。
     //   ★ 为什么显式写出来而不省略：省略会让下一个人以为「忘了传」，改错方向。
@@ -866,6 +873,22 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
         }
       })();
       const gap = itemGap(ledgerTxt);
+      // ★★★★★ 2026-10-25 重构：实验现在是**对象**，不是自由文本
+      const seven = sevenStats(readStructured(LAB));
+      P.push("### ★★★★★ 实验现在是一个**对象**（不是写一段话）：`record_experiment`");
+      P.push("");
+      P.push("★ 它跟你手上的 `port_run` 一样会**真跑你的装置**（把退出码落账）—— 所以读数编不出来。");
+      P.push("★ 七个字段：`claim`（假设）/ `killCondition`（判死条件）/ `carriers[].cmd`（装置）/");
+      P.push("  **读数由工具抓** / `phenomenon`（现象）/ `model`（机制）/ `conjecture`（猜想）/ `outcome`（结局）。");
+      P.push("");
+      P.push("★★ **缺格会拒收**：");
+      P.push("  · `结局=活` 却写不出 `model` ⇒ 拒（**没有机制的「活」只是一次巧合，不是结论**）");
+      P.push("  · `phenomenon` 空着 ⇒ 必须二选一：`没有意外` / `有但没记`（**不许静默空着**）");
+      P.push("  · `source` 必填：URL / arXiv / DOI / `本仓:<路径>`（**外部出处是实验的属性**）");
+      P.push("  · `project` 必须是 `PROJECTS.md` 里已有的行（**链深靠这个键算**）");
+      P.push("");
+      P.push("现在的结构化账：**" + seven.rows + " 条** · 发现型（跨载体+现象+模型）**" + seven.discovery + "**");
+      P.push("");
       P.push("### ★★★ 七项缺口：你的实验账有 **" + (gap.present.join("·") || "无") + "**");
       P.push("");
       if (gap.missing.length > 0) {
@@ -879,7 +902,12 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
           P.push("");
         }
       }
-      P.push("### ★★★★ 这一轮请先回答：**你有没有一次「实测和预期不一样」？**");
+      P.push("### ★★★★ 这一轮请先做一件事：**用 `record_experiment` 记一条**（哪怕结局是死/挂起）");
+      P.push("");
+      P.push("★ 最少要满足：两个载体都 exit 0（跨载体成立）+ 一句 `source` + 一格 `phenomenon`。");
+      P.push("★★ 如果你做不到两个载体，就老实记一条**单载体**的，并在 `outcome` 写 `挂起` 说明缺什么。");
+      P.push("");
+      P.push("### ★★★ 另一个问（答了更好）：**你有没有一次「实测和预期不一样」？**");
       P.push("");
       P.push("(a) **有过，就在 `<产物名>` 里** —— 把那一段贴出来（预期是什么 / 实测是什么 / 你改了什么想法）");
       P.push("(b) **有过，但我当成「不成立」就放过去了** —— 说清是哪条，它可能是一条被丢掉的真结论");
@@ -1182,6 +1210,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderDialectic(dialecticStats(readChallenges(LAB))),
       renderPort({ ...portStats(readPort(LAB)), torn: readPortTorn(LAB) }),
       renderLoci(artifactLoci(LAB, Date.now() - 3 * 3600_000)),
+      renderSeven(sevenStats(readStructured(LAB))),
       renderExternal(externalUsage(readArtifacts(join(LAB, "outbox")))),
       renderProvided(
         providedUsage(
