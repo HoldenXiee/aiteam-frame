@@ -30,7 +30,9 @@ import {
   artifactMix,
   conjectures,
   attentionMix,
+  crossCarrier,
   generalizability,
+  renderCrossCarrier,
   renderAttention,
   renderGeneralizability,
   readArtifacts,
@@ -39,6 +41,7 @@ import {
 } from "./topology/experiments.ts";
 import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
+import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
@@ -303,6 +306,14 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
         usedAngles
           .filter((x) => x.key !== myKey)
           .map((x) => ({ key: x.key, stance: x.stance })),
+      // ★★★ 答辩落账（DESIGN v3-1）：不落盘就没人知道同一条 claim 被审了几次
+      record: (row) => {
+        try {
+          appendChallenge(LAB, { by: myKey, ...row });
+        } catch (e) {
+          log("error", `答辩落账失败：${(e as Error).message}`);
+        }
+      },
     });
     const a = await lab.createAgent({
       id: `L3-researcher-${myKey.replace("/", "-")}-${Date.now().toString(36)}`,
@@ -639,6 +650,50 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //     **给一个可判死的读数 + 一个具体的缺口 + 逼它三选一**。
   //     （术语未定义 51%→0 · 吸收率 55%→100% · 结账率 2%→21%，全是这一手）
   //   ★★ 所以这里不评价、不点题，只把**它自己的结构**摆出来，然后问一个问题。
+  // ★★★★★ 2026-10-25 · **v3-2：续项目必须是投递的第一行**
+  //
+  //   ★ 实测：这条要求之前写在 89 行投递的**中段** —— 两个 window 下来
+  //     `PROJECTS.md` 的 **2 行版本全是 v1**，链深 ≥3 的项目 **0**。
+  //   ⇒ 正好撞上纪律㉕：**写在文档里的规则 = 没有规则**。
+  //   ★★ 它不能一直当"要求"。它现在放在**最前面**（比问题还前），
+  //     下一轮如果还是不涨版本，就说明"要求"这条路彻底不行，
+  //     只能把它做成前置条件（不涨版本 ⇒ 新产物不算数）。
+  const continueProjectBody = (() => {
+    try {
+      const pj = readProjects(LAB);
+      if (pj.mode === "none" || pj.stats.total === 0) {
+        return [
+          "### 0 · 开工第一件事：**建项目账里第一行**",
+          "",
+          "`outbox/PROJECTS.md` 还不存在或还没有行。第一个开工的人先建它：",
+          "一行 = `代号 | 一句话猜想（标「未验证」）| 版本 | 对象 | 可推广 | 边界 | 接口 | 对照读数 | 链深`。",
+          "★ 一行必须带「**它怎么算被推翻**」，否则只是草稿。",
+          "",
+        ].join(String.fromCharCode(10));
+      }
+      const rows = pj.rows
+        .slice(0, 6)
+        .map((r) => `· \`${r.id}\` v${r.version || "?"}｜对象：${r.object || "未声明"}｜链深 ${r.chainDepth ?? 0}`)
+        .join(String.fromCharCode(10));
+      return [
+        "### 0 · 开工第一件事（**不是建议，是本轮第一条指令**）",
+        "",
+        "从 `outbox/PROJECTS.md` 里**挑一行继续**，把它推进**一个版本**，并在产物里写清：",
+        "**这一版改了上一版的什么**（不能写「又跑了一次」「补充了读数」——那不是改）。",
+        "",
+        "现在的行：",
+        rows,
+        "",
+        `★ 链深 ≥3 的项目：**${pj.stats.deep}** —— 这个数上一轮也是 ${pj.stats.deep}。`,
+        "★ 如果一行都推不动，**在产物里写清为什么推不动**（缺什么、卡在哪）—— 那也算回答。",
+        "★★ 唯一不许的是**跳过去开新题**。",
+        "",
+      ].join(String.fromCharCode(10));
+    } catch {
+      return "";
+    }
+  })();
+
   const structureBody = (() => {
     try {
       const arts = readArtifacts(join(LAB, "outbox"));
@@ -884,7 +939,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
             why:
               "上一个阶段我每轮都把『你的装置有缺陷』当投递，结果产出被我的题目压成了单线：" +
               "最近 24h 的 57 份里 25% 明写「回答上级」，而新实验是 0。这一轮我不点题。",
-            body: requirementBody + structureBody,
+            body: continueProjectBody + requirementBody + structureBody,
           })
         : researcherPrompt.KICKOFF,
     ).catch((e) => ({ error: (e as Error).message, text: "" })),
@@ -1010,6 +1065,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       `★ 猜想（明写标记）：${cj.total} 条 · 标了「未验证」的 ${cj.unverified} 条`,
       renderGeneralizability(generalizability(readArtifacts(join(LAB, "outbox")))),
       renderAttention(attentionMix(readArtifacts(join(LAB, "outbox")))),
+      renderCrossCarrier(crossCarrier(readArtifacts(join(LAB, "outbox")))),
+      renderDialectic(dialecticStats(readChallenges(LAB))),
     ]) {
       log("readout", line);
     }

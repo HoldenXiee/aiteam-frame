@@ -32,6 +32,15 @@ export function makeChallenge(deps: {
   selfKey: string;
   /** ★ 可挑战的同事（key → 一句话说明它的角度） */
   peers: () => { key: string; stance: string }[];
+  /**
+   * ★★★★ 2026-10-25 · **答辩落账**（DESIGN v3-1）
+   *
+   * ★ 为什么必须落盘：`challenge` 之前**一行都不记** ⇒ 没人知道
+   *   有多少条 claim 在飞、哪些被反复审、哪些结过账。
+   *   实测：`F1→F2→F3→F4` 同一条 claim 审了 4 轮，答辩占比 10-24 达 **78%**。
+   * ★★ 这一步只做「可数」，不做「限制」—— 答辩是设计者要的机制，不能禁。
+   */
+  record?: (row: { to: string; artifact: string; claim: string; verdict: string }) => void;
 }) {
   return defineTool({
     name: "challenge",
@@ -85,6 +94,9 @@ export function makeChallenge(deps: {
         `  · **反驳** ⇒ 给出你的证据（★ 不是"我觉得"，要指到文件/数字/实验）\n` +
         `  · **悬而未决** ⇒ 说清**缺什么证据**才能判（这也是有效结论）\n` +
         `★★ 不要因为对方是同事就附和 —— 若它的证据不足，直接说。`;
+      // ★★★ 先落账，再投递：**投递失败也要留下"挑战发生过"的证据**
+      //   （反过来会得到一个"没发生"的假读数 —— 纪律㉖）
+      deps.record?.({ to: p.to, artifact: p.artifact, claim: p.claim, verdict: p.verdict });
       const r = deps.deliver(p.to, text);
       return {
         content: [

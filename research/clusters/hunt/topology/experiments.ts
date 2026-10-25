@@ -431,6 +431,61 @@ export function attentionMix(arts: Artifact[]): AttentionMix {
   return { total, reply, substantive, other, replyShare: total ? reply / total : null };
 }
 
+/**
+ * ★★★★★ 跨载体成立 —— **可推广的可执行判据**（DESIGN v3-3）
+ *
+ * ★ 为什么不用"标题关键词"：那是**可措辞化**的（它只要换个说法就能涨），
+ *   实测连真结论都漏（`P123-率的净变化是两项大数相消的残差`）。
+ * ★★ 这一版的判据是硬的：产物里必须出现
+ *   ① 一个**外部载体的绝对路径**（`src` / `book` / `clusters/forge` / `dev/demo` / `research/docs`）
+ *   ② 且该产物里有一条**命令**（`npx tsx` / `node ` / `--self-test`）
+ *   ⇒ 两个都满足才算「在别的载体上真的动过」。
+ * ★★★ 局限（必须写清）：它证明的是"**去过**"，不是"**成立**"。
+ *   「在别的载体上跑通且结论站得住」需要读内容判断 —— 那是集群的活（硬规则①）。
+ */
+const CARRIER_RE = /(src[\/]|research[\/]book|clusters[\/]forge|dev[\/]demo|research[\/]docs)/i;
+const ABS_PATH_RE = /[A-Za-z]:[\/][^\s)`'"|]+/;
+const CMD_RE = /(npx\s+tsx|node\s+[\w./$-]|--self-test)/;
+
+export interface CrossCarrier {
+  /** 引了外部载体绝对路径的份数 */
+  reached: number;
+  /** 其中还带命令的份数（真去跑过的最小证据）*/
+  executed: number;
+  total: number;
+  reachedShare: number | null;
+  executedShare: number | null;
+}
+
+export function crossCarrier(arts: readonly Artifact[]): CrossCarrier {
+  let reached = 0;
+  let executed = 0;
+  for (const a of arts) {
+    const t = a.text;
+    const hasAbs = ABS_PATH_RE.test(t) && CARRIER_RE.test(t);
+    if (!hasAbs) continue;
+    reached++;
+    if (CMD_RE.test(t)) executed++;
+  }
+  const total = arts.length;
+  return {
+    reached,
+    executed,
+    total,
+    reachedShare: total ? reached / total : null,
+    executedShare: total ? executed / total : null,
+  };
+}
+
+export function renderCrossCarrier(c: CrossCarrier): string {
+  const pct = (v: number | null) => (v === null ? "未声明" : `${Math.round(v * 100 * 10) / 10}%`);
+  return (
+    `★★ 跨载体：引外部绝对路径 **${c.reached}/${c.total}（${pct(c.reachedShare)}）**` +
+    ` · 其中带命令的 **${c.executed}（${pct(c.executedShare)}）**` +
+    `　← ★ 这是"可推广"的**硬判据**（去过别的载体），比标题关键词不可措辞化`
+  );
+}
+
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
 
 /**
