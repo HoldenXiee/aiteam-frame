@@ -19,6 +19,7 @@ const base = {
   claim: "路径护栏把文本当落点",
   killCondition: "若 12 条探针全部判决正确 ⇒ 假设错",
   source: "https://bazel.build/basics/hermeticity",
+  prereg: "work/x-PREREG.md",
   carriers: [{ dir: "work/lab-A", cmd: "node probe.mjs" }],
   phenomenon: "实测 8 条判错，我预期 0 条",
   phenomenonAbsent: "",
@@ -69,7 +70,7 @@ describe("validateExperiment：★ 缺格就拒收（这是它代替「要求」
 describe("sevenStats：★ 「发现型」= 跨载体 + 现象 + 模型", () => {
   const row = (over: Partial<Parameters<typeof sevenStats>[0][number]>) =>
     ({
-      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p", preregMtime: 0, preregBeforeRun: true,
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
@@ -106,7 +107,7 @@ describe("insideLabDir / 落账", () => {
   it("append + read 往返", () => {
     rmSync(`${lab}/work`, { recursive: true, force: true });
     appendStructured(lab, {
-      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p", preregMtime: 0, preregBeforeRun: true,
       carriers: [], phenomenon: "", phenomenonAbsent: "没有意外", model: "", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
     });
@@ -118,7 +119,7 @@ describe("★★★★ 大改：链深聚合 / 真外部 URL / 现象必须被�
   const mk = (over: Record<string, unknown>) =>
     ({
       at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k",
-      source: "https://bazel.build/x",
+      source: "https://bazel.build/x", prereg: "p", preregMtime: 0, preregBeforeRun: true,
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
@@ -156,7 +157,7 @@ describe("★★★★ 大改：链深聚合 / 真外部 URL / 现象必须被�
 describe("applyReview：★ 自签会被拒（与 forge 的作者自签同一个病）", () => {
   const lab = "dev/test/_sandbox-review";
   const row = {
-    at: "t", id: "E7", by: "me", project: "X2", claim: "c", killCondition: "k", source: "u",
+    at: "t", id: "E7", by: "me", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p", preregMtime: 0, preregBeforeRun: true,
     carriers: [], phenomenon: "意外", phenomenonAbsent: "", model: "m", conjecture: "", outcome: "活",
     phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
   } as never;

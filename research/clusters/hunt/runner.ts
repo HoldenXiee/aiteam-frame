@@ -98,6 +98,9 @@ export function pickAnglesN<T extends { key: string }>(n: number, angles: readon
   return [...constructive, ...others].slice(0, Math.max(1, Math.min(n, angles.length)));
 }
 
+/** ★ 本轮开跑时刻（用来判 PREREG 是不是真的「跑前」）*/
+const RUN_STARTED_AT = Date.now();
+
 export async function runCluster(secs: number, dry = false, employees = 1) {
   // ★★★ 单实例锁：**先抢锁再动任何东西**（2026-10-19 并发会话事故后加）
   //   ★ 必须在 mkdir/writeFile 之前 —— 否则并发者已经把 _topology.log 清空了才被拦住
@@ -330,6 +333,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       selfKey: myKey,
       // ★ 项目行号从 PROJECTS.md 读，不写死 —— 链深靠这个键
       projectIds: () => readProjects(LAB).rows.map((r) => r.id),
+      runStartedAt: () => RUN_STARTED_AT,
     });
     const challenge = makeChallenge({
       deliver: deliverTo,

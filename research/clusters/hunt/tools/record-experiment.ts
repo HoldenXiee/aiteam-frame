@@ -25,7 +25,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 export const EXPERIMENTS_FILE = "experiments.jsonl";
@@ -55,6 +55,19 @@ export interface ExperimentRow {
   source: string;
   carriers: CarrierRun[];
   /** ★ 现象：可以为空，但空就必须回答"为什么空" */
+  /**
+   * ★★★★★ 跑前冻结的 PREREG（2026-10-25 大改 · 让"编一句预期"变难）
+   *
+   * ★ 为什么必须指到文件：`phenomenon` 是自由文本，最省力的满足方式是**编一句**。
+   *   实测（r17/r18）：被独立审的现象里 **20%–80% 被判「补的」**——
+   *   同侪用的是时间线证据（PREREG 里有没有先写死），而那条证据当时**不在账上**。
+   * ★★ 所以把它做成字段：路径**必须存在**，并记下它的 mtime；
+   *   读取时再看它是否**早于本轮开跑**（不是的话标"可疑"）。
+   * ★★★ 这一步不判对错（那是内容判断），只是**把可核的东西放到账上**。
+   */
+  prereg: string;
+  preregMtime: number;
+  preregBeforeRun: boolean;
   phenomenon: string;
   phenomenonAbsent: "" | "没有意外" | "有但没记";
   /** ★ 结局=活 时必填：没模型的"活"只是巧合 */
@@ -194,6 +207,8 @@ export interface SevenStats {
   reviewed: number;
   /** 被判「补的」的条数 */
   calledFake: number;
+  /** ★ prereg 是本轮内才写的（可疑：可能是先看读数再补预期）*/
+  latePrereg: number;
   /** 通过 ≥2 载体 + 现象 + 模型 + **结局=活** ⇒ "发现型" */
   discovery: number;
   /**
@@ -263,7 +278,8 @@ export function sevenStats(rows: readonly ExperimentRow[]): SevenStats {
   const sources = rows.filter((r) => !!r.source.trim()).length;
   const reviewed = rows.filter((r) => !!r.reviewedBy && r.reviewedBy !== r.by).length;
   const calledFake = rows.filter((r) => r.phenomenonVerdict === "补的").length;
-  return { rows: rows.length, withPhenomenon, withModel, withConjecture, portable: ok, reviewed, calledFake, discovery, refuting, sources };
+  const latePrereg = rows.filter((r) => r.prereg && !r.preregBeforeRun).length;
+  return { rows: rows.length, withPhenomenon, withModel, withConjecture, portable: ok, reviewed, calledFake, latePrereg, discovery, refuting, sources };
 }
 
 export function renderSeven(s: SevenStats): string {
@@ -276,6 +292,7 @@ export function renderSeven(s: SevenStats): string {
   return (
     `★★★ 结构化实验：**${s.rows} 条** · 现象 ${s.withPhenomenon} · 模型 ${s.withModel} · 猜想 ${s.withConjecture}` +
     ` · **跨载体成立 ${s.portable}** · ★ 现象被独立审 ${s.reviewed}（判"补的"${s.calledFake}）` +
+    (s.latePrereg > 0 ? ` · ⚠ PREREG 本轮内才补的 ${s.latePrereg} 条` : "") +
     ` · ★ 发现型 ${s.discovery} · ★★ 反例型 ${s.refuting}` +
     ` · 有出处 ${s.sources}` +
     `　← ★ 「预期 X，实测 Y ⇒ X 错」两种结局都算（发现型=活，反例型=死）；只有"两条都不占"的才是纯裁决`
@@ -296,6 +313,7 @@ export function validateExperiment(p: {
   claim: string;
   killCondition: string;
   source: string;
+  prereg: string;
   carriers: readonly { dir: string; cmd: string }[];
   phenomenon: string;
   phenomenonAbsent: string;
@@ -311,6 +329,9 @@ export function validateExperiment(p: {
   if (p.killCondition.trim().length < 8) errs.push("killCondition 太短：写清「若 X 则它错」，否则不是可判死的实验");
   if (!SOURCE_OK.test(p.source.trim())) {
     errs.push("source 必须是 URL / arXiv / DOI / `本仓:<路径>` —— 外部出处是**实验的属性**，不是可选装饰");
+  }
+  if (!p.prereg.trim()) {
+    errs.push("prereg 必填：写清**跑前冻结**的那份文件（`work/…-PREREG.md`）—— 它是「预期是否事后补」唯一可核的东西");
   }
   if (p.carriers.length === 0) errs.push("至少要一个载体（carrier），否则读数没有落点");
   for (const c of p.carriers) {
@@ -328,7 +349,13 @@ export function validateExperiment(p: {
   return errs;
 }
 
-export function makeRecordExperiment(deps: { lab: string; selfKey: string; projectIds: () => string[] }) {
+export function makeRecordExperiment(deps: {
+  lab: string;
+  selfKey: string;
+  projectIds: () => string[];
+  /** ★ 本轮开跑时刻 —— 用来判 prereg 是不是真的跑前 */
+  runStartedAt?: () => number;
+}) {
   return defineTool({
     name: "record_experiment",
     label: "Record Experiment",
@@ -346,6 +373,10 @@ export function makeRecordExperiment(deps: { lab: string; selfKey: string; proje
       claim: Type.String({ description: "假设（一句话，能指回产物/结论）" }),
       killCondition: Type.String({ description: "★ 判死条件：若观察到 X，则这条假设错" }),
       source: Type.String({ description: "★ 出处：URL / arXiv:xxxx / DOI / `本仓:<路径>`" }),
+      prereg: Type.String({
+        description:
+          "★ **跑前冻结**的 PREREG 文件路径（例如 `work/xxx-PREREG.md`）。必须已存在；工具会记 mtime 并判它是不是本轮开跑前就写好的",
+      }),
       carriers: Type.Array(
         Type.Object({
           dir: Type.String({ description: "★ 载体目录（相对本 lab，例如 work/lab-A）" }),
@@ -376,6 +407,27 @@ export function makeRecordExperiment(deps: { lab: string; selfKey: string; proje
           details: {},
         };
       }
+      // ★ prereg 必须存在（编不出来的那种证据）
+      const preregPath = p.prereg.startsWith("/") || /^[A-Za-z]:/.test(p.prereg) ? p.prereg : join(deps.lab, p.prereg);
+      let preregMtime = 0;
+      try {
+        preregMtime = statSync(preregPath).mtimeMs;
+      } catch {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `⛔ PREREG 不在盘上：\`${p.prereg}\`
+` +
+                "★ 先写它（把预期写死），再跑实验。**没有跑前记录的「意外」不算现象。**",
+            },
+          ],
+          details: {},
+        };
+      }
+      const preregBeforeRun = preregMtime < (deps.runStartedAt?.() ?? Date.now());
+
       // ★ 真跑装置
       const runs: CarrierRun[] = [];
       const problems: string[] = [];
@@ -419,6 +471,9 @@ export function makeRecordExperiment(deps: { lab: string; selfKey: string; proje
         claim: p.claim,
         killCondition: p.killCondition,
         source: p.source,
+        prereg: p.prereg,
+        preregMtime,
+        preregBeforeRun,
         carriers: runs,
         phenomenon: p.phenomenon,
         phenomenonAbsent: p.phenomenonAbsent as ExperimentRow["phenomenonAbsent"],
