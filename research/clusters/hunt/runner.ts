@@ -333,7 +333,6 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       selfKey: myKey,
       // ★ 项目行号从 PROJECTS.md 读，不写死 —— 链深靠这个键
       projectIds: () => readProjects(LAB).rows.map((r) => r.id),
-      runStartedAt: () => RUN_STARTED_AT,
     });
     const challenge = makeChallenge({
       deliver: deliverTo,

@@ -37,6 +37,8 @@ export interface CarrierRun {
   cmd: string;
   exit: number;
   head: string;
+  /** ★ 这次执行开始的时刻（ms）—— 用来判 PREREG 是不是**真的在跑之前**写的 */
+  ranAt?: number;
 }
 
 export interface ExperimentRow {
@@ -353,8 +355,6 @@ export function makeRecordExperiment(deps: {
   lab: string;
   selfKey: string;
   projectIds: () => string[];
-  /** ★ 本轮开跑时刻 —— 用来判 prereg 是不是真的跑前 */
-  runStartedAt?: () => number;
 }) {
   return defineTool({
     name: "record_experiment",
@@ -426,7 +426,10 @@ export function makeRecordExperiment(deps: {
           details: {},
         };
       }
-      const preregBeforeRun = preregMtime < (deps.runStartedAt?.() ?? Date.now());
+      // ★★★ 正确的顺序判据（2026-10-25 修）：PREREG 早于**装置第一次执行**。
+      //   原来判的是"早于本轮开跑" —— 那是错的：PREREG 本来就是每实验各写一份、
+      //   在本轮内写的 ⇒ 每一行都会被判"本轮补的"（r19/r20 实测 6/6，全是假警报）。
+      //   ★ 缺数据 ≠ 假：算不出来时留 null，不默认 true（纪律㉜）。
 
       // ★ 真跑装置
       const runs: CarrierRun[] = [];
@@ -439,6 +442,7 @@ export function makeRecordExperiment(deps: {
         }
         let exit = 0;
         let out = "";
+        const ranAt = Date.now();
         try {
           out = execFileSync("bash", ["-lc", c.cmd], {
             cwd: dir,
@@ -452,7 +456,7 @@ export function makeRecordExperiment(deps: {
           exit = typeof err.status === "number" ? err.status : 1;
           out = `${err.stdout ?? ""}${err.stderr ?? ""}${err.message ?? ""}`;
         }
-        runs.push({ dir: c.dir, cmd: c.cmd, exit, head: out.slice(0, 600) });
+        runs.push({ dir: c.dir, cmd: c.cmd, exit, head: out.slice(0, 600), ranAt });
       }
       if (problems.length > 0) {
         return {
@@ -473,7 +477,11 @@ export function makeRecordExperiment(deps: {
         source: p.source,
         prereg: p.prereg,
         preregMtime,
-        preregBeforeRun,
+        preregBeforeRun: (() => {
+          const firstRun = Math.min(...runs.map((r) => r.ranAt ?? Number.POSITIVE_INFINITY));
+          if (!Number.isFinite(firstRun)) return false;
+          return preregMtime < firstRun;
+        })(),
         carriers: runs,
         phenomenon: p.phenomenon,
         phenomenonAbsent: p.phenomenonAbsent as ExperimentRow["phenomenonAbsent"],
