@@ -157,6 +157,16 @@ export function generalizeDue(
 const REVIEW_MS =
   Number(process.env.INSTRUMENT_REVIEW_MS) > 0 ? Number(process.env.INSTRUMENT_REVIEW_MS) : REVIEW_EVERY_MS;
 
+/**
+ * ★ 外部材料多久问一次（默认 40 分钟；`EXTERNAL_MS` 可压短给测试用）
+ * ★★ 配额的另一半：`EXTERNAL_MAX_PER_WINDOW` —— 一个 window 最多问几次，
+ *    否则"回头看"类规则会吃满产出（纪律㊱ 实测过：审查规则吃掉 57/60）。
+ */
+const EXTERNAL_MS = Number(process.env.EXTERNAL_MS) > 0 ? Number(process.env.EXTERNAL_MS) : 40 * 60_000;
+const EXTERNAL_MAX_PER_WINDOW = Number(process.env.EXTERNAL_MAX) > 0 ? Number(process.env.EXTERNAL_MAX) : 6;
+/** ★ 外部材料占产物的目标线：低于它才问（到了就不再催 —— 配额换成"读数驱动"）*/
+const EXTERNAL_TARGET = 0.3;
+
 // ─────────────── 状态读取（★ 读磁盘，不读它的自述）───────────────
 
 /**
@@ -190,6 +200,32 @@ export function pickFresh(
 export function listOutbox(): string[] {
   const d = join(LAB, "outbox");
   return existsSync(d) ? readdirSync(d).filter((f) => f.endsWith(".md")) : [];
+}
+
+/**
+ * ★★★★★ 本轮**该被辩证的产物** —— 两个落点都算（2026-10-25）
+ *
+ * ★ 为什么必须两个：实测 r3 一轮写了 11 份新 `.md` 到 `work/`，**outbox 0 份新增**，
+ *   而 `onNewFinding` 只看 `outbox` ⇒ 一轮只辩了 2–5 份，辩证被饿住。
+ *   ★★ 这是同一个盲区（第 13 次）咬到了**机制本身**，不只是我的读数。
+ * ★ 排除：`_` 开头的（我的处境表/临时件）、`STATE.md`、`PROJECTS.md`、
+ *   `EXPERIMENTS*.md`（账本，不是研究产物）。
+ */
+export function listDebatable(): { name: string; path: string }[] {
+  const out: { name: string; path: string }[] = [];
+  const add = (dir: string, rel: string) => {
+    const d = join(LAB, dir);
+    if (!existsSync(d)) return;
+    for (const f of readdirSync(d)) {
+      if (!f.endsWith(".md")) continue;
+      if (f.startsWith("_")) continue;
+      if (/^(STATE|PROJECTS|EXPERIMENTS)/.test(f)) continue;
+      out.push({ name: rel ? `${rel}/${f}` : f, path: join(d, f) });
+    }
+  };
+  add("outbox", "");
+  add("work", "work");
+  return out;
 }
 
 
@@ -327,6 +363,20 @@ export type State = {
    *   归档的账不该被"新"这个字欺骗（纪律㉛：别用当前状态回答历史问题）。
    */
   runStartedAt: number;
+  /**
+   * ★★★★★ 上一次"去外面找材料"的时刻（2026-10-25 设计者要求：**网上探索权重更大**）。
+   *
+   * ★ 实测现状（这是加这条规则的唯一理由）：
+   *   四条灵感叹道的用量 —— ①自己的死线账 406 · ②跨学科 96 · **③外部材料 15** · ④同行反驳 13 次
+   *   全部产物 691 份 ⇒ **外部材料只占 2%**。
+   * ★★ 而它**不是不能用**：`P108` 借了社会选择论、`P113` 借了 Cohen κ、
+   *   `P123` 借了 Kitagawa 分解 + ECB WP939 —— 每次借都真的改了它的读数口径。
+   *   ⇒ 问题不是能力，是**没有触发**（工具在手，没人叫它去用）。
+   * ★★★ 所以要的是**规则 + 配额**（纪律㊱：回头看类规则必须有配额，否则吃满产出）。
+   */
+  lastExternalAt: number;
+  /** ★ 本 window 已经问过几次外部材料（配额）*/
+  externalAsked: number;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -347,6 +397,8 @@ export function newState(): State {
     lastConvergedMtime: convergedMtime(),
     challengedOutputs: [],
     runStartedAt: Date.now(),
+    lastExternalAt: 0,
+    externalAsked: 0,
     lastTickAt: Date.now(),
   };
 }
@@ -401,6 +453,7 @@ export async function tick(
       onNewFinding: () => Promise<void>;
       onInstrumentReview: () => Promise<void>;
       onGeneralize: () => Promise<void>;
+      onExternal: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -455,6 +508,8 @@ export async function tick(
   await rules.onNewFinding();
   // ★★★ 2026-10-21 第 6 条：提炼（节拍判据，不靠内容判断）
   await rules.onGeneralize();
+  // ★ 非阻塞（steer）：排在所有会 fire 的规则之后（纪律㉚）
+  await rules.onExternal();
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
@@ -476,6 +531,7 @@ export async function tick(
 import { makeDrainer } from "./dispatch.ts";
 import { canOpenNewAudit, readClosure } from "./closure.ts";
 import { readProjects } from "./projects.ts";
+import { externalUsage, readArtifacts } from "./experiments.ts";
 
 export function makeRules(ctx: TriggerCtx) {
   const { state } = ctx;
@@ -525,7 +581,8 @@ export function makeRules(ctx: TriggerCtx) {
   async function onSettled(): Promise<void> {
     // ★ 收尾态：不再 fire 新专家（已 fire 的会跑完）
     if (ctx.closing?.()) return;
-    const outs = listOutbox();
+    // ★★★★ 两个落点都看（outbox + work/*.md）—— 否则新成果落在 work/ 就没人辩
+    const outs = listDebatable().map((x) => x.name);
     ctx.trace("onSettled", `outbox=${outs.length} auditedOutputs=${state.auditedOutputs}`);
     if (outs.length > state.auditedOutputs) {
       state.auditedOutputs = outs.length;
@@ -807,7 +864,8 @@ export function makeRules(ctx: TriggerCtx) {
     if (!ctx.challenge || !ctx.peerKeys) return;
     // ★ 收尾态：不再送新挑战
     if (ctx.closing?.()) return;
-    const outs = listOutbox();
+    // ★★★★ 两个落点都看（outbox + work/*.md）—— 否则新成果落在 work/ 就没人辩
+    const outs = listDebatable().map((x) => x.name);
     // ★★★★★ 2026-10-25 · **只挑战本轮新产出**（治"每轮重审整个历史账"）
     //
     //   ★ 实测：32 条挑战全部指向龄 13.8 分钟的旧账 —— 因为 `challengedOutputs`
@@ -815,7 +873,7 @@ export function makeRules(ctx: TriggerCtx) {
     //   ★★ 判据：`mtime > runStartedAt`。归档的账不该被"新"这个字骗（纪律㉛）。
     const fresh = pickFresh(outs, state.runStartedAt, state.challengedOutputs, (f) => {
       try {
-        return statSync(join(LAB, "outbox", f)).mtimeMs;
+        return statSync(f.startsWith("work/") ? join(LAB, f) : join(LAB, "outbox", f)).mtimeMs;
       } catch {
         return undefined;
       }
@@ -840,7 +898,7 @@ export function makeRules(ctx: TriggerCtx) {
     );
     const text =
       `## ⚔️ 辩证：有一份新同事产物需要你挑战\n\n` +
-      `**产物**：\`outbox/${target}\`\n\n` +
+      `**产物**：\`${target.startsWith("work/") ? "" : "outbox/"}${target}\`\n\n` +
       `---\n\n` +
       `★ 读完它，然后**必须表一个态**：\n` +
       `  · **给出反例**（指到文件/数字/实验）\n` +
@@ -889,6 +947,71 @@ export function makeRules(ctx: TriggerCtx) {
    * ★ 判据是**节拍**（每新增 N 份研究结论问一次），
    *   不是"检测哪份像创新" —— 后者是内容判断（硬规则①）。
    */
+  // ══════════════════════════════════════════════════════════════
+  // ★★★★★ onExternal —— **外部材料通道**（2026-10-25 设计者：网上探索权重更大）
+  //
+  //   ★ 为什么需要规则，而不是写在投递里：
+  //     实测四条通道用量 ①死线账 406 · ②跨学科 96 · **③外部材料 15（2%）** · ④反驳 13。
+  //     工具全在手上（`web_search`/`fetch_content`/`source_check` 已进白名单），
+  //     `P108/P113/P123` 每次借外部框架都真改了读数 —— **问题是没有触发**。
+  //   ★★ 纪律㊱：这条属于"回头看"类，**必须有配额** —— 所以
+  //     ① 间隔 ≥ 40 分钟；② 一个 window 最多 6 次；③ 占比够了就不再催。
+  //   ★★★ 走 `ctx.challenge`（steer）而不是 `fire`：角度座位不在 ExpertName 里。
+  // ══════════════════════════════════════════════════════════════
+  async function onExternal(): Promise<void> {
+    if (ctx.closing?.()) return;
+    if (!ctx.challenge) return;
+    const now = Date.now();
+    if (now - state.lastExternalAt < EXTERNAL_MS) return;
+    if ((state.externalAsked ?? 0) >= EXTERNAL_MAX_PER_WINDOW) return;
+
+    // ★ 读数：外部材料占比（只数**研究产物**，不数我自己的账）
+    const ratio = externalUsage(readArtifacts(join(LAB, "outbox")));
+    if (ratio.share !== null && ratio.share >= EXTERNAL_TARGET) {
+      ctx.trace("onExternal", `外部材料已占 ${Math.round(ratio.share * 100)}% ≥ 目标 ${Math.round(EXTERNAL_TARGET * 100)}% ⇒ 本轮不再催`);
+      return;
+    }
+
+    state.lastExternalAt = now;
+    state.externalAsked = (state.externalAsked ?? 0) + 1;
+    ctx.trace(
+      "onExternal",
+      `外部材料 ${ratio.n}/${ratio.total}（${ratio.share === null ? "未声明" : Math.round(ratio.share * 100) + "%"}）< 目标 ⇒ 问第 ${state.externalAsked}/${EXTERNAL_MAX_PER_WINDOW} 次`,
+    );
+
+    const peers = ctx.peerKeys?.() ?? [];
+    const who = peers.includes("falsifier") ? "falsifier" : peers.includes("hands-on") ? "hands-on" : peers[0];
+
+    const prompt = [
+      "## ★★★★★ 这一轮只做一件事：**去外面找一条能判死（或支持）你自己结论的材料**",
+      "",
+      "★ 事实（我量的，你随时可以复核）：",
+      `  · 四条灵感叹道的用量：①自己的死线账 **406 份** · ②跨学科 **96 份** · ③**外部材料只有 15 份（2%）** · ④同行反驳 13 次`,
+      "  · 你不是不会用 —— `P108` 借社会选择论、`P113` 借 Cohen κ、`P123` 借 Kitagawa 分解 + ECB WP939，",
+      "    **每次借都真的改了你的读数口径**。缺的不是能力，是**没人叫你去借**。",
+      "",
+      "### 你要交的（四件事，缺一算没答）",
+      "",
+      "1. **挑一条你自己的具体结论**（带数，能指回 `outbox/P*.md`）",
+      "2. **去外面找一条材料** —— 论文 / 标准 / 别人的实现 / 官方文档。**优先网上搜**。",
+      "   必须给：**出处 URL** + **原文里的一句话（逐字）**",
+      "3. **它是支持还是判死你那条结论** —— 说清在哪一点上一致/冲突",
+      "4. **它改了你什么** —— 口径、判据、还是结论本身（改不了就写「没改，因为…」）",
+      "",
+      "★ 不许做的：",
+      "  · 引一条**跟你结论无关**的材料（那只是装饰）",
+      "  · 编一个 URL（★ 我会去核；编一次，这条通道以后就废了）",
+      "  · 说「我搜了没找到」却**不给搜过的词**（★ 要给 query 列表）",
+      "",
+      "★★ 判据：这条材料必须挂在**一条具体的 claim** 上，不是挂在「这个方向」上。",
+    ].join(String.fromCharCode(10));
+
+    if (who && ctx.challenge) {
+      ctx.challenge(who, prompt);
+      ctx.trace("onExternal", `→ ${who}（steer，web 优先）`);
+    }
+  }
+
   async function onGeneralize(): Promise<void> {
     if (ctx.closing?.()) return;
 
@@ -967,5 +1090,5 @@ export function makeRules(ctx: TriggerCtx) {
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, drainer };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, drainer };
 }

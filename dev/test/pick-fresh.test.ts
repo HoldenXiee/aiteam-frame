@@ -37,3 +37,17 @@ describe("pickFresh：★ 只挑本轮新产出（历史账不许被当成新）
     assert.deepEqual(pickFresh(outs, START, ["new-b.md"], m), ["new-a.md"]);
   });
 });
+
+describe("listDebatable 的口径：两个落点都要（outbox + work/*.md）", () => {
+  // ★ 这一条守的是"辩证被饿住"：r3 一轮写 11 份到 work/，outbox 0 新增，
+  //   而 onNewFinding 只看 outbox ⇒ 一轮只辩 2–5 份。
+  it("名字以 work/ 前缀区分落点（记账要用得到）", () => {
+    assert.equal("work/P1.md".startsWith("work/"), true);
+    assert.equal("P1.md".startsWith("work/"), false);
+  });
+  it("★ 账本不算研究产物（PROJECTS/EXPERIMENTS/STATE/下划线件）", () => {
+    const skip = /^(STATE|PROJECTS|EXPERIMENTS)/;
+    for (const f of ["STATE.md", "PROJECTS.md", "EXPERIMENTS-hands-on.md"]) assert.ok(skip.test(f), f);
+    for (const f of ["P123-x.md", "面-denom.md"]) assert.ok(!skip.test(f), f);
+  });
+});

@@ -572,6 +572,78 @@ export function renderLoci(l: Loci): string {
   );
 }
 
+/**
+ * ★★★★ 外部材料用量 —— 四条灵感叹道里**最弱的一条**（2026-10-25）
+ *
+ * ★ 实测：①自己的死线账 406 份 · ②跨学科 96 份 · **③外部材料 15 份（2%）** · ④同行反驳 13 次。
+ * ★★ 判据 = 产物里出现**真外部 URL**（排除 localhost/内网）+ 已知学术/标准站点。
+ *   局限：URL 出现 ≠ 读懂了；编的 URL 也数得进（要核内容得另做，见 `onExternal` 的"我会去核"）。
+ */
+const EXTERNAL_URL_RE =
+  /https?:\/\/(?!localhost|127\.|0\.0\.0\.0)[^\s)`'"|>]+|arxiv\.org|doi\.org|nature\.com|sciencemag|springer|acm\.org|ieee|ecb\.europa|reproducible-builds\.org/i;
+
+/**
+ * ★★★★ 设计者投放的网上文章（2026-10-25 新增通道）
+ *
+ * ★ 设计者原话：「我可能会时不时的给你网上的一些文章来给你或集群提供灵感」
+ *   落在 `research/docs/研究员提供的网上文章/`。
+ * ★★ 这是**第五类材料**：不是集群自己搜的（③），是**别人递给它的**。
+ *   它的价值在于**选题不受集群自己的盲区限制** —— 集群搜的时候只会搜它已经想到的词。
+ * ★★★ 但它**不是任务**：不引用不算病（设计者：「不要影响研究」）。
+ *   所以我只**数**它，不催它。
+ */
+export const PROVIDED_DIR = "research/docs/研究员提供的网上文章";
+
+export interface ProvidedUse {
+  /** 目录里有多少篇 */
+  available: number;
+  /** 有多少份产物引用了其中某一篇（按文件名主干匹配）*/
+  cited: number;
+  total: number;
+  files: string[];
+}
+
+export function providedUsage(arts: readonly Artifact[], files: readonly string[]): ProvidedUse {
+  const stems = files
+    .map((f) => f.replace(/\.md$/i, "").replace(/[？?：:，,、]/g, ""))
+    .filter((f) => f.length >= 6)
+    .map((f) => f.slice(0, 18));
+  const cited = arts.filter((a) => {
+    const t = a.text.replace(/[？?：:，,、]/g, "");
+    return stems.some((s) => t.includes(s));
+  }).length;
+  return { available: files.length, cited, total: arts.length, files: [...files] };
+}
+
+export function renderProvided(u: ProvidedUse): string {
+  if (u.available === 0) return "★ 设计者投放的文章：0 篇（`research/docs/研究员提供的网上文章/`）";
+  return (
+    `★ 设计者投放的文章：**${u.available} 篇**在 \`${PROVIDED_DIR}/\`` +
+    ` · 被引用 **${u.cited}/${u.total}** 份产物　` +
+    `← ★ 这不是任务（不引用不算病），但它**选题不受你自己搜词的盲区限制**`
+  );
+}
+
+export interface ExternalUsage {
+  n: number;
+  total: number;
+  share: number | null;
+}
+
+export function externalUsage(arts: readonly Artifact[]): ExternalUsage {
+  const n = arts.filter((a) => EXTERNAL_URL_RE.test(a.text)).length;
+  return { n, total: arts.length, share: arts.length ? n / arts.length : null };
+}
+
+export function renderExternal(e: ExternalUsage): string {
+  const pct = e.share === null ? "未声明" : `${Math.round(e.share * 100)}%`;
+  return (
+    `★ 灵感叹道｜③外部材料：**${pct}**（${e.n}/${e.total}）` +
+    `　← ★ 四条里最弱的一条（死线账 406 · 跨学科 96 · **外部 15** · 反驳 13）；` +
+    `规则 \`onExternal\` 会按配额催（纪律㊱）`
+  );
+}
+
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
 
 /**

@@ -6,6 +6,10 @@
 import {
   conjectures,
   artifactLoci,
+  externalUsage,
+  providedUsage,
+  renderExternal,
+  renderProvided,
   attentionMix,
   renderLoci,
   crossCarrier,
@@ -30,7 +34,16 @@ console.log(
     renderAttention(attentionMix(readArtifacts(root + "/outbox"))),
     renderCrossCarrier(crossCarrier(readArtifacts(root + "/outbox"))),
     renderDialectic(dialecticStats(readChallenges(root))),
-    renderLoci(artifactLoci(root, Date.now() - 3 * 3600_000))].join(String.fromCharCode(10)) +
+    renderLoci(artifactLoci(root, Date.now() - 3 * 3600_000)),
+    renderExternal(externalUsage(readArtifacts(root + "/outbox"))),
+    renderProvided(
+      providedUsage(
+        readArtifacts(root + "/outbox"),
+        (await import("node:fs")).existsSync("research/docs/研究员提供的网上文章")
+          ? (await import("node:fs")).readdirSync("research/docs/研究员提供的网上文章").filter((f: string) => f.endsWith(".md"))
+          : [],
+      ),
+    )].join(String.fromCharCode(10)) +
     String.fromCharCode(10) +
   renderExperiments(
     stats,

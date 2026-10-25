@@ -6,7 +6,7 @@
 //   · ✗ 不做：在外面盯状态、判断、起 agent
 //   ⇒ 所以这里**没有 while 循环看状态** —— 规则挂在 `agent.on(...)` 上，由事件驱动。
 
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
@@ -31,6 +31,10 @@ import {
   conjectures,
   artifactLoci,
   attentionMix,
+  externalUsage,
+  providedUsage,
+  renderExternal,
+  renderProvided,
   crossCarrier,
   renderLoci,
   generalizability,
@@ -718,6 +722,10 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       const cj = conjectures(arts);
       const gen = generalizability(arts);
       const pt = portStats(readPort(LAB));
+      const providedDir = join(REPO, "research/docs/研究员提供的网上文章");
+      const providedFiles = existsSync(providedDir)
+        ? readdirSync(providedDir).filter((f) => f.endsWith(".md"))
+        : [];
       const ptTorn = readPortTorn(LAB);
       const cutoff = Date.now() - 86_400_000;
       const recent = arts.filter((a) => a.mtimeMs >= cutoff);
@@ -828,6 +836,31 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("★★ 而**外部对象引用 = 0**：你现在读得到 `forge` 的代码、书、库正本，但**一份产物都没引过它们**。");
       P.push("");
       // ★★★★ 2026-10-25 · 「可推广」从**说法**变成**执行证据**
+      // ★★★★★ 设计者 2026-10-25：「网上探索的权重应该更大」
+      P.push("### ★★★★ 外部材料（**这一条现在是权重最高的通道**）");
+      P.push("");
+      P.push("四条灵感叹道的实测用量：①自己的死线账 **406 份** · ②跨学科 **96 份** · ③**外部材料 15 份（2%）** · ④同行反驳 13 次。");
+      P.push("");
+      P.push("★ 你不是不会用 —— `P108` 借社会选择论、`P113` 借 Cohen κ、`P123` 借 Kitagawa 分解 + ECB WP939，");
+      P.push("  **每次借都真改了你的读数口径**。缺的不是能力，是没人叫你去借。");
+      P.push("");
+      P.push("★★ 所以：**这一轮如果你只能做一件事，就去外面找一条材料**，挂在一条你**自己的具体结论**上：");
+      P.push("  出处 URL + 原文一句话（逐字）+ 它**支持还是判死**那条结论 + 它改了你什么。");
+      P.push("  ★ 编 URL 我会去核；编一次，这条通道以后就不给了。");
+      P.push("");
+      // ★★★ 设计者投放的文章：**不是任务，是选题池**
+      if (providedFiles.length > 0) {
+        P.push("### ★ 设计者会时不时往一个目录里放文章（**不是任务**）");
+        P.push("");
+        P.push("`research/docs/研究员提供的网上文章/` —— 现在 **" + providedFiles.length + " 篇**：");
+        for (const f of providedFiles.slice(0, 6)) P.push("· `" + f + "`");
+        P.push("");
+        P.push("★ 原话：「不要影响研究，我只是说，我可能会时不时的给你网上的一些文章来给你或集群提供灵感」。");
+        P.push("⇒ **不引用不算病**。但它们有一点是你自己搜不出来的：");
+        P.push("  **选题不受你自己搜词的盲区限制** —— 你搜的时候只会搜你已经想到的词。");
+        P.push("");
+      }
+
       P.push("### ★★★ 一个数：**跨载体成立 = " + pt.portable + " 条**");
       P.push("");
       P.push("判据是硬的：一条结论算可推广，**当且仅当它在 ≥2 个不同载体上真跑过、都 exit 0** ——");
@@ -1109,6 +1142,15 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderDialectic(dialecticStats(readChallenges(LAB))),
       renderPort({ ...portStats(readPort(LAB)), torn: readPortTorn(LAB) }),
       renderLoci(artifactLoci(LAB, Date.now() - 3 * 3600_000)),
+      renderExternal(externalUsage(readArtifacts(join(LAB, "outbox")))),
+      renderProvided(
+        providedUsage(
+          readArtifacts(join(LAB, "outbox")),
+          existsSync(join(REPO, "research/docs/研究员提供的网上文章"))
+            ? readdirSync(join(REPO, "research/docs/研究员提供的网上文章")).filter((f) => f.endsWith(".md"))
+            : [],
+        ),
+      ),
     ]) {
       log("readout", line);
     }
