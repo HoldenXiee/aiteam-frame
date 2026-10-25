@@ -51,6 +51,7 @@ import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
 import { makePortRun } from "./tools/port-run.ts";
+import { convergedGate, renderGate } from "./topology/converged-gate.ts";
 import {
   deepProjects,
   externalUrlShare,
@@ -927,6 +928,20 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
         P.push("★★★ 自签会被拒（工具会拦）—— 这是有意的：**作者自签等于没审**。");
         P.push("");
       }
+      // ★★★★★ 2026-10-25 · **收敛门**：你的「我收敛了」必须经过新的门
+      const gate = convergedGate(LAB, readStructured(LAB));
+      P.push("### ★★★★★ 收敛门：**" + (gate.pass ? "通过" : "未通过") + "**");
+      P.push("");
+      P.push(gate.verdict);
+      P.push("");
+      P.push("★ 判据（纯形式，我不判结论对错）：");
+      P.push("  `outbox/CONVERGED.md` 状态表的「证据 id」列，**必须指到 `E*`**，");
+      P.push("  而那几条 `E*` **必须被别人独立审过**、且**没被判「补的」**。");
+      P.push("");
+      P.push("★★ 为什么这道门：你那 236 行状态表的证据 id 全是 `P*`（旧文本产物），");
+      P.push("  而结构化实验 `E*` **一条都没进去** —— 也就是说**「我收敛了」没有经过新门**。");
+      P.push("  这不是格式问题：**没经过门的结论，不该用来宣布停了。**");
+      P.push("");
       P.push("### ★★★★ 这一轮请先做一件事：**用 `record_experiment` 记一条**（哪怕结局是死/挂起）");
       P.push("");
       P.push("★ 最少要满足：两个载体都 exit 0（跨载体成立）+ 一句 `source` + 一格 `phenomenon`。");
@@ -1236,6 +1251,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderPort({ ...portStats(readPort(LAB)), torn: readPortTorn(LAB) }),
       renderLoci(artifactLoci(LAB, Date.now() - 3 * 3600_000)),
       renderSeven(sevenStats(readStructured(LAB))),
+      renderGate(convergedGate(LAB, readStructured(LAB))),
       (() => {
         const rows = readStructured(LAB);
         const chains = projectChains(rows);

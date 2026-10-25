@@ -24,6 +24,7 @@ import {
   renderGeneralizability,
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
+import { convergedGate, renderGate } from "../hunt/topology/converged-gate.ts";
 import {
   deepProjects,
   externalUrlShare,
@@ -65,6 +66,7 @@ console.log(
     // ★★★★ 两账并排（纪律⑩：新旧不混）—— 结构化账是**新判据**，自由文本账只算历史
     "★★ 本轮判据只看**结构化账**（下面这两行）；自由文本账（235 份历史）**只存档、不参与新判据**",
     renderSeven(sevenStats(readStructured(root))),
+    renderGate(convergedGate(root, readStructured(root))),
     (() => {
       const rows = readStructured(root);
       const ex = externalUrlShare(rows);
