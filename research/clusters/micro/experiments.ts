@@ -24,7 +24,14 @@ import {
   renderGeneralizability,
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
-import { readStructured, renderSeven, sevenStats } from "../hunt/tools/record-experiment.ts";
+import {
+  deepProjects,
+  externalUrlShare,
+  projectChains,
+  readStructured,
+  renderSeven,
+  sevenStats,
+} from "../hunt/tools/record-experiment.ts";
 import { readProjects, renderProjects } from "../hunt/topology/projects.ts";
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -56,6 +63,20 @@ console.log(
     renderExternal(externalUsage(readArtifacts(root + "/outbox"))),
     renderItemGap(itemGap(ledgerTextOf(root))),
     renderSeven(sevenStats(readStructured(root))),
+    (() => {
+      const rows = readStructured(root);
+      const ex = externalUrlShare(rows);
+      const pct = ex.share === null ? "未声明" : Math.round(ex.share * 100) + "%";
+      const chains = projectChains(rows)
+        .slice(0, 5)
+        .map((c) => `${c.project} ${c.rows} 条${c.external ? `（外部 ${c.external}）` : ""}`)
+        .join(" · ");
+      return (
+        `★★ 项目链深：${chains || "未声明"}　← ★ 链深 ≥3 的项目 **${deepProjects(rows)}** 个` +
+        String.fromCharCode(10) +
+        `★★ 真外部 URL（一等判据，不与「本仓:」混）：**${pct}**（${ex.n}/${ex.total}）`
+      );
+    })(),
     renderProvided(
       providedUsage(
         readArtifacts(root + "/outbox"),

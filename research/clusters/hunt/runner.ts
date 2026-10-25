@@ -51,7 +51,16 @@ import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
 import { makePortRun } from "./tools/port-run.ts";
-import { makeRecordExperiment, sevenStats, readStructured, renderSeven } from "./tools/record-experiment.ts";
+import {
+  deepProjects,
+  externalUrlShare,
+  makeRecordExperiment,
+  makeReviewExperiment,
+  projectChains,
+  readStructured,
+  renderSeven,
+  sevenStats,
+} from "./tools/record-experiment.ts";
 import { portStats, readPort, readPortTorn, renderPort } from "./tools/port-run.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
@@ -315,6 +324,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const myKey = ang.key; // ★ hunt 的座位 key = 角度名
     // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
     const portRun = makePortRun({ lab: LAB, selfKey: myKey });
+    const reviewExperiment = makeReviewExperiment({ lab: LAB, selfKey: myKey });
     const recordExperiment = makeRecordExperiment({
       lab: LAB,
       selfKey: myKey,
@@ -343,7 +353,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       role: role + renderSeat(ang),
       // ★★ 白名单必须显式带上 web 工具 —— 否则扩展装了也进不来（P108 实测）
       permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
-      tools: { custom: [consult, spawnLine, challenge, portRun, recordExperiment] },
+      tools: { custom: [consult, spawnLine, challenge, portRun, recordExperiment, reviewExperiment] },
     });
     // ★ 研究员**不能**写 `lib/`（它的路是「写成缺口报告」，见 `LIB_BLOCK_REASON`）—— 保持默认 policy。
     //   ★ 为什么显式写出来而不省略：省略会让下一个人以为「忘了传」，改错方向。
@@ -902,6 +912,18 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
           P.push("");
         }
       }
+      // ★★★★★ 2026-10-25 大改：现象必须被**另一位**审过（自己审自己不算）
+      const pending = readStructured(LAB).filter((r) => !r.reviewedBy);
+      if (pending.length > 0) {
+        P.push("### ★★★★★ 有 **" + pending.length + " 条现象还没被独立审**：" +
+          pending.slice(0, 5).map((r) => "`" + r.id + "`(" + r.by + ")").join(" · "));
+        P.push("");
+        P.push("用 `review_experiment` 审一条**不是你自己写的**：它是**真意外**，还是**先看读数再补的预期**？");
+        P.push("★ 判 `补的` 要指到证据：PREREG 里有没有先写死预期 / 读数是否只在事后出现。");
+        P.push("★★ **这个判定直接决定它算不算「发现型」** —— 没被人认过的现象，只算「填了」。");
+        P.push("★★★ 自签会被拒（工具会拦）—— 这是有意的：**作者自签等于没审**。");
+        P.push("");
+      }
       P.push("### ★★★★ 这一轮请先做一件事：**用 `record_experiment` 记一条**（哪怕结局是死/挂起）");
       P.push("");
       P.push("★ 最少要满足：两个载体都 exit 0（跨载体成立）+ 一句 `source` + 一格 `phenomenon`。");
@@ -1211,6 +1233,24 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderPort({ ...portStats(readPort(LAB)), torn: readPortTorn(LAB) }),
       renderLoci(artifactLoci(LAB, Date.now() - 3 * 3600_000)),
       renderSeven(sevenStats(readStructured(LAB))),
+      (() => {
+        const rows = readStructured(LAB);
+        const chains = projectChains(rows);
+        const ex = externalUrlShare(rows);
+        const deep = deepProjects(rows);
+        const ext = ex.share === null ? "未声明" : `${Math.round(ex.share * 100)}%`;
+        return (
+          `★★ 项目链深（按 project 聚合，不靠人肉写版本）：` +
+          (chains.length === 0
+            ? "未声明"
+            : chains
+                .slice(0, 5)
+                .map((c) => `${c.project} ${c.rows} 条${c.external ? `（外部 ${c.external}）` : ""}`)
+                .join(" · ")) +
+          `　← ★ 链深 ≥3 的项目 **${deep}** 个`
+        ) + String.fromCharCode(10) +
+        `★★ 真外部 URL（一等判据：不与 \`本仓:\` 混）：**${ext}**（${ex.n}/${ex.total}）`;
+      })(),
       renderExternal(externalUsage(readArtifacts(join(LAB, "outbox")))),
       renderProvided(
         providedUsage(

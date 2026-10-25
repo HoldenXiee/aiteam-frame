@@ -25,7 +25,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 export const EXPERIMENTS_FILE = "experiments.jsonl";
@@ -41,6 +41,11 @@ export interface CarrierRun {
 
 export interface ExperimentRow {
   at: string;
+  /**
+   * ★★★★ 行号（`E1`/`E2`…）—— 让**另一位**能指着它说"这个现象是真的/补的"。
+   * ★ 没有 id 就没有可挑战的对象；`challenge` 只能挑战产物，不能挑战一格。
+   */
+  id: string;
   by: string;
   /** ★ 与 `PROJECTS.md` 的行号关联 —— 链深靠它算，不靠人肉写 */
   project: string;
@@ -56,6 +61,17 @@ export interface ExperimentRow {
   model: string;
   conjecture: string;
   outcome: Outcome;
+  /**
+   * ★★★★★ 现象的**独立审查**（2026-10-25 大改 · 补上"填了不等于真"这一格）
+   *
+   * ★ 为什么必须有：整治后 `现象` 从 1% 到 14/14 —— 但那只是"填了"。
+   *   常识告诉我：**一个自报的'意外'可以是补出来的**（先看读数再编预期）。
+   * ★★ 判据只能由**另一位**给（自己审自己不算 —— 与 forge 的「作者自签」是同一个病）。
+   * ★★★ 于是 `discovery` 不再只看"填了没有"，而是看"**有没有人独立认过**"。
+   */
+  phenomenonVerdict: "真意外" | "补的" | "未审";
+  reviewedBy: string;
+  reviewNote: string;
 }
 
 export function experimentsPath(lab: string): string {
@@ -78,9 +94,89 @@ export function readStructured(lab: string): ExperimentRow[] {
   return out;
 }
 
+/** ★ 下一个行号（`E1`…）—— 幂等：只看已有条数 */
+export function nextId(lab: string): string {
+  return `E${readStructured(lab).length + 1}`;
+}
+
 export function appendStructured(lab: string, row: ExperimentRow): void {
   mkdirSync(join(lab, "work"), { recursive: true });
   appendFileSync(experimentsPath(lab), JSON.stringify(row) + "\n", "utf8");
+}
+
+/**
+ * ★★★★★ 独立审查一格「现象」—— **另一个座位**才能做（自己审自己不算）
+ *
+ * ★ 为什么必须有：整治后现象从 1% 到 14/14，但那只说明**填了**。
+ *   自报的"意外"完全可以是**先看读数再编预期**。
+ * ★★ 所以 `discovery` 不该只看"填了没有"，要看"有没有人独立认过"。
+ */
+export interface ReviewResult {
+  ok: boolean;
+  reason?: string;
+  row?: ExperimentRow;
+}
+
+export function applyReview(
+  lab: string,
+  id: string,
+  r: { by: string; verdict: "真意外" | "补的"; note: string },
+): ReviewResult {
+  const rows = readStructured(lab);
+  const i = rows.findIndex((x) => x.id === id);
+  if (i < 0) {
+    return { ok: false, reason: `没有 ${id} 这一行（现有：${rows.map((x) => x.id).join(" · ") || "空账"}）` };
+  }
+  const row = rows[i]!;
+  if (row.by === r.by) {
+    return { ok: false, reason: `不能审自己写的实验（作者 ${row.by}）—— 自签不算独立审查` };
+  }
+  if (!r.note.trim()) {
+    return { ok: false, reason: "必须写 note：凭什么判它是真意外/补的（指到 PREREG、读数或时间线）" };
+  }
+  rows[i] = { ...row, phenomenonVerdict: r.verdict, reviewedBy: r.by, reviewNote: r.note };
+  mkdirSync(join(lab, "work"), { recursive: true });
+  writeFileSync(
+    experimentsPath(lab),
+    rows.map((x) => JSON.stringify(x)).join(String.fromCharCode(10)) + String.fromCharCode(10),
+    "utf8",
+  );
+  return { ok: true, row: rows[i] };
+}
+
+export function makeReviewExperiment(deps: { lab: string; selfKey: string }) {
+  return defineTool({
+    name: "review_experiment",
+    label: "Review Experiment",
+    description:
+      "★ **审别人记的实验里的「现象」那一格**：是真意外，还是先看读数再补的预期？\n" +
+      "★★ **不能审自己写的**（自签不算独立审查，会被拒）。\n" +
+      "★ 判 `补的` 要指到证据：PREREG 里有没有先写死预期 / 读数是否只在事后出现 / 预期写得比读数还笼统。\n" +
+      "★ 这个判定直接决定它算不算「发现型」—— 别客气，也别报复。",
+    parameters: Type.Object({
+      id: Type.String({ description: "实验行号（例如 E3）" }),
+      verdict: Type.Union([Type.Literal("真意外"), Type.Literal("补的")], {
+        description: "真意外 / 补的（先看读数再编预期）",
+      }),
+      note: Type.String({ description: "★ 凭什么（指到 PREREG/读数/时间线），不许写「看起来像」" }),
+    }),
+    execute: async (_id, p) => {
+      const r = applyReview(deps.lab, p.id, { by: deps.selfKey, verdict: p.verdict, note: p.note });
+      if (!r.ok) return { content: [{ type: "text" as const, text: `⛔ ${r.reason}` }], details: {} };
+      const s = sevenStats(readStructured(deps.lab));
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              `✔ ${p.id} 的现象判为 **${p.verdict}**（审查人 ${deps.selfKey}）\n` +
+              `★ 全账：独立审查 ${s.reviewed} 条 · 判"补的" ${s.calledFake} 条 · 未审 ${s.rows - s.reviewed} 条`,
+          },
+        ],
+        details: {},
+      };
+    },
+  });
 }
 
 /**
@@ -94,6 +190,10 @@ export interface SevenStats {
   withConjecture: number;
   /** ★ 跨载体成立（≥2 个载体都 exit 0）*/
   portable: number;
+  /** 现象被**另一位**审过的条数 */
+  reviewed: number;
+  /** 被判「补的」的条数 */
+  calledFake: number;
   /** 通过 ≥2 载体 + 现象 + 模型 + **结局=活** ⇒ "发现型" */
   discovery: number;
   /**
@@ -106,6 +206,49 @@ export interface SevenStats {
   sources: number;
 }
 
+/**
+ * ★★★★★ 按 `project` 聚合 —— **链深终于能自动算了**（不再靠人肉写"版本 v6"）
+ * ★★ 链深的定义：该 project 的**实验行数**（每条 = 推了一次）。
+ *   为什么不用"版本号差"：版本号是它手写的，会撞号（`X2-IS` 撞过，它自己记了 P127）。
+ */
+export interface ProjectChain {
+  project: string;
+  rows: number;
+  /** 有几条带真外部 URL */
+  external: number;
+  /** 有几条被独立审查过 */
+  reviewed: number;
+  /** 被判"补的" */
+  calledFake: number;
+}
+
+export function projectChains(rows: readonly ExperimentRow[]): ProjectChain[] {
+  const m = new Map<string, ProjectChain>();
+  for (const r of rows) {
+    const k = r.project.replace(/[`*]/g, "").trim() || "(未声明)";
+    const cur = m.get(k) ?? { project: k, rows: 0, external: 0, reviewed: 0, calledFake: 0 };
+    cur.rows++;
+    if (EXTERNAL_URL.test(r.source)) cur.external++;
+    if (r.reviewedBy && r.reviewedBy !== r.by) cur.reviewed++;
+    if (r.phenomenonVerdict === "补的") cur.calledFake++;
+    m.set(k, cur);
+  }
+  return [...m.values()].sort((a, b) => b.rows - a.rows);
+}
+
+/** ★ 链深 ≥3 的项目数（DESIGN §"跨轮累积"的直接判据）*/
+export function deepProjects(rows: readonly ExperimentRow[], min = 3): number {
+  return projectChains(rows).filter((c) => c.rows >= min).length;
+}
+
+/** ★★★ 「真外部 URL」一等判据（与 `本仓:` 分开数，不许混）*/
+const EXTERNAL_URL = /^(https?:\/\/|arxiv:|doi:|10\.\d{4}\/)/i;
+
+export function externalUrlShare(rows: readonly ExperimentRow[]): { n: number; total: number; share: number | null } {
+  const n = rows.filter((r) => EXTERNAL_URL.test(r.source)).length;
+  return { n, total: rows.length, share: rows.length ? n / rows.length : null };
+}
+
 export function sevenStats(rows: readonly ExperimentRow[]): SevenStats {
   const withPhenomenon = rows.filter((r) => r.phenomenon.trim().length > 0).length;
   const withModel = rows.filter((r) => r.model.trim().length > 0).length;
@@ -113,10 +256,14 @@ export function sevenStats(rows: readonly ExperimentRow[]): SevenStats {
   const ok = rows.filter((r) => r.carriers.length >= 2 && r.carriers.every((c) => c.exit === 0)).length;
   const withPhen = (r: ExperimentRow) =>
     r.carriers.length >= 2 && r.carriers.every((c) => c.exit === 0) && !!r.phenomenon.trim() && !!r.model.trim();
+  // ★★ 独立审查过、且没被判"补的" —— 这才算现象站得住（自己审自己不算）
+  const independent = (r: ExperimentRow) => !!r.reviewedBy && r.reviewedBy !== r.by;
   const discovery = rows.filter((r) => withPhen(r) && r.outcome === "活").length;
   const refuting = rows.filter((r) => withPhen(r) && r.outcome === "死").length;
   const sources = rows.filter((r) => !!r.source.trim()).length;
-  return { rows: rows.length, withPhenomenon, withModel, withConjecture, portable: ok, discovery, refuting, sources };
+  const reviewed = rows.filter((r) => !!r.reviewedBy && r.reviewedBy !== r.by).length;
+  const calledFake = rows.filter((r) => r.phenomenonVerdict === "补的").length;
+  return { rows: rows.length, withPhenomenon, withModel, withConjecture, portable: ok, reviewed, calledFake, discovery, refuting, sources };
 }
 
 export function renderSeven(s: SevenStats): string {
@@ -128,7 +275,8 @@ export function renderSeven(s: SevenStats): string {
   }
   return (
     `★★★ 结构化实验：**${s.rows} 条** · 现象 ${s.withPhenomenon} · 模型 ${s.withModel} · 猜想 ${s.withConjecture}` +
-    ` · **跨载体成立 ${s.portable}** · ★ 发现型 ${s.discovery} · ★★ 反例型 ${s.refuting}` +
+    ` · **跨载体成立 ${s.portable}** · ★ 现象被独立审 ${s.reviewed}（判"补的"${s.calledFake}）` +
+    ` · ★ 发现型 ${s.discovery} · ★★ 反例型 ${s.refuting}` +
     ` · 有出处 ${s.sources}` +
     `　← ★ 「预期 X，实测 Y ⇒ X 错」两种结局都算（发现型=活，反例型=死）；只有"两条都不占"的才是纯裁决`
   );
@@ -262,6 +410,10 @@ export function makeRecordExperiment(deps: { lab: string; selfKey: string; proje
       }
       const row: ExperimentRow = {
         at: new Date().toISOString(),
+        id: nextId(deps.lab),
+        phenomenonVerdict: "未审",
+        reviewedBy: "",
+        reviewNote: "",
         by: deps.selfKey,
         project: p.project,
         claim: p.claim,

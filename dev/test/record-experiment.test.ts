@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { rmSync } from "node:fs";
 import {
+  applyReview,
+  deepProjects,
+  externalUrlShare,
+  projectChains,
   appendStructured,
   insideLabDir,
   readStructured,
@@ -65,9 +69,10 @@ describe("validateExperiment：★ 缺格就拒收（这是它代替「要求」
 describe("sevenStats：★ 「发现型」= 跨载体 + 现象 + 模型", () => {
   const row = (over: Partial<Parameters<typeof sevenStats>[0][number]>) =>
     ({
-      at: "t", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
+      phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
       ...over,
     }) as Parameters<typeof sevenStats>[0][number];
 
@@ -101,9 +106,83 @@ describe("insideLabDir / 落账", () => {
   it("append + read 往返", () => {
     rmSync(`${lab}/work`, { recursive: true, force: true });
     appendStructured(lab, {
-      at: "t", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
       carriers: [], phenomenon: "", phenomenonAbsent: "没有意外", model: "", conjecture: "", outcome: "活",
+      phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
     });
     assert.equal(readStructured(lab).length, 1);
+  });
+});
+
+describe("★★★★ 大改：链深聚合 / 真外部 URL / 现象必须被别人审", () => {
+  const mk = (over: Record<string, unknown>) =>
+    ({
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k",
+      source: "https://bazel.build/x",
+      carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
+      phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
+      phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
+      ...over,
+    }) as never;
+
+  it("★ 按 project 聚合：链深 = 该项目的实验行数（不靠人肉写版本号）", () => {
+    const rows = [mk({ id: "E1", project: "X2" }), mk({ id: "E2", project: "X2" }), mk({ id: "E3", project: "X3" })];
+    const c = projectChains(rows);
+    assert.equal(c[0].project, "X2");
+    assert.equal(c[0].rows, 2);
+    assert.equal(deepProjects(rows, 3), 0);
+    assert.equal(deepProjects([...rows, mk({ id: "E4", project: "X2" })], 3), 1);
+  });
+
+  it("★★ 真外部 URL 与 `本仓:` 分开数（一等判据，不许混）", () => {
+    const rows = [mk({ source: "https://x.org/a" }), mk({ source: "本仓:src/index.ts" })];
+    const e = externalUrlShare(rows);
+    assert.equal(e.n, 1);
+    assert.equal(e.share, 0.5);
+  });
+
+  it("★★★ 现象被独立审过才算（自己审自己不计）", () => {
+    const self = sevenStats([mk({ reviewedBy: "a" })]); // 作者也是 a
+    assert.equal(self.reviewed, 0);
+    const other = sevenStats([mk({ reviewedBy: "b", phenomenonVerdict: "真意外" })]);
+    assert.equal(other.reviewed, 1);
+  });
+
+  it("★★ 判「补的」单独计数", () => {
+    assert.equal(sevenStats([mk({ reviewedBy: "b", phenomenonVerdict: "补的" })]).calledFake, 1);
+  });
+});
+
+describe("applyReview：★ 自签会被拒（与 forge 的作者自签同一个病）", () => {
+  const lab = "dev/test/_sandbox-review";
+  const row = {
+    at: "t", id: "E7", by: "me", project: "X2", claim: "c", killCondition: "k", source: "u",
+    carriers: [], phenomenon: "意外", phenomenonAbsent: "", model: "m", conjecture: "", outcome: "活",
+    phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
+  } as never;
+
+  it("自己审自己 ⇒ 拒", () => {
+    rmSync(`${lab}/work`, { recursive: true, force: true });
+    appendStructured(lab, row);
+    const r = applyReview(lab, "E7", { by: "me", verdict: "真意外", note: "我核过" });
+    assert.equal(r.ok, false);
+    assert.ok((r.reason ?? "").includes("自签"));
+  });
+
+  it("别人审 + 有 note ⇒ 通过并落盘", () => {
+    const r = applyReview(lab, "E7", { by: "other", verdict: "补的", note: "PREREG 里没有预期，只有事后读数" });
+    assert.equal(r.ok, true);
+    assert.equal(readStructured(lab)[0]!.phenomenonVerdict, "补的");
+    assert.equal(readStructured(lab)[0]!.reviewedBy, "other");
+  });
+
+  it("没 note ⇒ 拒（不许写「看起来像」）", () => {
+    assert.equal(applyReview(lab, "E7", { by: "other2", verdict: "真意外", note: "  " }).ok, false);
+  });
+
+  it("没有这一行 ⇒ 拒并列出已有行号", () => {
+    const r = applyReview(lab, "E99", { by: "other", verdict: "真意外", note: "x" });
+    assert.equal(r.ok, false);
+    assert.ok((r.reason ?? "").includes("E7"));
   });
 });
