@@ -29,7 +29,9 @@ import { readClosure, renderClosure } from "./topology/closure.ts";
 import {
   artifactMix,
   conjectures,
+  attentionMix,
   generalizability,
+  renderAttention,
   renderGeneralizability,
   readArtifacts,
   readExperiments,
@@ -708,6 +710,26 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("");
       // ★★★ 2026-10-21：**读权限今天开了** —— 这件事它不知道，而它上一轮明确说过
       //   「三个合法对象值，我填不出两个……我读不到它」。所以这一条是**新信息**，必须递。
+      // ★★★★ 2026-10-21 结构修正：**问题放最前面**。
+      //
+      //   ★ 实测：这一段的投递已经有 89 行 —— 上一轮我把问题写在**最后**，
+      //     结果一轮下来**它没回答**（产物里 0 份提到那件事）。
+      //   ★★ 而前面连问两轮都灵的那几次，问题都在**显眼处**。
+      //   ⇒ 问题提到最前，读数与要求跟在它后面当依据。
+      P.push("### ★★★ 这一轮请先回答下面这一个问题（其他的都是它的依据）");
+      P.push("");
+      P.push("### 一个问题（★ 必须回答，三选一）");
+      P.push("**你现在读得到书、库正本、forge 的代码 —— 你打算读哪一个，用来做什么？**");
+      P.push("");
+      P.push("(a) **都不打算读** —— 说清为什么（比如：读了也不知道拿来干什么 / 现在的活更值）");
+      P.push("(b) **想读，但不知道读什么** —— 说清你缺的是：**一个具体问题** / **一段该读的范围**");
+      P.push("(c) **我这轮就读** —— 挑一处（书 / 库正本 / forge 的代码），");
+      P.push("    在产物里**引一个绝对路径 + 一句你从里面学到的东西**，并说清它对你的项目有什么用");
+      P.push("");
+      P.push("★ 允许答 (a)，答了不算病。★★ 唯一不许的是**不答**。");
+      P.push("★★★ 我不给题目：读哪一段、用它做什么，你自己选。");
+      P.push("");
+
       P.push("### ★★★★★ 先纠正一件事：**你现在读得到了**");
       P.push("");
       P.push("上一轮你说「三个合法对象值我填不出两个，我读不到它」。**那是真的，但那是昨天。**");
@@ -763,17 +785,6 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("");
       P.push("**③ 这一轮的第一件事：从 `PROJECTS.md` 挑一行继续**，不是开新题。");
       P.push("   把 `版本` +1，并写清**这一版改了上一版的什么**。（现在 链深≥3 的项目 = **" + pj.stats.deep + "**）");
-      P.push("");
-      P.push("### 一个问题（★ 必须回答，三选一）");
-      P.push("**你现在读得到书、库正本、forge 的代码 —— 你打算读哪一个，用来做什么？**");
-      P.push("");
-      P.push("(a) **都不打算读** —— 说清为什么（比如：读了也不知道拿来干什么 / 现在的活更值）");
-      P.push("(b) **想读，但不知道读什么** —— 说清你缺的是：**一个具体问题** / **一段该读的范围**");
-      P.push("(c) **我这轮就读** —— 挑一处（书 / 库正本 / forge 的代码），");
-      P.push("    在产物里**引一个绝对路径 + 一句你从里面学到的东西**，并说清它对你的项目有什么用");
-      P.push("");
-      P.push("★ 允许答 (a)，答了不算病。★★ 唯一不许的是**不答**。");
-      P.push("★★★ 我不给题目：读哪一段、用它做什么，你自己选。");
       P.push("");
       return P.join(String.fromCharCode(10));
     } catch (e) {
@@ -998,6 +1009,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       ...renderProjects(pj.stats, pj.mode).split(String.fromCharCode(10)),
       `★ 猜想（明写标记）：${cj.total} 条 · 标了「未验证」的 ${cj.unverified} 条`,
       renderGeneralizability(generalizability(readArtifacts(join(LAB, "outbox")))),
+      renderAttention(attentionMix(readArtifacts(join(LAB, "outbox")))),
     ]) {
       log("readout", line);
     }

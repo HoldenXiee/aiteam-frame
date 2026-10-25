@@ -5,7 +5,9 @@
  */
 import {
   conjectures,
+  attentionMix,
   generalizability,
+  renderAttention,
   readArtifacts,
   readExperiments,
   renderExperiments,
@@ -19,7 +21,8 @@ const cj = conjectures(readArtifacts(root + "/outbox"));
 const pj = readProjects(root);
 console.log(
   [renderProjects(pj.stats, pj.mode), `★ 猜想（明写标记）：${cj.total} 条 · 其中标了「未验证」${cj.unverified} 条`,
-    renderGeneralizability(generalizability(readArtifacts(root + "/outbox")))].join(String.fromCharCode(10)) +
+    renderGeneralizability(generalizability(readArtifacts(root + "/outbox"))),
+    renderAttention(attentionMix(readArtifacts(root + "/outbox")))].join(String.fromCharCode(10)) +
     String.fromCharCode(10) +
   renderExperiments(
     stats,

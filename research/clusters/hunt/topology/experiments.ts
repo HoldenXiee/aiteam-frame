@@ -392,6 +392,45 @@ export function generalizability(arts: Artifact[]): Generalizability {
   };
 }
 
+/**
+ * ★★★★★ 答辩占比 —— 「注意力被自喂环吃掉」的读数（2026-10-21 新发现）
+ *
+ * ★ 实测（按天）：
+ *   10-19 答辡 22/94 = **23%** · 实质产出（编号实验 / 实验 / 面-）**53** 份
+ *   10-24 答辡 42/54 = **78%** · 实质产出 **4** 份
+ *   10-25 答辡 40/68 = **59%** · 实质产出 **28** 份（我近几轮的改动把它拉回了一半）
+ * ★★ 答辩是**开环自喂环**：回应 → 被挑战 → 再回应（`F1→F2→F4` · `手段 I→XXII`）。
+ *    与缺陷账同一个病，而治缺陷账有效的办法是**三态处置 + 不许重开**。
+ */
+const REPLY_PREFIX =
+  /^(回应|回执|is-|F[0-9]|审|核对|答上级|台账|本轮台账|手段|装置缺陷|CONVERGED|EXPERIMENTS|PROJECTS)/;
+const SUBSTANTIVE_PREFIX = /^(P[0-9]+|实验|面-)/;
+
+export interface AttentionMix {
+  total: number;
+  /** 答辩/台账类（回答同事或记账）*/
+  reply: number;
+  /** 实质产出（编号实验 / 实验 / 面-）*/
+  substantive: number;
+  /** 其它 */
+  other: number;
+  /** 答辩 / 全部 */
+  replyShare: number | null;
+}
+
+export function attentionMix(arts: Artifact[]): AttentionMix {
+  let reply = 0;
+  let substantive = 0;
+  let other = 0;
+  for (const a of arts) {
+    if (REPLY_PREFIX.test(a.file)) reply++;
+    else if (SUBSTANTIVE_PREFIX.test(a.file)) substantive++;
+    else other++;
+  }
+  const total = arts.length;
+  return { total, reply, substantive, other, replyShare: total ? reply / total : null };
+}
+
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
 
 /**
@@ -498,6 +537,15 @@ export function experimentStats(
 }
 
 /** 渲染（★ 缺数据写「未声明」，绝不写 0 —— 纪律㉜） */
+export function renderAttention(a: AttentionMix): string {
+  const pct = (v: number | null) => (v === null ? "未声明" : `${Math.round(v * 100)}%`);
+  return (
+    `★ 注意力：答辩/台账 **${pct(a.replyShare)}**（${a.reply}/${a.total}）· ` +
+    `实质产出 ${a.substantive} · 其它 ${a.other}　` +
+    `← ★ 10-19 答辩只占 23%、实质 53 份；10-24 答辩 78%、实质 4 份`
+  );
+}
+
 export function renderGeneralizability(g: Generalizability): string {
   const pct = (v: number | null) => (v === null ? "未声明" : `${Math.round(v * 100)}%`);
   return (
