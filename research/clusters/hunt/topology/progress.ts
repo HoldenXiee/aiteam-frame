@@ -46,7 +46,31 @@ export const CLUSTER_OWN_FILES = new Set([
 ]);
 
 /** 递归数 `work/` 里（排除集群自己的）mtime 晚于 `since` 的文件数 */
-export function countFreshFiles(dir: string, since: number, acc = { n: 0 }): number {
+/**
+ * ★★★★★ 2026-10-25 · **递归扫描必须封顶**（这条曾把整个集群冻住）
+ *
+ * ★ 实测：主空间的 `work/` 有 **138135 个文件**（482MB）。`onPlateau` 每个 tick
+ *   都调 `countFreshFiles(work/)` **全树遍历** ⇒ 一次几十秒到几分钟，
+ *   期间**事件循环完全停住** ⇒ tick 只有 1 次、日志一片空白、进程到点也不收尾。
+ *   ★ 症状与"规则里 await fire"、"工具里 execFileSync"同族：
+ *     **观察者自己成了阻塞源**。这已经是这一类里的第三个入口。
+ * ★★ 修法（不改变语义，只改变"够不够用"）：
+ *   · 只要 `fresh >= threshold` 就可以提前返回（判据是"有没有进展"，不是"数准几个"）
+ *   · 目录深度封顶（work/ 下的实验目录再深也不影响"有没有在动"）
+ *   · 文件数硬上限（防止病态目录）
+ */
+const MAX_DEPTH = 2;
+const MAX_FILES = 4000;
+
+export function countFreshFiles(
+  dir: string,
+  since: number,
+  acc = { n: 0, visited: 0, stopAt: Number.POSITIVE_INFINITY },
+  depth = 0,
+): number {
+  // ★ 够了就停：判据是"有没有进展"，不是"数准几个"
+  if (acc.n >= acc.stopAt) return acc.n;
+  if (depth > MAX_DEPTH) return acc.n;
   if (!existsSync(dir)) return acc.n;
   let entries: string[] = [];
   try {
@@ -55,12 +79,15 @@ export function countFreshFiles(dir: string, since: number, acc = { n: 0 }): num
     return acc.n;
   }
   for (const f of entries) {
+    if (acc.n >= acc.stopAt) break;
+    if (acc.visited >= MAX_FILES) break;
     if (CLUSTER_OWN_FILES.has(f)) continue;
     const p = join(dir, f);
     try {
+      acc.visited++;
       const st = statSync(p);
       if (st.isDirectory()) {
-        countFreshFiles(p, since, acc);
+        countFreshFiles(p, since, acc, depth + 1);
       } else if (st.mtimeMs > since) {
         acc.n++;
       }
@@ -103,6 +130,7 @@ export function convergedMtime(): number {
  * @param since 上一次检查的时刻（★ 用挂钟，但只做**区间**用，不比较文件时间戳的大小）
  */
 export function hasProgress(since: number, freshThreshold: number): { ok: boolean; fresh: number } {
-  const fresh = countFreshFiles(join(LAB, "work"), since);
+  // ★ 够了就停：省下的不是精度，是**事件循环**（见 countFreshFiles 的注释）
+  const fresh = countFreshFiles(join(LAB, "work"), since, { n: 0, visited: 0, stopAt: freshThreshold });
   return { ok: fresh >= freshThreshold, fresh };
 }

@@ -452,6 +452,11 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     //   ★★ 后果不只是浪费：`await waitIdle()` 永远等不到空闲 ⇒
     //     **`rule:done` 永不打出来** ⇒ 按 AGENTS「没这行 = 中途被 kill」，
     //     一轮正常收尾的 run 会被**误判成崩了**。
+    // ★★★ 2026-10-25：**心跳**。没有名字 = 没发生（纪律㉖）。
+    //   实测困惑：窗口 3300s、THROTTLE_MS 300s ⇒ 该有 11 次 tick，日志里只有 1 次，
+    //   而且**没有 skip 日志** ⇒ 分不清"定时器没触发"还是"触发了但静默返回"。
+    //   ⇒ 每次进来先记一笔（含 tickBusy / closing 两个门的状态）。
+    log("tick:beat", `${src} closing=${closing ? 1 : 0} busy=${tickBusy ? 1 : 0}`);
     if (closing) return;
     if (tickBusy) {
       // ★★★ 记一笔被挡下的（2026-10-19 长跑实测）：

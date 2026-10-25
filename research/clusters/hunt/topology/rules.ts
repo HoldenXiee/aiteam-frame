@@ -455,6 +455,20 @@ export function pickPeers(peers: string[], n: number, offset: number): string[] 
   return out;
 }
 
+/** ★ 逐规则计时（`HUNT_TRACE_RULES=1` 才打）—— 用来定位"哪条规则卡住了" */
+async function step(name: string, fn: () => Promise<void>): Promise<void> {
+  if (!process.env.HUNT_TRACE_RULES) return fn();
+  const t0 = Date.now();
+  process.stderr.write(`[rule-in] ${name}
+`);
+  try {
+    await fn();
+  } finally {
+    process.stderr.write(`[rule-out] ${name} ${Date.now() - t0}ms
+`);
+  }
+}
+
 export async function tick(
   ctx: TriggerCtx & {
     rules: {
@@ -517,12 +531,12 @@ export async function tick(
   //     整个 tick 被卡住 ⇒ 排在它后面的规则**一个都轮不到**。
   //   ★★ 2026-10-20 拆分：原来这里还有 onAudience/onConsensus/onDispute
   //      （它们属于 forge，搬走了）。
-  await rules.onNewFinding();
+  await step("onNewFinding", () => rules.onNewFinding());
   // ★★★ 2026-10-21 第 6 条：提炼（节拍判据，不靠内容判断）
-  await rules.onGeneralize();
+  await step("onGeneralize", () => rules.onGeneralize());
   // ★ 非阻塞（steer）：排在所有会 fire 的规则之后（纪律㉚）
-  await rules.onExternal();
-  await rules.onPhenomenon();
+  await step("onExternal", () => rules.onExternal());
+  await step("onPhenomenon", () => rules.onPhenomenon());
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
@@ -532,13 +546,13 @@ export async function tick(
   //     **它会等专家跑完（几分钟）**，把整个 tick 卡在那里 ⇒ 排在它后面的规则全饿死。
   //   ★★ 这与 AGENTS §三 `onSettled` 那个老坑**是同一个病**，
   //     只是换了一条规则。⇒ 现在改成：**不 fire 的规则全部排在 fire 之前**。
-  await rules.onInstrumentReview();   // ★ 不 fire（除到期那次）→ 先跑，饿不死
-  await rules.onPlateau();            // ★ 同上
-  await rules.onCapabilityGap();      // ★ 会 fireNoWait(libsmith) → 往后排
+  await step("onInstrumentReview", () => rules.onInstrumentReview());   // ★ 不 fire（除到期那次）→ 先跑，饿不死
+  await step("onPlateau", () => rules.onPlateau());            // ★ 同上
+  await step("onCapabilityGap", () => rules.onCapabilityGap());      // ★ 会 fireNoWait(libsmith) → 往后排
   // ★★★ `onSettled` **必须放最后**：它会 `fireNoWait("inspector")`（等专家几分钟），
   //   是唯一会长时间阻塞 tick 的规则 ⇒ 放在前面会把后面的规则全部饿死。
   //   ★ 副作用提醒：`onSettled` 自己记 `auditedOutputs`，所以它之后不要再读那个字段。
-  await rules.onSettled();
+  await step("onSettled", () => rules.onSettled());
 }
 
 import { makeDrainer } from "./dispatch.ts";
