@@ -116,7 +116,19 @@ export const AUTH_SOURCE = ensureAuth();
 export async function labAt(cwd: string): Promise<Lab> {
   const norm = (s: string) => s.replace(/\\/g, "/");
   const root = norm(LAB);
-  if (!norm(cwd).startsWith(root)) {
+  /**
+   * ★★★ 段级判定（2026-10-25）—— 与 `guard.ts` 的 `segInside` 同一条理由（D-202 W4）。
+   *
+   * ★ 原实现 `norm(cwd).startsWith(root)` 是**字符串前缀**：`<LAB>-old/` 以 `<LAB>` 开头
+   *   ⇒ 钳位通过 ⇒ `mkdirSync` 在兄弟目录里**静默新建一个空间**（正是这段注释上一行警告的那种垃圾）。
+   * ★ 去尾斜杠 + 小写：Windows 路径大小写不敏感，`d:/...` 与 `D:/...` 是同一条路。
+   */
+  const segInside = (p: string, r: string): boolean => {
+    const pp = norm(p).replace(/\/+$/, "").toLowerCase();
+    const rr = norm(r).replace(/\/+$/, "").toLowerCase();
+    return pp === rr || pp.startsWith(rr + "/");
+  };
+  if (!segInside(cwd, root)) {
     throw new Error(
       `labAt 的 cwd 必须在集群空间之内：\n  收到 ${cwd}\n  应在 ${root} 之下\n` +
         `  ★ 不允许在空间之外建目录 —— 写错路径会静默长出垃圾（本项目吃过这个亏）`,
@@ -158,12 +170,27 @@ export async function labAt(cwd: string): Promise<Lab> {
   //   ⇒ 只在这一处 `as unknown as`，并把这件事记成 `src` 的欠账（纪律㊳：合并权在我，还没合）。
   //   ★ 不用 `permissions.root` 的原因：那是**每个 agent** 一份，而这里有 6 处 createAgent，
   //     漏一处就等于一边读得开一边读不开（同类 bug 咬过多次）。
+  //
+  // ★★★ 2026-10-25 · libsmith 实测：这条 `fsRoot` 把**自己的两个地盘关在门外**。
+  //   实测（写 + 读各一次，报错原文一致）：
+  //     `write lab/lib/_probe-write.txt`   → 路径越界
+  //     `write lab/outbox/_probe-write.txt` → 路径越界
+  //   而上面 `READ_ONLY_ROOTS` 的注释里写着「`guard.ts` 管**写**（不变：仍然只能写自己的空间 + `lib/`）」——
+  //   **那句现在是假的**：写 `lib/` 的路先被 fsRoot 掐了，`guard.ts` 根本轮不到它。
+  //   ⇒ 两个后果，都是设计里写死的东西失效：
+  //     ① `prompts/libsmith.ts` 的整个使命（改 lib/）**在物理上不可能**（P12 的反面：给了路，路是死的）
+  //     ② `prompts/researcher.ts` 的「成果 `outbox`」与 kickoff 的「互相看得到彼此的产物（都在 outbox/）」
+  //        同样不成立 —— 辩证机制的地基。
+  //   ⇒ 修法：**fsRoot 放宽到 `LAB`（读广），窄的那一半交给 `guard.ts`（写窄）**。
+  //     这正是本文件下面那段注释里声明的分工，只是当时只放宽了仓库那半边。
+  //     `guard.ts` 同时要区分「谁能写 `lib/`」（只有 libsmith），否则「只有它能写」也会变成一句空话。
   const createLabWithFsRoot = createLab as unknown as (o: Record<string, unknown>) => Lab;
   return createLabWithFsRoot({
     agentDir: AGENT_DIR,
     cwd,
-    // ★ 读：自己 + 只读的仓库部分；写仍然由 guard 管（读广写窄）
-    fsRoot: [cwd, AGENT_DIR, ...READ_ONLY_ROOTS],
+    // ★ 读：自己 + **整个集群空间（work / outbox / lib / inbox）** + 只读的仓库部分；
+    //   写仍然由 guard 管（读广写窄）—— `LAB` 进 fsRoot **不是**给写开锁，是给**路**留活口。
+    fsRoot: [LAB, AGENT_DIR, ...READ_ONLY_ROOTS],
     modelNetwork: true,
     modelAllow: [MODEL],
     defaultModel: MODEL,

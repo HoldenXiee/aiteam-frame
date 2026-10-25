@@ -29,8 +29,10 @@ import { readClosure, renderClosure } from "./topology/closure.ts";
 import {
   artifactMix,
   conjectures,
+  artifactLoci,
   attentionMix,
   crossCarrier,
+  renderLoci,
   generalizability,
   renderCrossCarrier,
   renderAttention,
@@ -132,7 +134,11 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       role: spec.role(why, focus), // ★ 提示词工厂（prompts/<role>.ts）
       permissions: { only: [...spec.tools, ...WEB_TOOLS] }, // ★ 只读专家仍然只读（web 是只读的）
     });
-    attachGate(a);
+    // ★★★ 2026-10-25（libsmith 实测）：这里原来不传 policy ⇒ `guard.ts` 的 `canWriteLib` 恒为 `undefined`
+    //   ⇒ **连改库者自己都写不了 `lib/`**。`prompts/index.ts` 那句「只有它能写 —— 而且只能写 lib/」
+    //   就变成了「谁都不能写」—— 比原来那句空话更坏（原来是路是死的，现在是路被自己人堵死）。
+    //   ★ 政策在这里落：**只有 libsmith** 能写 `lib/`；其余专家与研究员一律不能。
+    attachGate(a, { canWriteLib: role === "libsmith" });
     spawned.push(a);
     log("fire", `${role} ← ${why.slice(0, 60)}`);
     const res = await a.io.prompt(spec.prompt());
@@ -326,7 +332,9 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
       tools: { custom: [consult, spawnLine, challenge, portRun] },
     });
-    attachGate(a);
+    // ★ 研究员**不能**写 `lib/`（它的路是「写成缺口报告」，见 `LIB_BLOCK_REASON`）—— 保持默认 policy。
+    //   ★ 为什么显式写出来而不省略：省略会让下一个人以为「忘了传」，改错方向。
+    attachGate(a, { canWriteLib: false });
     spawned.push(a);
     researchers.push(a);
     researcherByKey.set(ang.key, a);
@@ -637,7 +645,12 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     "**你自己决定看哪个、看多少。** 我不指定题目。",
     "",
     "### 你可以（也都是真的）",
-    "· 改 `lib/aiteam/` 和 `lib/pi/` —— 那是给你改的；改完在 `lib/PATCHES.md` 记一句",
+    // ★★★ 2026-10-25 修正：原句是「改 `lib/aiteam/` 和 `lib/pi/` —— 那是给你改的」。
+    //   `guard.ts` 拦研究员写 `lib/`（只有改库者能写）⇒ 这句话是假的。
+    //   ★ 修它的理由不是“措辞不准”：它是 kickoff 里唯一教它“库能改”的地方，
+    //     它会照着做、被拦、再试 —— 而真路（写缺口报告）从来没在 kickoff 里出现过。
+    "· 写 `outbox/`（成果）· 写 `work/`（装置与读数）—— ★ `lib/` 对你**只读**",
+    "· 你觉得库缺什么 → ★ 写成**能力缺口报告**放进 `outbox/`（一条一句：现象 / 卡在哪 / 期望什么形状），改库者会读到",
     "· **推翻我立的任何判据** —— 你已经推翻过三次（mtime / 分母 / 出度），那是对的；",
     "  但这次请**先写清你在推翻哪一条**，别默默绕开",
     "· 用 `web_search` / `fetch_content` / `source_check` 去看外面的东西 ——",
@@ -1095,6 +1108,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderCrossCarrier(crossCarrier(readArtifacts(join(LAB, "outbox")))),
       renderDialectic(dialecticStats(readChallenges(LAB))),
       renderPort({ ...portStats(readPort(LAB)), torn: readPortTorn(LAB) }),
+      renderLoci(artifactLoci(LAB, Date.now() - 3 * 3600_000)),
     ]) {
       log("readout", line);
     }

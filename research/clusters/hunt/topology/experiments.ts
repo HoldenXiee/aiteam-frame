@@ -114,9 +114,42 @@ const OUTCOME_MAP: [Outcome, RegExp][] = [
   ["active", /^(活|进行中|继续|active|open)/i],
 ];
 
+/**
+ * ★★★ 2026-10-25（libsmith）：先剥**排版噪音**，再匹配。
+ *
+ * ★ 为什么：`OUTCOME_MAP` 四条正则全锚 `^`，而账里的结局格常写成
+ *   `**死**：判据错` · `结局：死` · `🔴 死` · `**活**` —— 一个都没对上，共 4 种写法
+ *   全读成 `unsaid`。人造答案实测：**6/10 判对，污染率 4/9 = 44%**
+ *   （夹具来自 `work/A-exports/judge-unit-test.ts`，falsifier D-206 独立复现同一组数）。
+ *
+ * ★ 后果不是"少数格式读不出"，是**分母变了**：`未声明 14` 这类的数至少等于 `未声明 ∪ 读不出`。
+ *   一个读不出结局的行会被当成"没写结局" ⇒ 缺陷账虚高，且虚高的方向**系统性偏向格式好看的行**。
+ *
+ * ★ 边界（诚实）：它只认**行首**的排版噪音。写在中间的（`判据错 ⇒ 死`）仍然读不出 ——
+ *   那是"这一格里有好几件事"，正则不该猜；要它可判就得让账把结局写成一格一值。
+ */
+function stripDecor(raw: string): string {
+  let s = (raw ?? "").trim();
+  // 两轮：`**结局：** 尚未声明` 得先剥 `**` 才能看到标签，剥完标签还剩 `**`
+  for (let i = 0; i < 2; i++) {
+    s = s
+      // ① 行首的列名标签（`结局：` `状态:` `verdict=` `**结论**：`）
+      .replace(/^(结局|状态|结论|结果|四态|verdict|status)\s*[:：=]?\s*/i, "")
+      // ② 行首的标点 / emoji / markdown 强调符（★ 只剥行首，不碰正文）
+      .replace(
+        /^[\s*_~`>#"'•·|]+/u,
+        "",
+      )
+      .replace(/^[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}]+/u, "")
+      .replace(/^[\s*_~`>#"'•·|:：\-–—]+/u, "")
+      .trim();
+  }
+  return s;
+}
+
 /** 只看形式，不看理由：把「结局」那一栏映射成状态（★ 认不出 ⇒ unsaid，不猜） */
 export function classifyOutcome(raw: string): Outcome {
-  const s = (raw ?? "").trim();
+  const s = stripDecor(raw);
   if (!s) return "unsaid";
   for (const [k, re] of OUTCOME_MAP) if (re.test(s)) return k;
   return "unsaid";
@@ -483,6 +516,59 @@ export function renderCrossCarrier(c: CrossCarrier): string {
     `★★ 跨载体：引外部绝对路径 **${c.reached}/${c.total}（${pct(c.reachedShare)}）**` +
     ` · 其中带命令的 **${c.executed}（${pct(c.executedShare)}）**` +
     `　← ★ 这是"可推广"的**硬判据**（去过别的载体），比标题关键词不可措辞化`
+  );
+}
+
+/**
+ * ★★★★ 产物**落在哪**（2026-10-25 r3 实测抓到的读数盲区）
+ *
+ * ★ 实测：修好"重审历史账"之后，r3 一轮跑了 25 次 port_run、写出 `work/P123-路径护栏…`
+ *   这样一份教科书级的实验（跑前预测向量 + 12 探针 + 两份载体），
+ *   而 **outbox 里 0 份新产物** ⇒ 我的读数（只读 outbox）报"0 产出"。
+ * ★★ 这是第 13 次「量具读不到就报 0」（纪律㉜）。修法：**两个落点分开数**，
+ *   而不是把 work 并进 outbox（并进去会让"产物数"这个历史序列断掉）。
+ */
+export interface Loci {
+  outbox: number;
+  work: number;
+  /** work 里靠近 since 的（默认最近 3 小时）*/
+  workFresh: number;
+  sinceMs: number;
+}
+
+export function artifactLoci(lab: string, sinceMs: number): Loci {
+  const count = (dir: string) => {
+    try {
+      return readdirSync(dir).filter((f) => f.endsWith(".md")).length;
+    } catch {
+      return 0;
+    }
+  };
+  let workFresh = 0;
+  try {
+    for (const f of readdirSync(join(lab, "work"))) {
+      if (!f.endsWith(".md")) continue;
+      try {
+        if (statSync(join(lab, "work", f)).mtimeMs >= sinceMs) workFresh++;
+      } catch {
+        /* 读不到不算 */
+      }
+    }
+  } catch {
+    /* 没有 work/ */
+  }
+  return {
+    outbox: count(join(lab, "outbox")),
+    work: count(join(lab, "work")),
+    workFresh,
+    sinceMs,
+  };
+}
+
+export function renderLoci(l: Loci): string {
+  return (
+    `★ 产量落点：outbox **${l.outbox}** · work/ **${l.work}**（最近 3 小时新写 **${l.workFresh}**）` +
+    `　← ★ 只读 outbox 会漏掉它写进 work/ 的那部分（第 13 次量具盲区）`
   );
 }
 

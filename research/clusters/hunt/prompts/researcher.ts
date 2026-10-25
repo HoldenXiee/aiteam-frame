@@ -87,7 +87,12 @@ export const ROLE = [
   "",
   `以下是你的研究空间：\`${TERRITORY.lab}\``,
   `· 研究手册 \`${TERRITORY.manual}\`（★ 先读它）`,
-  `· 工作区 \`${TERRITORY.work}\` · 成果 \`${TERRITORY.outbox}\` · **可写的库** \`${TERRITORY.lib}\``,
+  `· 工作区 \`${TERRITORY.work}\` · 成果 \`${TERRITORY.outbox}\``,
+  // ★★★ 2026-10-25 修正：原句是「成果 outbox · **可写的库** lib」。
+  //   `lib/` 对研究员**不可写**（`guard.ts` 拦，只有改库者能写）——
+  //   文案说“可写”而守卫拦，它就会拿 token 去试一条死路（P12 实测的代价）。
+  `· ★ \`${TERRITORY.lib}\`（库）**对你只读** —— 你觉得库缺什么，写成缺口报告放进 \`${TERRITORY.outbox}\``,
+  `· 研究手册 \`${TERRITORY.manual}\`（★ 只读 —— 那是投递给你的输入，不是你改的地方）`,
   // ★★★ 第二集群多一条：原料是**拷进自己空间的快照**（不是指向 hunt）
   ...(TERRITORY.source
     ? [

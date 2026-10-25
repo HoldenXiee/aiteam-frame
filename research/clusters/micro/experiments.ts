@@ -5,7 +5,9 @@
  */
 import {
   conjectures,
+  artifactLoci,
   attentionMix,
+  renderLoci,
   crossCarrier,
   renderCrossCarrier,
   generalizability,
@@ -27,7 +29,8 @@ console.log(
     renderGeneralizability(generalizability(readArtifacts(root + "/outbox"))),
     renderAttention(attentionMix(readArtifacts(root + "/outbox"))),
     renderCrossCarrier(crossCarrier(readArtifacts(root + "/outbox"))),
-    renderDialectic(dialecticStats(readChallenges(root)))].join(String.fromCharCode(10)) +
+    renderDialectic(dialecticStats(readChallenges(root))),
+    renderLoci(artifactLoci(root, Date.now() - 3 * 3600_000))].join(String.fromCharCode(10)) +
     String.fromCharCode(10) +
   renderExperiments(
     stats,
