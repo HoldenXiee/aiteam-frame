@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { convergedGate, parseConverged, renderGate } from "../../research/clusters/hunt/topology/converged-gate.ts";
+import {
+  convergenceDebt,
+  convergedGate,
+  parseConverged,
+  renderDebt,
+  renderGate,
+  writeDebtFile,
+} from "../../research/clusters/hunt/topology/converged-gate.ts";
 
 const row = (over: Record<string, unknown>) =>
   ({
@@ -79,5 +86,52 @@ describe("convergedGate：★★★★★ 「我收敛了」必须经过新门",
     write(["| claim | 证据 id | 状态 |", "|---|---|---|", "| a | `E1` | 当前 |"].join(String.fromCharCode(10)));
     const g = convergedGate(lab, [row({ by: "a", reviewedBy: "a", phenomenonVerdict: "真意外" })]);
     assert.deepEqual(g.unreviewed, ["E1"]);
+  });
+});
+
+describe("★★★★ 收敛欠账：列清单递上去（照 closure.ts 验过的手法）", () => {
+  const lab = "dev/test/_sandbox-debt";
+  const write = (t: string) => {
+    rmSync(`${lab}/outbox`, { recursive: true, force: true });
+    mkdirSync(`${lab}/outbox`, { recursive: true });
+    writeFileSync(`${lab}/outbox/CONVERGED.md`, t, "utf8");
+  };
+  const r = (id: string, reviewed: boolean) =>
+    ({
+      at: "t", id, by: "a", project: "X2", claim: `claim-${id}`, killCondition: "k", source: "u",
+      prereg: "p", preregMtime: 0, preregBeforeRun: true, carriers: [],
+      phenomenon: "意外", phenomenonAbsent: "", model: "m", conjecture: "", outcome: "活",
+      phenomenonVerdict: reviewed ? "真意外" : "未审", reviewedBy: reviewed ? "b" : "", reviewNote: "",
+    }) as never;
+
+  it("★ 账上有 3 条、状态表只引 1 条 ⇒ 欠 2 条", () => {
+    write(["| claim | 证据 id | 状态 |", "|---|---|---|", "| a | `E1` | 当前 |"].join(String.fromCharCode(10)));
+    const d = convergenceDebt(lab, [r("E1", true), r("E2", false), r("E3", true)]);
+    assert.equal(d.total, 3);
+    assert.equal(d.cited, 1);
+    assert.deepEqual(d.uncited.map((u) => u.id), ["E2", "E3"]);
+  });
+
+  it("★ 欠账里标出哪条还没被审（未审的引不进状态表）", () => {
+    write(["| claim | 证据 id | 状态 |", "|---|---|---|"].join(String.fromCharCode(10)));
+    const d = convergenceDebt(lab, [r("E1", false), r("E2", true)]);
+    assert.equal(d.uncited.find((u) => u.id === "E1")!.reviewed, false);
+  });
+
+  it("★★ 落盘后下一轮能算「上一轮列的清掉了几条」", () => {
+    write(["| claim | 证据 id | 状态 |", "|---|---|---|"].join(String.fromCharCode(10)));
+    const before = convergenceDebt(lab, [r("E1", true), r("E2", true)]);
+    writeDebtFile(lab, before, "round-1");
+    // 下一轮：E1 进了状态表
+    write(["| claim | 证据 id | 状态 |", "|---|---|---|", "| a | `E1` | 当前 |"].join(String.fromCharCode(10)));
+    const after = convergenceDebt(lab, [r("E1", true), r("E2", true)]);
+    assert.equal(after.lastListed, 2);
+    assert.equal(after.clearedFromLast, 1);
+    assert.ok(renderDebt(after).includes("清掉"));
+  });
+
+  it("★ 空账 ⇒ 未声明（不报 0）", () => {
+    rmSync(`${lab}/work`, { recursive: true, force: true });
+    assert.ok(renderDebt(convergenceDebt(lab, [])).includes("未声明"));
   });
 });

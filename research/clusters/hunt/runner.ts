@@ -51,7 +51,7 @@ import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
 import { makePortRun } from "./tools/port-run.ts";
-import { convergedGate, renderGate } from "./topology/converged-gate.ts";
+import { convergenceDebt, convergedGate, renderDebt, renderGate, writeDebtFile } from "./topology/converged-gate.ts";
 import {
   deepProjects,
   externalUrlShare,
@@ -928,6 +928,24 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
         P.push("★★★ 自签会被拒（工具会拦）—— 这是有意的：**作者自签等于没审**。");
         P.push("");
       }
+      // ★★★★ 收敛欠账：**列清单递上去**（closure.ts 在缺陷账上验证过的手法）
+      const debt = convergenceDebt(LAB, readStructured(LAB));
+      if (debt.uncited.length > 0) {
+        P.push("### ★★★★ 收敛欠账：账上有 **" + debt.total + "** 条实验，状态表只引了 " + debt.cited + " 条");
+        P.push("");
+        for (const u of debt.uncited.slice(0, 8)) {
+          P.push("· `" + u.id + "` " + (u.reviewed ? "（已审）" : "（**未审** —— 引不进状态表）") + " — " + u.claim);
+        }
+        if (debt.uncited.length > 8) P.push("· …还有 " + (debt.uncited.length - 8) + " 条，见 `work/" + "_收敛欠账.md" + "`");
+        P.push("");
+        P.push("★ 每条自己处置，三选一：**引它进状态表** / **说明为什么它不算证据** / **说明还缺什么**。");
+        P.push("★★ 允许处置为「不算」，但**不许不处置** —— 欠账不清，下一轮还是这张清单（纪律㊵：清 WIP，不是限开工）。");
+        if (debt.clearedFromLast !== null) {
+          P.push("★★★ 上一轮列了 **" + debt.lastListed + "** 条，这一轮清掉 **" + debt.clearedFromLast + "** 条。");
+        }
+        P.push("");
+      }
+
       // ★★★★★ 2026-10-25 · **收敛门**：你的「我收敛了」必须经过新的门
       const gate = convergedGate(LAB, readStructured(LAB));
       P.push("### ★★★★★ 收敛门：**" + (gate.pass ? "通过" : "未通过") + "**");
@@ -1252,6 +1270,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderLoci(artifactLoci(LAB, Date.now() - 3 * 3600_000)),
       renderSeven(sevenStats(readStructured(LAB))),
       renderGate(convergedGate(LAB, readStructured(LAB))),
+      renderDebt(convergenceDebt(LAB, readStructured(LAB))),
       (() => {
         const rows = readStructured(LAB);
         const chains = projectChains(rows);

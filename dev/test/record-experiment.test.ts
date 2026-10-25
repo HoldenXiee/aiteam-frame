@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { rmSync } from "node:fs";
 import {
   applyReview,
+  preregAlreadyUsed,
   deepProjects,
   externalUrlShare,
   projectChains,
@@ -185,5 +186,28 @@ describe("applyReview：★ 自签会被拒（与 forge 的作者自签同一个
     const r = applyReview(lab, "E99", { by: "other", verdict: "真意外", note: "x" });
     assert.equal(r.ok, false);
     assert.ok((r.reason ?? "").includes("E7"));
+  });
+});
+
+describe("★★★ 一份 PREREG 只能服务一个实验", () => {
+  const lab = "dev/test/_sandbox-prereg-once";
+  const row = (id: string, prereg: string) =>
+    ({
+      at: "t", id, by: "a", project: "X2", claim: "c", killCondition: "k", source: "u",
+      prereg, preregMtime: 0, preregBeforeRun: true, carriers: [],
+      phenomenon: "意外", phenomenonAbsent: "", model: "m", conjecture: "", outcome: "活",
+      phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
+    }) as never;
+
+  it("★ 同路径用过 ⇒ 能查出来（工具据此拒收）", () => {
+    rmSync(`${lab}/work`, { recursive: true, force: true });
+    appendStructured(lab, row("E1", "work/a-PREREG.md"));
+    assert.equal(preregAlreadyUsed(lab, "work/a-PREREG.md")?.id, "E1");
+  });
+  it("路径归一化：反斜杠 / 大小写都算同一份", () => {
+    assert.equal(preregAlreadyUsed(lab, "WORK\\A-prereg.md")?.id, "E1");
+  });
+  it("没用过 ⇒ undefined", () => {
+    assert.equal(preregAlreadyUsed(lab, "work/b-PREREG.md"), undefined);
   });
 });

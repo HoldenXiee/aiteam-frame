@@ -110,6 +110,20 @@ export function readStructured(lab: string): ExperimentRow[] {
 }
 
 /** ★ 下一个行号（`E1`…）—— 幂等：只看已有条数 */
+/**
+ * ★★★★ 一份 PREREG 只能服务一个实验（2026-10-25）
+ *
+ * ★ 为什么必须堵：`prereg` 是"跑前冻结的预期"的证据。若同一份文件能给 N 条实验当
+ *   "我的预期写在里面"，那这道证据就退化成一句**通用的免责声明** ——
+ *   而实测（r17–r22）现象里 **50%+ 被判「补的」**，同侪抓的正是"没有跑前预期"。
+ * ★★ 判据是纯形式的：**同路径被用过就拒**（不判内容）。
+ *   要写第二条，就再写一份（预期本来就该逐条写死）。
+ */
+export function preregAlreadyUsed(lab: string, prereg: string): ExperimentRow | undefined {
+  const norm = (x: string) => x.split("\\").join("/").trim().toLowerCase();
+  return readStructured(lab).find((r) => norm(r.prereg) === norm(prereg));
+}
+
 export function nextId(lab: string): string {
   return `E${readStructured(lab).length + 1}`;
 }
@@ -407,6 +421,25 @@ export function makeRecordExperiment(deps: {
           details: {},
         };
       }
+      // ★★ 一份 PREREG 只能服务一个实验
+      const used = preregAlreadyUsed(deps.lab, p.prereg);
+      if (used) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `⛔ \`${p.prereg}\` 已经被 **${used.id}** 用过了（${used.claim.slice(0, 40)}…）。` +
+                String.fromCharCode(10) +
+                "★ 一份 PREREG 只能服务一个实验 —— 否则「跑前预期」会退化成一句通用的免责声明。" +
+                String.fromCharCode(10) +
+                "★ 给这条实验**另写一份**（把预期逐条写死），再记。",
+            },
+          ],
+          details: {},
+        };
+      }
+
       // ★ prereg 必须存在（编不出来的那种证据）
       const preregPath = p.prereg.startsWith("/") || /^[A-Za-z]:/.test(p.prereg) ? p.prereg : join(deps.lab, p.prereg);
       let preregMtime = 0;

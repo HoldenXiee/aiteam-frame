@@ -21,7 +21,7 @@
 //   不判断结论对不对（那是内容判断，不是我的活）。
 // ══════════════════════════════════════════════════════════════════
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExperimentRow } from "../tools/record-experiment.ts";
 
@@ -133,3 +133,86 @@ export function renderGate(g: GateResult): string {
   );
 }
 
+
+
+// ══════════════════════════════════════════════════════════════════
+// ★★★★ 收敛欠账（2026-10-25 · 照 `closure.ts` 在缺陷账上验证过的手法）
+//
+//   ★ 实测：r22 收敛门**通过了，但只引了 1 条**（账上 7 条）—— 薄通过。
+//     门只判"引的对不对"，不判"引够了没有"；而"引几条才够"是内容判断，不是我的活。
+//   ★★ 所以我不用门槛卡覆盖率，改成**列清单递上去**：
+//     账上有、状态表没引的，全列出来，下一轮自己处置。
+//     （closure.ts 就是这么把结账率从 2% 拉到 21% 的：
+//       「开环系统里，限产无效 —— 要清欠账(WIP)，不是限开工」纪律㊵）
+//   ★★★ 而且必须**落盘**：不落盘就没法量"上一轮列的欠账这一轮清了几条"。
+// ══════════════════════════════════════════════════════════════════
+
+export const DEBT_FILE = "_收敛欠账.md";
+
+export interface ConvergenceDebt {
+  /** 账上有、状态表没引的实验 */
+  uncited: { id: string; claim: string; reviewed: boolean }[];
+  /** 引用了几条 / 账上共几条 */
+  cited: number;
+  total: number;
+  /** ★ 上一轮落盘的欠账里，这一轮清掉了几条（结账率的同族读数）*/
+  clearedFromLast: number | null;
+  /** 上一轮列了几条 */
+  lastListed: number | null;
+}
+
+export function convergenceDebt(lab: string, rows: readonly ExperimentRow[]): ConvergenceDebt {
+  const gate = convergedGate(lab, rows);
+  const cited = new Set(gate.cited);
+  const uncited = rows
+    .filter((r) => !cited.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      claim: r.claim.slice(0, 80),
+      reviewed: !!r.reviewedBy && r.reviewedBy !== r.by,
+    }));
+
+  // ★ 读上一轮落盘的清单，算"这一轮清了几条"
+  let lastListed: number | null = null;
+  let clearedFromLast: number | null = null;
+  const p = join(lab, "work", DEBT_FILE);
+  if (existsSync(p)) {
+    const txt = readFileSync(p, "utf8");
+    const ids = [...new Set(txt.match(/E[0-9]+/g) ?? [])];
+    if (ids.length > 0) {
+      lastListed = ids.length;
+      const nowCited = new Set(gate.cited);
+      clearedFromLast = ids.filter((i) => nowCited.has(i)).length;
+    }
+  }
+  return { uncited, cited: gate.cited.length, total: rows.length, clearedFromLast, lastListed };
+}
+
+/** ★ 落盘（每轮覆盖；内容只是 id + 一句话，供下一轮与自己对照）*/
+export function writeDebtFile(lab: string, d: ConvergenceDebt, round: string): void {
+  const lines = [
+    `# 收敛欠账 · ${round}`,
+    "",
+    `> 账上有 **${d.total}** 条结构化实验，状态表引用了 **${d.cited}** 条 ⇒ 欠 **${d.uncited.length}** 条。`,
+    "> ★ 每条自行处置（**引它进状态表** / **说明为什么它不算证据** / **说明还缺什么**）。",
+    "> ★ 这张表只列 id 与一句话，判断由你自己做。",
+    "",
+    ...d.uncited.map((u) => `- \`${u.id}\` ${u.reviewed ? "（已审）" : "（**未审**）"} — ${u.claim}`),
+    "",
+  ];
+  mkdirSync(join(lab, "work"), { recursive: true });
+  writeFileSync(join(lab, "work", DEBT_FILE), lines.join(String.fromCharCode(10)), "utf8");
+}
+
+export function renderDebt(d: ConvergenceDebt): string {
+  if (d.total === 0) return "★ 收敛欠账：账上还没有结构化实验 ⇒ 未声明";
+  const cleared =
+    d.lastListed === null
+      ? "（上一轮没有欠账清单，无从对照）"
+      : ` · ★ 上一轮列了 ${d.lastListed} 条，这一轮清掉 **${d.clearedFromLast ?? 0}**`;
+  return (
+    `★★ 收敛欠账：账上 ${d.total} 条 · 状态表引了 ${d.cited} 条 ⇒ **欠 ${d.uncited.length} 条**` +
+    (d.uncited.length ? `（${d.uncited.slice(0, 6).map((u) => u.id).join("·")}${d.uncited.length > 6 ? "…" : ""}）` : "") +
+    cleared
+  );
+}
