@@ -513,7 +513,7 @@ export async function tick(
   //     给 `challenge` **工具** = 「允许它辩」⇒ **一次都没用过**（P13）。
   //     ⇒ 辩论不能是能力，必须是**处境**（由代码送到它面前）。
   // ★★★ 顺序很重要：**不 fire 专家的规则放前面，`onSettled` 放最后**。
-  //   ★ 因为 `onSettled` 里 `await fire("inspector")` 会**等专家跑完（几分钟）**，
+  //   ★ 因为 `onSettled` 里 `fireNoWait("inspector")` 会**等专家跑完（几分钟）**，
   //     整个 tick 被卡住 ⇒ 排在它后面的规则**一个都轮不到**。
   //   ★★ 2026-10-20 拆分：原来这里还有 onAudience/onConsensus/onDispute
   //      （它们属于 forge，搬走了）。
@@ -528,14 +528,14 @@ export async function tick(
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
   //     日志里只有 `onNewFinding` 和 `onCapabilityGap` 两行，
   //     **`onInstrumentReview` 一次都没出现**。
-  //   ★ 根因：`onCapabilityGap` 里有 `await fire("libsmith")` ——
+  //   ★ 根因：`onCapabilityGap` 里有 `fireNoWait("libsmith")` ——
   //     **它会等专家跑完（几分钟）**，把整个 tick 卡在那里 ⇒ 排在它后面的规则全饿死。
   //   ★★ 这与 AGENTS §三 `onSettled` 那个老坑**是同一个病**，
   //     只是换了一条规则。⇒ 现在改成：**不 fire 的规则全部排在 fire 之前**。
   await rules.onInstrumentReview();   // ★ 不 fire（除到期那次）→ 先跑，饿不死
   await rules.onPlateau();            // ★ 同上
-  await rules.onCapabilityGap();      // ★ 会 await fire(libsmith) → 往后排
-  // ★★★ `onSettled` **必须放最后**：它会 `await fire("inspector")`（等专家几分钟），
+  await rules.onCapabilityGap();      // ★ 会 fireNoWait(libsmith) → 往后排
+  // ★★★ `onSettled` **必须放最后**：它会 `fireNoWait("inspector")`（等专家几分钟），
   //   是唯一会长时间阻塞 tick 的规则 ⇒ 放在前面会把后面的规则全部饿死。
   //   ★ 副作用提醒：`onSettled` 自己记 `auditedOutputs`，所以它之后不要再读那个字段。
   await rules.onSettled();
@@ -555,7 +555,7 @@ export function makeRules(ctx: TriggerCtx) {
   //
   //   ★★★ 实测（这一轮的 hunt）：600 秒窗口里 **tick 只跑了 1 次**，
   //     日志里刷着 `rule:skip 工具节流 被跳过（上一次 tick 还在跑——它在等专家）`。
-  //   ★ 根因：规则里 `await fire(...)` 会等专家跑完（3–6 分钟）⇒ 整个 tick 停在那里。
+  //   ★ 根因：规则里 `fireNoWait(...)` 会等专家跑完（3–6 分钟）⇒ 整个 tick 停在那里。
   //
   //   ★★ 修法与 forge 完全一致：**观察快、派活慢，两件事分开**
   //     · 规则里 `fire(...)` = 「**记下**该派谁」，几微秒返回
@@ -576,6 +576,19 @@ export function makeRules(ctx: TriggerCtx) {
   }) as (role: ExpertName, why: string, focus?: string) => Promise<string>;
 
   /** ★ 需要专家原话时用这个（★ 走派活器，不绕过"一次只跑一位"） */
+  /**
+   * ★★★★★ **不占 tick 的 fire**（2026-10-25）
+   *
+   * ★ 实测：主空间 45 分钟只跑了 **4 次 tick** —— 因为 `onInstrumentReview` /
+   *   `onPlateau` / `onGeneralize` 里各有一处 `fireNoWait(...)`，每次等专家 3–6 分钟。
+   *   ⇒ 这就是纪律㉚ 那个病的第三次复发：**规则顺序按"会不会阻塞 tick"排**，
+   *     但更彻底的办法是**根本没有会阻塞的 fire**。
+   * ★★ 语义：入队、立刻返回。需要结果的地方用 `fireWait`（带 onDone）。
+   */
+  const fireNoWait = (role: ExpertName, msg: string): void => {
+    drainer.enqueue({ role, why: msg.slice(0, 90), message: msg });
+  };
+
   const fireWait = (role: ExpertName, why: string, focus: string, onDone: (t: string) => void): void => {
     drainer.enqueue({
       role,
@@ -619,7 +632,7 @@ export function makeRules(ctx: TriggerCtx) {
         state.auditedNames.push(...fresh);
       }
       // ★★★ 走派活器 + onDone（★ 不 await：await 会卡住整个 tick）
-      //   ★ 语义与原来的 `await fire(...)` 完全一致，只是**不占住 tick**。
+      //   ★ 语义与原来的 `fireNoWait(...)` 完全一致，只是**不占住 tick**。
       fireWait("inspector", why, focus, (out) => {
         if (!out) {
           ctx.trace("onSettled", `⛔ inspector 没说话（verdict 保持 ${state.verdict ?? "未定"}）`);
@@ -639,7 +652,7 @@ export function makeRules(ctx: TriggerCtx) {
     if (!gaps.length) return;
     if (Date.now() - (state.firedAt["libsmith"] ?? 0) < COOLDOWN_MS) return;
     state.firedAt["libsmith"] = Date.now();
-    await fire("libsmith", `研究员报告了底层能力缺口：${gaps.map((g) => `\`outbox/${g}\``).join("、")}`);
+    fireNoWait("libsmith", `研究员报告了底层能力缺口：${gaps.map((g) => `\`outbox/${g}\``).join("、")}`);
   }
 
   /**
@@ -758,7 +771,7 @@ export function makeRules(ctx: TriggerCtx) {
     // ★★★ 派给 inspirer，但**换一个完全不同的问题**。
     //   ★ 它平时的任务是"从别的学科借框架"；
     //   ★ 这次的任务是"**审视我们自己在用的手段**"。
-    await fire(
+    fireNoWait(
       "inspirer",
       [
         "★★★ 这一轮**不问研究内容**，问**你自己在用的手段**。",
@@ -843,14 +856,14 @@ export function makeRules(ctx: TriggerCtx) {
 
     // ★★★ 触发理由里**给出可核对的数**（P12：拦的同时给路）——
     //   它看得见"这段时间只出了 N 个文件、也没交新成果"，能自己判断该不该换路。
-    await fire(
+    fireNoWait(
       "inspirer",
       `研究员已经约 ${mins} 分钟**既没交新成果、也没在批量干活**` +
         `（这段窗口内 \`work/\` 里新出 ${fresh} 个文件，阈值 ${FRESH_FILES_THRESHOLD}）。` +
         `★ 注意：这不等于"它懒"—— 更可能是**在原地打转**（反复改同一个脚本、同一条线的第 N 个实验）。` +
         `★ 请给它一个**别的学科**能借的框架。`,
     );
-    await fire(
+    fireNoWait(
       "archivist",
       `研究员已经约 ${mins} 分钟没有实质推进（新文件 ${fresh} 个 / 无新成果）。` +
         `★ 请做一次**阶段性复审**：看它是不是在同一条线上重复。`,
@@ -1164,7 +1177,7 @@ export function makeRules(ctx: TriggerCtx) {
       ctx.trace("onGeneralize", "→ hands-on（steer，问题当场注入）");
       return;
     }
-    await fire("inspirer", prompt);
+    fireNoWait("inspirer", prompt);
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 

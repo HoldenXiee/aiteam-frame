@@ -60,6 +60,12 @@ export type FireJob = {
   why: string;
   /** 额外焦点 */
   focus?: string;
+  /**
+   * ★★★ 给这位专家的**额外消息**（2026-10-25）
+   * ★ 为的是把规则里残留的 `await fire(role, msg)` 全部改成入队 —— 那些 await 会
+   *   **卡住整个 tick**（实测主空间 45 分钟只跑了 **4 次 tick**）。
+   */
+  message?: string;
   /** ★ 谁要它的结果（★ `onSettled` 要读 `VERDICT`） */
   onDone?: (text: string) => void;
   /** ★ 排进来时刻（用于日志说清"等了多久"） */
@@ -196,7 +202,9 @@ export function makeDrainer(opts: {
     opts.trace("fire", `▶ ${job.role} 开始（排队 ${waited}s）← ${job.why.slice(0, 60)}`);
 
     void opts
-      .doFire(job.role, job.why, job.focus)
+      .doFire(job.role, job.message ? `${job.why}
+
+${job.message}` : job.why, job.focus)
       .then((text) => {
         opts.trace("fire", `✔ ${job.role} 结束（${text.length} 字）`);
         try {
