@@ -269,6 +269,10 @@ export function takeSnapshot(opts: { force?: boolean } = {}): SnapshotResult {
       `- \`work/\` —— **研究路径**（它是怎么研究出来的：脚本、原始读数、日志）`,
       "",
       "★★ **只读结论只能复述；读了 `work/` 才能看出它的判据错在哪。**",
+      "",
+      "## ★ 第一集群自己的质量门（它自己写的账，我照抄）",
+      "",
+      gateLines.join("\n"),
     ].join("\n"),
   );
 
