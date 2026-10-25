@@ -24,9 +24,38 @@
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+
+/**
+ * ★★★★★ 异步执行（2026-10-25 · 修一个会**冻住整个集群**的坑）
+ *
+ * ★ 原来的写法是 `execFileSync` —— 它在**集群自己的进程**里同步跑命令。
+ *   后果：研究员一跑 3 分钟的实验，**整个事件循环停 3 分钟**：
+ *   tick 不再触发、别的 agent 不再推进、日志一片空白。
+ *   实测症状：主空间 45 分钟只有 **4 次 tick**，20 分钟只有 1 次。
+ * ★★ 判据：凡是"工具里跑命令"，必须异步 —— 否则它同时是**观察者的阻塞源**。
+ */
+export function runCmd(
+  cmd: string,
+  cwd: string,
+  timeoutMs = 240_000,
+): Promise<{ exit: number; out: string }> {
+  return new Promise((resolve) => {
+    execFile(
+      "bash",
+      ["-lc", cmd],
+      { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const e = err as (NodeJS.ErrnoException & { code?: number }) | null;
+        const exit = e ? (typeof e.code === "number" ? e.code : 1) : 0;
+        resolve({ exit, out: `${stdout ?? ""}${stderr ?? ""}${e?.message ?? ""}` });
+      },
+    );
+  });
+}
+
 
 export const EXPERIMENTS_FILE = "experiments.jsonl";
 
@@ -476,22 +505,11 @@ export function makeRecordExperiment(deps: {
           problems.push(`载体 ${c.dir} 不在本 lab 里面（写边界不变）`);
           continue;
         }
-        let exit = 0;
-        let out = "";
         const ranAt = Date.now();
-        try {
-          out = execFileSync("bash", ["-lc", c.cmd], {
-            cwd: dir,
-            encoding: "utf8",
-            timeout: 240_000,
-            maxBuffer: 8 * 1024 * 1024,
-            stdio: ["ignore", "pipe", "pipe"],
-          });
-        } catch (e) {
-          const err = e as { status?: number; stdout?: string; stderr?: string; message?: string };
-          exit = typeof err.status === "number" ? err.status : 1;
-          out = `${err.stdout ?? ""}${err.stderr ?? ""}${err.message ?? ""}`;
-        }
+        // ★ 异步执行：同步版会冻住整个事件循环（见 runCmd 的注释）
+        const r = await runCmd(c.cmd, dir);
+        const exit = r.exit;
+        const out = r.out;
         runs.push({ dir: c.dir, cmd: c.cmd, exit, head: out.slice(0, 600), ranAt });
       }
       if (problems.length > 0) {
