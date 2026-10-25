@@ -51,6 +51,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { convergedGate } from "./hunt/topology/converged-gate.ts";
+import { readStructured, sevenStats } from "./hunt/tools/record-experiment.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 /** 仓库根（从 research/clusters/ 往上 3 层） */
@@ -226,6 +228,23 @@ export function takeSnapshot(opts: { force?: boolean } = {}): SnapshotResult {
 
   mkdirSync(join(FORGE_LAB, "work"), { recursive: true });
   appendFileSync(join(FORGE_LAB, "work", "batches.jsonl"), JSON.stringify(rec) + "\n");
+
+  // ★ 把 hunt 的收敛门判决抄过来（逐字，不改）
+  const gateLines: string[] = (() => {
+    try {
+      const rows = readStructured(SOURCE_LAB);
+      const g = convergedGate(SOURCE_LAB, rows);
+      const seven = sevenStats(rows);
+      return [
+        `- **收敛门**：${g.pass ? "✔ 通过" : "⛔ **未通过**"} — ${g.verdict}`,
+        `- 结构化实验 **${seven.rows}** 条 · 跨载体成立 ${seven.portable} · 现象被独立审 ${seven.reviewed}（判"补的" ${seven.calledFake}）`,
+        `- ★ **经同侪认证的发现 ${seven.discovery} 条** · 反例型 ${seven.refuting} 条`,
+        "★ 读它的 `work/experiments.jsonl` 可以逐条复核（含每条的命令与退出码）",
+      ];
+    } catch (e) {
+      return [`- ⛔ 收敛门判决读不到：${(e as Error).message}`];
+    }
+  })();
 
   // ★ 给人看的一页摘要（研究助手/审查者读这个就够）
   writeFileSync(
