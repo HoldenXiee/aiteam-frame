@@ -163,6 +163,14 @@ const REVIEW_MS =
  *    否则"回头看"类规则会吃满产出（纪律㊱ 实测过：审查规则吃掉 57/60）。
  */
 const EXTERNAL_MS = Number(process.env.EXTERNAL_MS) > 0 ? Number(process.env.EXTERNAL_MS) : 40 * 60_000;
+/**
+ * ★ 现象审查多久问一次（默认 25 分钟；`PHENOMENON_MS` 可压短）
+ * ★★ 为什么它比 onExternal 更勤：现象是"新东西"的唯一入口，
+ *   而一个自报的"意外"完全可以是**先看读数再编预期**。
+ *   ★ 实测（r11–r14 四臂）：现象填了 30/30，**被独立审 0/30** —— 光靠投递不够。
+ */
+const PHENOMENON_MS =
+  Number(process.env.PHENOMENON_MS) > 0 ? Number(process.env.PHENOMENON_MS) : 25 * 60_000;
 const EXTERNAL_MAX_PER_WINDOW = Number(process.env.EXTERNAL_MAX) > 0 ? Number(process.env.EXTERNAL_MAX) : 6;
 /** ★ 外部材料占产物的目标线：低于它才问（到了就不再催 —— 配额换成"读数驱动"）*/
 const EXTERNAL_TARGET = 0.3;
@@ -377,6 +385,8 @@ export type State = {
   lastExternalAt: number;
   /** ★ 本 window 已经问过几次外部材料（配额）*/
   externalAsked: number;
+  /** ★ 上一次问"审别人的现象"的时刻（2026-10-25 大改）*/
+  lastPhenomenonAt: number;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -399,6 +409,7 @@ export function newState(): State {
     runStartedAt: Date.now(),
     lastExternalAt: 0,
     externalAsked: 0,
+    lastPhenomenonAt: 0,
     lastTickAt: Date.now(),
   };
 }
@@ -454,6 +465,7 @@ export async function tick(
       onInstrumentReview: () => Promise<void>;
       onGeneralize: () => Promise<void>;
       onExternal: () => Promise<void>;
+      onPhenomenon: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -510,6 +522,7 @@ export async function tick(
   await rules.onGeneralize();
   // ★ 非阻塞（steer）：排在所有会 fire 的规则之后（纪律㉚）
   await rules.onExternal();
+  await rules.onPhenomenon();
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
@@ -532,6 +545,7 @@ import { makeDrainer } from "./dispatch.ts";
 import { canOpenNewAudit, readClosure } from "./closure.ts";
 import { readProjects } from "./projects.ts";
 import { externalUsage, readArtifacts } from "./experiments.ts";
+import { readStructured } from "../tools/record-experiment.ts";
 
 export function makeRules(ctx: TriggerCtx) {
   const { state } = ctx;
@@ -948,6 +962,62 @@ export function makeRules(ctx: TriggerCtx) {
    *   不是"检测哪份像创新" —— 后者是内容判断（硬规则①）。
    */
   // ══════════════════════════════════════════════════════════════
+  // ★★★★★ onPhenomenon —— 让**另一位**去审「这格现象是真意外还是补的」
+  //
+  //   ★ 为什么必须是规则、不能只写在投递里（实测）：
+  //     r11–r14 四个臂，结构化实验 30 条，**现象填了 30/30，被独立审 0/30**。
+  //     投递里明明列了"还没审的行号"，就是没人审 —— 与 `onExternal` 当初一样：
+  //     **工具在手 ≠ 有人叫它用**。
+  //   ★★ 派给**作者以外**的人（自己审自己工具会拒），并且**带行号**（指着说）。
+  // ══════════════════════════════════════════════════════════════
+  async function onPhenomenon(): Promise<void> {
+    if (ctx.closing?.()) return;
+    if (!ctx.challenge) return;
+    const now = Date.now();
+    if (now - state.lastPhenomenonAt < PHENOMENON_MS) return;
+
+    const rows = readStructured(LAB).filter((r) => !r.reviewedBy && r.phenomenon.trim());
+    if (rows.length === 0) return;
+    state.lastPhenomenonAt = now;
+
+    const peers = ctx.peerKeys?.() ?? [];
+    // ★ 找一个**不是这些行的作者**的人
+    const authors = new Set(rows.map((r) => r.by));
+    const reviewer = peers.find((k) => !authors.has(k)) ?? peers[0];
+    if (!reviewer) return;
+
+    const target = rows[0]!;
+    ctx.trace(
+      "onPhenomenon",
+      `未审现象 ${rows.length} 条 ⇒ 派 ${reviewer} 审 ${target.id}（作者 ${target.by}）`,
+    );
+    const prompt = [
+      `## ★★★★★ 审一格「现象」：\`${target.id}\`（作者 **${target.by}**，不是你写的）`,
+      "",
+      "**它自报的现象**：",
+      "> " + target.phenomenon.replace(String.fromCharCode(10), " ").slice(0, 500),
+      "",
+      "**它的机制（model）**：",
+      "> " + (target.model || "(空)").replace(String.fromCharCode(10), " ").slice(0, 300),
+      "",
+      "### 你要判的只有一件事",
+      "**这是「真意外」还是「先看读数再补的预期」？**",
+      "",
+      "★ 判「补的」的证据只有三类（别用语气判断）：",
+      "  ① `PREREG` / 跑前写死的东西里**没有**这条预期（事后才出现）",
+      "  ② 预期写得**比读数还笼统**（例如「可能不一样」，而读数是 3/8 vs 0/8）",
+      "  ③ 现象与 `outcome` 自相矛盾（说意外，但结局写「活」且没解释为什么能活）",
+      "",
+      `用 \`review_experiment({ id: "${target.id}", verdict: "真意外"|"补的", note: "<凭什么>" })\`。`,
+      "★★ 自签会被拒 —— 你不是作者，所以你能审。",
+      "★★★ 这个判定直接决定它算不算「发现型」：**没被人认过的现象只算填了**。",
+    ].join(String.fromCharCode(10));
+
+    ctx.challenge(reviewer, prompt);
+    ctx.trace("onPhenomenon", `→ ${reviewer}（steer，带行号）`);
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // ★★★★★ onExternal —— **外部材料通道**（2026-10-25 设计者：网上探索权重更大）
   //
   //   ★ 为什么需要规则，而不是写在投递里：
@@ -1094,5 +1164,5 @@ export function makeRules(ctx: TriggerCtx) {
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, drainer };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, drainer };
 }

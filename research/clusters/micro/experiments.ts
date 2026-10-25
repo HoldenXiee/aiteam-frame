@@ -61,7 +61,9 @@ console.log(
     renderDialectic(dialecticStats(readChallenges(root))),
     renderLoci(artifactLoci(root, Date.now() - 3 * 3600_000)),
     renderExternal(externalUsage(readArtifacts(root + "/outbox"))),
-    renderItemGap(itemGap(ledgerTextOf(root))),
+    "★ 历史（自由文本账，只存档）：" + renderItemGap(itemGap(ledgerTextOf(root))),
+    // ★★★★ 两账并排（纪律⑩：新旧不混）—— 结构化账是**新判据**，自由文本账只算历史
+    "★★ 本轮判据只看**结构化账**（下面这两行）；自由文本账（235 份历史）**只存档、不参与新判据**",
     renderSeven(sevenStats(readStructured(root))),
     (() => {
       const rows = readStructured(root);
