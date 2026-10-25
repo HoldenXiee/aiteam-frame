@@ -29,8 +29,22 @@ export const REPO = join(here, "..", "..", "..");
  */
 export const CLUSTER = "hunt";
 
-/** ★ 集群的空间（它自己读写的地方，独立 git 仓库） */
-export const LAB = join(REPO, "research/labfirst", CLUSTER);
+/**
+ * ★ 集群的空间（它自己读写的地方，独立 git 仓库）
+ *
+ * ★★★ 2026-10-25 · 可覆盖（`HUNT_LAB`）—— **为了能真并行做对照实验**。
+ *
+ * ★ 为什么必须换空间才能并行：单实例锁 `_cluster.lock` 是**按空间**分的
+ *   （「三之二」：hunt 与 forge 可以真并发，正因为空间不同）。
+ *   同一个空间跑两个进程 = 两个 run 互相污染。
+ * ★★ 用法：`HUNT_LAB=research/labfirst/hunt-bb npx tsx …/hunt/index.ts`
+ *   每个空间有自己的 outbox/work/PROJECTS/账 —— 读数天然不混（纪律⑩）。
+ */
+export const LAB = process.env.HUNT_LAB
+  ? (process.env.HUNT_LAB.startsWith("/") || /^[A-Za-z]:/.test(process.env.HUNT_LAB)
+      ? process.env.HUNT_LAB
+      : join(REPO, process.env.HUNT_LAB))
+  : join(REPO, "research/labfirst", CLUSTER);
 
 /**
  * ★★★ 它可写的那份库的入口（分层的关键，2026-10-19 参数化）。

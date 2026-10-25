@@ -42,6 +42,8 @@ import {
 import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
+import { makePortRun } from "./tools/port-run.ts";
+import { portStats, readPort, readPortTorn, renderPort } from "./tools/port-run.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
@@ -299,6 +301,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   for (const ang of usedAngles) {
     const myKey = ang.key; // ★ hunt 的座位 key = 角度名
     // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
+    const portRun = makePortRun({ lab: LAB, selfKey: myKey });
     const challenge = makeChallenge({
       deliver: deliverTo,
       selfKey: myKey,
@@ -321,7 +324,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       role: role + renderSeat(ang),
       // ★★ 白名单必须显式带上 web 工具 —— 否则扩展装了也进不来（P108 实测）
       permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
-      tools: { custom: [consult, spawnLine, challenge] },
+      tools: { custom: [consult, spawnLine, challenge, portRun] },
     });
     attachGate(a);
     spawned.push(a);
@@ -701,6 +704,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       const pj = readProjects(LAB);
       const cj = conjectures(arts);
       const gen = generalizability(arts);
+      const pt = portStats(readPort(LAB));
+      const ptTorn = readPortTorn(LAB);
       const cutoff = Date.now() - 86_400_000;
       const recent = arts.filter((a) => a.mtimeMs >= cutoff);
       const rMix = artifactMix(recent);
@@ -808,6 +813,28 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("判据是形式的：标题里只含**可推广概念**算可推广；含本 lab 专有名词（PREREG/seal/账/量具/装置/分母/永远/口径/读数）算地方志。");
       P.push("按天看：10-19 = **17%** · 10-24 = 1/54 · 10-25 = **0/43**。");
       P.push("★★ 而**外部对象引用 = 0**：你现在读得到 `forge` 的代码、书、库正本，但**一份产物都没引过它们**。");
+      P.push("");
+      // ★★★★ 2026-10-25 · 「可推广」从**说法**变成**执行证据**
+      P.push("### ★★★ 一个数：**跨载体成立 = " + pt.portable + " 条**");
+      P.push("");
+      P.push("判据是硬的：一条结论算可推广，**当且仅当它在 ≥2 个不同载体上真跑过、都 exit 0** ——");
+      P.push("证据落在 `work/port.jsonl`（命令 + 退出码 + 输出头），**我能重跑复核**。");
+      P.push("");
+      P.push("现在：跑过 `" + pt.runs + "` 次 / `" + pt.claims + "` 条 claim · 载体 `" + pt.carriers.length + "` 个 · 成立 **" + pt.portable + "** 条");
+      P.push("");
+      P.push("★ 工具已经在你手上了：`port_run({ claim, carrier, cmd })` —— 它在**你自己空间里**的任意载体目录跑命令。");
+      P.push("★★ 我上一轮量到：你读了 `src/index.ts`、读了两个集群的 `paths.ts` —— **但没在上面跑过任何东西**。");
+      P.push("   引用 ≠ 成立。**「去过」和「成立」之间差的就是一次执行。**");
+      P.push("");
+      P.push("### 一个问题（★ 必须回答，三选一）");
+      P.push("**你手上哪一条结论，能在两个不同载体上跑出同一个结果？**");
+      P.push("");
+      P.push("(a) **没有** —— 说清为什么（比如：我的结论都是关于文本的，没有可跑的装置）");
+      P.push("(b) **有，但我在两个载体上跑出来的不一样** —— 说清差在哪，那本身就是结论");
+      P.push("(c) **有，我现在就跑** —— 用 `port_run` 在**两个不同载体**上跑同一条 claim，");
+      P.push("    两次都 exit 0 才写「成立」；不 exit 0 就写清它**在哪个载体上不成立**");
+      P.push("");
+      P.push("★ 允许答 (a)，答了不算病。★★ 唯一不许的是**不答**。");
       P.push("");
       P.push("### ★★★ 一个数（旧的，留档）：196 份产物里，**能给别人用的只有 9%**");
       P.push("");
@@ -1067,6 +1094,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderAttention(attentionMix(readArtifacts(join(LAB, "outbox")))),
       renderCrossCarrier(crossCarrier(readArtifacts(join(LAB, "outbox")))),
       renderDialectic(dialecticStats(readChallenges(LAB))),
+      renderPort({ ...portStats(readPort(LAB)), torn: readPortTorn(LAB) }),
     ]) {
       log("readout", line);
     }

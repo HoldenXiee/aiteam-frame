@@ -159,6 +159,34 @@ const REVIEW_MS =
 
 // ─────────────── 状态读取（★ 读磁盘，不读它的自述）───────────────
 
+/**
+ * ★★★★★ 「哪些产物该被派挑战」—— **纯函数**（纪律⑦：判据可离线重判）
+ *
+ * ★ 为什么要抽出来：这条判据曾经错得最贵 ——
+ *   `challengedOutputs` 在内存里，重启清零 ⇒ **整个历史账被当成新产出逐条重审**。
+ *   实测：32 条挑战的产物龄全是 13.8 分钟（拷贝时刻），没有一个是真的新活。
+ *
+ * @param outs        outbox 里的文件名
+ * @param startedAt   本轮开跑时刻（ms）
+ * @param challenged  本轮已经辩过的文件名
+ * @param mtimeOf     取 mtime（ms）—— 取不到的（已被删）算**不新**
+ */
+export function pickFresh(
+  outs: readonly string[],
+  startedAt: number,
+  challenged: readonly string[],
+  mtimeOf: (f: string) => number | undefined,
+): string[] {
+  const done = new Set(challenged);
+  return outs.filter((f) => {
+    if (done.has(f)) return false;
+    const m = mtimeOf(f);
+    // ★ 取不到 mtime ⇒ 不当新（静默当新就是那个 bug 的一半）
+    if (typeof m !== "number") return false;
+    return m >= startedAt;
+  });
+}
+
 export function listOutbox(): string[] {
   const d = join(LAB, "outbox");
   return existsSync(d) ? readdirSync(d).filter((f) => f.endsWith(".md")) : [];
@@ -285,6 +313,20 @@ export type State = {
    *   ★ 三条规则三个账：审的、看的、辩的。
    */
   challengedOutputs: string[];
+  /**
+   * ★★★★★ 本轮开跑的时刻（2026-10-25 新加 ���— 治一个**最贵的结构性 bug**）。
+   *
+   * ★ 实测（照实写）：复制两个 arm 各跑一轮，`challenges.jsonl` 里 32 条挑战，
+   *   **被挑战产物的龄全是 13.8 分钟** —— 也就是"拷贝那一刻的旧账"。
+   *   根因：`challengedOutputs` 是**内存**的，每轮重启清零 ⇒
+   *   `fresh = outs.filter(f => !challenged)` 把**整个 235 份历史账**当"新产物"，
+   *   每 tick 挑一份（`fresh[0]`，**从最老的开始**），各发 2 位同事。
+   * ★★ 后果：**每跑一轮，它先花大半时间重审一周前的旧账** ——
+   *   这才是"答辩占比 78%"的真正引擎（不是"新活辩太多"）。
+   * ★★★ 治法要落在**结构**上：只挑 `mtime > runStartedAt` 的产物。
+   *   归档的账不该被"新"这个字欺骗（纪律㉛：别用当前状态回答历史问题）。
+   */
+  runStartedAt: number;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -304,6 +346,7 @@ export function newState(): State {
     lastWorkMtime: 0,
     lastConvergedMtime: convergedMtime(),
     challengedOutputs: [],
+    runStartedAt: Date.now(),
     lastTickAt: Date.now(),
   };
 }
@@ -765,7 +808,26 @@ export function makeRules(ctx: TriggerCtx) {
     // ★ 收尾态：不再送新挑战
     if (ctx.closing?.()) return;
     const outs = listOutbox();
-    const fresh = outs.filter((f) => !state.challengedOutputs.includes(f));
+    // ★★★★★ 2026-10-25 · **只挑战本轮新产出**（治"每轮重审整个历史账"）
+    //
+    //   ★ 实测：32 条挑战全部指向龄 13.8 分钟的旧账 —— 因为 `challengedOutputs`
+    //     是内存的，重启即清零 ⇒ 235 份历史全被当成"新产物"逐条重审。
+    //   ★★ 判据：`mtime > runStartedAt`。归档的账不该被"新"这个字骗（纪律㉛）。
+    const fresh = pickFresh(outs, state.runStartedAt, state.challengedOutputs, (f) => {
+      try {
+        return statSync(join(LAB, "outbox", f)).mtimeMs;
+      } catch {
+        return undefined;
+      }
+    });
+    // ★ 老账不派挑战，但要**报出来**（否则"历史账一直没人审"会静默）
+    const archived = outs.length - fresh.length - state.challengedOutputs.length;
+    if (archived > 0 && state.challengedOutputs.length === 0) {
+      ctx.trace(
+        "onNewFinding",
+        `本轮只辩新产出：历史账 ${archived} 份**不派挑战**（它们上一轮已经被辩过 —— 内存集合重启清零是旧 bug，2026-10-25 修）`,
+      );
+    }
     if (fresh.length === 0) return;
     // ★ 一次最多送一份 —— 否则一批十几份产物会同时向同事发问，把它们的上下文淹了
     const target = fresh[0]!;
