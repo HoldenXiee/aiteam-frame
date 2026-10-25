@@ -24,7 +24,14 @@ import {
   renderGeneralizability,
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
-import { convergenceDebt, convergedGate, renderDebt, renderGate } from "../hunt/topology/converged-gate.ts";
+import {
+  convergenceDebt,
+  convergedGate,
+  renderDebt,
+  renderGate,
+  renderUnsupported,
+  unsupportedClaims,
+} from "../hunt/topology/converged-gate.ts";
 import {
   deepProjects,
   externalUrlShare,
@@ -68,6 +75,15 @@ console.log(
     renderSeven(sevenStats(readStructured(root))),
     renderGate(convergedGate(root, readStructured(root))),
     renderDebt(convergenceDebt(root, readStructured(root))),
+    renderUnsupported(
+      (() => {
+        try {
+          return unsupportedClaims(readFileSync(root + "/outbox/CONVERGED.md", "utf8"), readStructured(root));
+        } catch {
+          return [];
+        }
+      })(),
+    ),
     (() => {
       const rows = readStructured(root);
       const ex = externalUrlShare(rows);

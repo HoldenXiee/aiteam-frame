@@ -51,7 +51,15 @@ import { readProjects, renderProjects } from "./topology/projects.ts";
 import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { appendChallenge, dialecticStats, readChallenges, renderDialectic } from "./topology/dialectic.ts";
 import { makePortRun } from "./tools/port-run.ts";
-import { convergenceDebt, convergedGate, renderDebt, renderGate, writeDebtFile } from "./topology/converged-gate.ts";
+import {
+  convergenceDebt,
+  convergedGate,
+  renderDebt,
+  renderGate,
+  renderUnsupported,
+  unsupportedClaims,
+  writeDebtFile,
+} from "./topology/converged-gate.ts";
 import {
   deepProjects,
   externalUrlShare,
@@ -1312,6 +1320,15 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderSeven(sevenStats(readStructured(LAB))),
       renderGate(convergedGate(LAB, readStructured(LAB))),
       renderDebt(convergenceDebt(LAB, readStructured(LAB))),
+      renderUnsupported(
+        (() => {
+          try {
+            return unsupportedClaims(readFileSync(join(LAB, "outbox", "CONVERGED.md"), "utf8"), readStructured(LAB));
+          } catch {
+            return [];
+          }
+        })(),
+      ),
       (() => {
         const rows = readStructured(LAB);
         const chains = projectChains(rows);

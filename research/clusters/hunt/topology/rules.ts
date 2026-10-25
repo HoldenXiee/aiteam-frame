@@ -36,7 +36,7 @@
 //     （C）看的窗口更全、（B）密度取实测值。**没有"我在外面盯"的循环。**
 // ══════════════════════════════════════════════════════════════
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { LAB } from "../paths.ts";
 import { convergedMtime, countFreshFiles, hasProgress, workLatestMtime } from "./progress.ts";
@@ -389,6 +389,8 @@ export type State = {
   lastPhenomenonAt: number;
   /** ★ 上一次催「收敛欠账」的时刻（2026-10-25）*/
   lastDebtAt: number;
+  /** ★ 上一次催「撤回被判补的证据」的时刻（2026-10-25）*/
+  lastRetractAt: number;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -413,6 +415,7 @@ export function newState(): State {
     externalAsked: 0,
     lastPhenomenonAt: 0,
     lastDebtAt: 0,
+    lastRetractAt: 0,
     lastTickAt: Date.now(),
   };
 }
@@ -484,6 +487,7 @@ export async function tick(
       onExternal: () => Promise<void>;
       onPhenomenon: () => Promise<void>;
       onDebt: () => Promise<void>;
+      onRetract: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -542,6 +546,7 @@ export async function tick(
   await step("onExternal", () => rules.onExternal());
   await step("onPhenomenon", () => rules.onPhenomenon());
   await step("onDebt", () => rules.onDebt());
+  await step("onRetract", () => rules.onRetract());
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
@@ -565,7 +570,7 @@ import { canOpenNewAudit, readClosure } from "./closure.ts";
 import { readProjects } from "./projects.ts";
 import { externalUsage, readArtifacts } from "./experiments.ts";
 import { readStructured } from "../tools/record-experiment.ts";
-import { convergenceDebt } from "./converged-gate.ts";
+import { convergenceDebt, unsupportedClaims } from "./converged-gate.ts";
 
 export function makeRules(ctx: TriggerCtx) {
   const { state } = ctx;
@@ -995,6 +1000,51 @@ export function makeRules(ctx: TriggerCtx) {
    *   不是"检测哪份像创新" —— 后者是内容判断（硬规则①）。
    */
   // ══════════════════════════════════════════════════════════════
+  // ★★★★★ onRetract —— 被判「补的」证据必须有人处置（门有判决就得有后果）
+  //
+  //   ★ 实测（主空间）：判"补的" **8 条**，**8 条全都被状态表引用**，一条都没撤。
+  //     门只报"未通过"，**没人被要求撤回** ⇒ 判决没有后果。
+  //   ★★ 三选一（有路才拦得住，纪律⑳）：
+  //     撤回引用 / 重做一次带真 PREREG 的实验 / 说明它其实成立
+  // ══════════════════════════════════════════════════════════════
+  async function onRetract(): Promise<void> {
+    if (ctx.closing?.()) return;
+    if (!ctx.challenge) return;
+    const now = Date.now();
+    if (now - state.lastRetractAt < 20 * 60_000) return;
+    const rows = readStructured(LAB);
+    const p = join(LAB, "outbox", "CONVERGED.md");
+    if (!existsSync(p) || rows.length === 0) return;
+    const bad = unsupportedClaims(readFileSync(p, "utf8"), rows);
+    if (bad.length === 0) return;
+    state.lastRetractAt = now;
+
+    const target = bad[0]!;
+    // ★ 派给**这条证据的作者**（别人改不了它），没有就派第一个座位
+    const author = rows.find((r) => target.fake.includes(r.id))?.by;
+    const peers = ctx.peerKeys?.() ?? [];
+    const who = (author && peers.includes(author)) ? author : peers[0];
+    if (!who) return;
+    ctx.trace("onRetract", `只有"补的"证据撑着的 claim ${bad.length} 条 ⇒ 派 ${who} 处置 ${target.fake.join("·")}`);
+    ctx.challenge(
+      who,
+      [
+        "## ★★★★★ 你引的证据被判「补的」，但状态表还在用它",
+        "",
+        `**那条 claim**：${target.claim}`,
+        `**它只靠**：${target.fake.map((f) => "`" + f + "`").join(" · ")}（都被同侪判为"先看读数再补预期"）`,
+        "",
+        "### 三选一（有后果，别放着）",
+        "1. **撤回引用** —— 从 `outbox/CONVERGED.md` 的状态表里去掉这几个 `E*`，claim 相应降级",
+        "2. **重做一次** —— 这次先写 PREREG（写死预期）、再跑、再记 `record_experiment`",
+        "3. **说明它其实成立** —— 指到跑前就存在的证据（不是事后叙述）",
+        "",
+        "★ 判据（我机械可查）：处置后 `只有补的证据撑着的 claim` 应少一条。",
+      ].join(String.fromCharCode(10)),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // ★★★★ onDebt —— 催「收敛欠账」（2026-10-25）
   //
   //   ★ 为什么必须做成规则、不能写在投递里：
@@ -1246,5 +1296,5 @@ export function makeRules(ctx: TriggerCtx) {
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, drainer };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, onRetract, drainer };
 }

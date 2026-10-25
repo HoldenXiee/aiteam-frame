@@ -216,3 +216,49 @@ export function renderDebt(d: ConvergenceDebt): string {
     cleared
   );
 }
+
+
+/**
+ * ★★★★★ 被判「补的」证据仍被引用 ⇒ 哪几条 claim 只靠它们撑着
+ *
+ * ★ 实测（2026-10-25 主空间）：判"补的" **8 条**，**8 条全都被状态表引用**。
+ *   门只报"未通过"，但没人去撤回 —— 这就是"门有判决、没有后果"。
+ * ★★ 这里只做**可数**：按 claim 行看，它引的 E 里有没有一条站得住的。
+ *   判"这条 claim 对不对"是内容判断，不是我的活。
+ */
+export interface UnsupportedClaim {
+  /** 状态表上那句 claim（截断）*/
+  claim: string;
+  /** 它引的 E 编号 */
+  cited: string[];
+  /** 其中被判"补的"的 */
+  fake: string[];
+}
+
+export function unsupportedClaims(convergedText: string, rows: readonly ExperimentRow[]): UnsupportedClaim[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: UnsupportedClaim[] = [];
+  for (const line of convergedText.split(String.fromCharCode(10))) {
+    const m = /^\|[ ]*([^|]+?)[ ]*\|[ ]*([^|]+?)[ ]*\|/.exec(line.trim());
+    if (!m) continue;
+    const claimCell = m[1]!;
+    const evCell = m[2]!;
+    const ids = [...new Set(evCell.match(/E[0-9]+/g) ?? [])];
+    if (ids.length === 0) continue;
+    const fake = ids.filter((i) => byId.get(i)?.phenomenonVerdict === "补的");
+    // ★ 只在"引的全是补的"时算「只靠它撑着」—— 有一条站得住就不是
+    if (fake.length === ids.length) {
+      out.push({ claim: claimCell.slice(0, 70), cited: ids, fake });
+    }
+  }
+  return out;
+}
+
+export function renderUnsupported(u: readonly UnsupportedClaim[]): string {
+  if (u.length === 0) return "★ 被判「补的」的证据没有单独撑着任何 claim（或状态表里没有 E 引用）";
+  return (
+    `★★★★ 只有"被判补的"证据撑着的 claim：**${u.length} 条**` +
+    `（${u.slice(0, 4).map((x) => x.fake.join("·")).join(" / ")}）` +
+    `　← ★ 门给了判决但**没人撤回**：要么撤回引用、要么重做一次带真 PREREG 的实验、要么说明它其实成立`
+  );
+}
