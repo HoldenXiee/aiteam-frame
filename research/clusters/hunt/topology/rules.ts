@@ -170,7 +170,7 @@ const EXTERNAL_MS = Number(process.env.EXTERNAL_MS) > 0 ? Number(process.env.EXT
  *   ★ 实测（r11–r14 四臂）：现象填了 30/30，**被独立审 0/30** —— 光靠投递不够。
  */
 const PHENOMENON_MS =
-  Number(process.env.PHENOMENON_MS) > 0 ? Number(process.env.PHENOMENON_MS) : 25 * 60_000;
+  Number(process.env.PHENOMENON_MS) > 0 ? Number(process.env.PHENOMENON_MS) : 12 * 60_000;
 const EXTERNAL_MAX_PER_WINDOW = Number(process.env.EXTERNAL_MAX) > 0 ? Number(process.env.EXTERNAL_MAX) : 6;
 /** ★ 外部材料占产物的目标线：低于它才问（到了就不再催 —— 配额换成"读数驱动"）*/
 const EXTERNAL_TARGET = 0.3;
