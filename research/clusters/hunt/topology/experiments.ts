@@ -196,6 +196,56 @@ export function ledgerColumns(text: string): string[] {
   return [...new Set(cols)];
 }
 
+/**
+ * ★★★★ 七项缺口 —— DESIGN §1 说单元是实验，含
+ *   **假设 / 装置 / 读数 / 现象 / 模型 / 猜想 / 结局**。
+ * ★ 实测它交的是「编号·谓词·装置·结局」—— **现象/模型/猜想三格根本不存在**。
+ * ★★ 这里只判**列在不在**（纯形式），不判格子里写得对不对（那是内容判断，不是我的活）。
+ */
+export const EXPERIMENT_ITEMS = [
+  { key: "hypothesis", label: "假设", re: /(谓词|假设|claim|一句话)/i },
+  { key: "device", label: "装置", re: /(装置|脚本|命令|device)/i },
+  { key: "reading", label: "读数", re: /(读数|对照|值|结果数)/i },
+  { key: "phenomenon", label: "现象", re: /(现象|意外|与预期不符|反常)/i },
+  { key: "model", label: "模型", re: /(模型|机制|解释|model)/i },
+  { key: "conjecture", label: "猜想", re: /(猜想|假设的猜想|conjecture)/i },
+  { key: "outcome", label: "结局", re: OUT_HEAD },
+] as const;
+
+export interface ItemGap {
+  present: string[];
+  missing: string[];
+  columns: string[];
+}
+
+export function itemGap(ledgerText: string): ItemGap {
+  const columns = ledgerColumns(ledgerText);
+  const present: string[] = [];
+  const missing: string[] = [];
+  for (const it of EXPERIMENT_ITEMS) {
+    if (columns.some((c) => it.re.test(c))) present.push(it.label);
+    else missing.push(it.label);
+  }
+  return { present, missing, columns };
+}
+
+/** ★ 表头声明了「未验证」⇒ 这一列的行都在声明层面算标过（与行内明写分开报）*/
+export function headerDeclaresUnverified(ledgerText: string): boolean {
+  const head = ledgerText.split(String.fromCharCode(10)).find((l) => CONJ_COL_HEAD.test(l)) ?? "";
+  return /未验证/.test(head);
+}
+
+export function renderItemGap(g: ItemGap): string {
+  if (g.columns.length === 0) {
+    return "★ 七项缺口：**读不到实验账的列**（未声明）—— 没列就没格，缺什么无从说起";
+  }
+  return (
+    `★★ 七项（假设/装置/读数/现象/模型/猜想/结局）：有 **${g.present.join("·") || "无"}**` +
+    (g.missing.length ? ` · ★ **缺 ${g.missing.join("·")}**` : " · 齐") +
+    `　← ★ 缺的那几格就是"新东西"唯一的入口（只判列在不在，不判写得对不对）`
+  );
+}
+
 export function parseLedger(text: string): Row[] {
   const rows: Row[] = [];
   const lines = text.split(String.fromCharCode(10));
@@ -349,15 +399,39 @@ export function artifactMix(arts: Artifact[], expPrefixes = ["P"]): ArtifactMix 
  */
 const CONJ_MARK = /^\s*(?:[-*]\s*)?(?:类型\s*[：:]\s*猜想|猜想\s*[：:])/m;
 
-export function conjectures(arts: Artifact[]): { total: number; unverified: number } {
+export function conjectures(arts: Artifact[]): { total: number; unverified: number; headerDeclared: boolean; sources: string[] } {
   let total = 0;
   let unverified = 0;
+  let headerDeclared = false;
+  const sources: string[] = [];
   for (const a of arts) {
-    if (!CONJ_MARK.test(a.text)) continue;
-    total++;
-    if (/未验证/.test(a.text)) unverified++;
+    // ① 明文标记（`猜想：` / `类型：猜想`）
+    if (CONJ_MARK.test(a.text)) {
+      total++;
+      if (/未验证/.test(a.text)) unverified++;
+      sources.push(a.file);
+      continue;
+    }
+    // ★★ ② 2026-10-25 补：它实际是把猜想写进 `PROJECTS.md` 的**表格列**里
+    //   （`| 代号 | 一句话猜想（未验证） | 版本 | …`）。我原来只扫正文标记 ⇒
+    //   报「猜想 0 条」，而表里明明有 4 行 —— **这是我的口径错，不是它没做**。
+    if (/PROJECTS/i.test(a.file)) {
+      const rows = a.text
+        .split(String.fromCharCode(10))
+        .filter((l) => /^\|\s*`?[A-Za-z][\w-]*`?\s*\|/.test(l.trim()));
+      const head = a.text.split(String.fromCharCode(10)).find((l) => CONJ_COL_HEAD.test(l)) ?? "";
+      if (rows.length > 0 && CONJ_COL_HEAD.test(head)) {
+        total += rows.length;
+        // ★ 行内明写 + 表头声明，**分开算**（纪律㉜：缺数据 ≠ 0）
+        //   实测：表头写「一句话猜想（未验证）」，而行内一个字都没有 ⇒
+        //   只数行内会报 0 条未验证，而列定义层面 8 条都标了。
+        unverified += rows.filter((l) => /未验证/.test(l)).length;
+        if (/未验证/.test(head)) headerDeclared = true;
+        sources.push(`${a.file}(表)`);
+      }
+    }
   }
-  return { total, unverified };
+  return { total, unverified, headerDeclared, sources };
 }
 
 /**
@@ -643,6 +717,9 @@ export function renderExternal(e: ExternalUsage): string {
     `规则 \`onExternal\` 会按配额催（纪律㊱）`
   );
 }
+
+/** ★ 表头里认「猜想」这一列（`一句话猜想（未验证）` / `猜想`）*/
+const CONJ_COL_HEAD = /^\s*\|.*猜想.*\|/;
 
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
 

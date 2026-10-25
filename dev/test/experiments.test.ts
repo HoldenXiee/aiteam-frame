@@ -12,6 +12,9 @@ import { describe, it } from "node:test";
 
 import {
   artifactMix,
+  conjectures,
+  itemGap,
+  renderItemGap,
   generalizability,
   ledgerColumns,
   renderGeneralizability,
@@ -330,5 +333,59 @@ describe("readExperiments：传错根要抛错，不静默", () => {
   });
   it("给 work 路径 ⇒ 抛", () => {
     assert.throws(() => readExperiments("research/labfirst/hunt/work"), /集群空间根/);
+  });
+});
+
+describe("★★ 七项缺口（itemGap）：只判列在不在，不判写得对不对", () => {
+  const ledger = [
+    "| 编号 | 谓词 | 装置 | 结局 |",
+    "|---|---|---|---|",
+    "| P1 | x | y | 活 |",
+  ].join(String.fromCharCode(10));
+
+  it("★ 实测形状：有假设·装置·读数·结局，缺现象·模型·猜想", () => {
+    const g = itemGap(ledger);
+    assert.ok(g.present.includes("装置"), g.present.join());
+    assert.ok(g.missing.includes("现象"), g.missing.join());
+    assert.ok(g.missing.includes("模型"));
+    assert.ok(g.missing.includes("猜想"));
+  });
+
+  it("加了现象/模型/猜想三列 ⇒ 不再缺", () => {
+    const full = [
+      "| 编号 | 谓词 | 装置 | 读数 | 现象 | 模型 | 猜想 | 结局 |",
+      "|---|---|---|---|---|---|---|---|",
+      "| P1 | x | y | 1 | 意外 | 机制A | 猜想B | 活 |",
+    ].join(String.fromCharCode(10));
+    const g = itemGap(full);
+    assert.deepEqual(g.missing, []);
+  });
+
+  it("读不到列 ⇒ 报未声明，不报 0（纪律㉜）", () => {
+    assert.ok(renderItemGap(itemGap("随便一句话")).includes("未声明"));
+  });
+});
+
+describe("★★★★ 猜想的口径：它写在 PROJECTS.md 的表列里，不在正文", () => {
+  const projects = [
+    "# PROJECTS",
+    "| 代号 | 一句话猜想（未验证） | 版本 | 对象 |",
+    "|---|---|---|---|",
+    "| `X1` | 加一行入口能把可跑率抬一个量级 | v1 | 外 |",
+    "| `X2` | 装置覆盖是 ≥5 层 | v2 | 外 |",
+  ].join(String.fromCharCode(10));
+
+  it("★ 原来只扫正文标记 ⇒ 报 0 条；现在认表 ⇒ 2 条（这是我的口径错，不是它没做）", () => {
+    const c = conjectures([{ file: "PROJECTS.md", text: projects, mtimeMs: 1 }]);
+    assert.equal(c.total, 2);
+  });
+  it("★ 表头声明「未验证」⇒ 单独标出来（行内一个字都没有也算）", () => {
+    const c = conjectures([{ file: "PROJECTS.md", text: projects, mtimeMs: 1 }]);
+    assert.equal(c.unverified, 0); // 行内明写
+    assert.equal(c.headerDeclared, true); // 但列定义层面标过
+  });
+  it("正文里明写「猜想：」仍然算（两种写法都认）", () => {
+    const c = conjectures([{ file: "P9.md", text: "猜想：门控其实是成本代理", mtimeMs: 1 }]);
+    assert.equal(c.total, 1);
   });
 });

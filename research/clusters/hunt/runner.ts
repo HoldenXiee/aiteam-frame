@@ -6,7 +6,7 @@
 //   · ✗ 不做：在外面盯状态、判断、起 agent
 //   ⇒ 所以这里**没有 while 循环看状态** —— 规则挂在 `agent.on(...)` 上，由事件驱动。
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
@@ -32,6 +32,8 @@ import {
   artifactLoci,
   attentionMix,
   externalUsage,
+  itemGap,
+  renderItemGap,
   providedUsage,
   renderExternal,
   renderProvided,
@@ -848,6 +850,44 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("  出处 URL + 原文一句话（逐字）+ 它**支持还是判死**那条结论 + 它改了你什么。");
       P.push("  ★ 编 URL 我会去核；编一次，这条通道以后就不给了。");
       P.push("");
+      // ★★★★★ 2026-10-25 · **七项缺口**（DESIGN §1）—— 纯形式，只判列在不在
+      //
+      //   ★ 实测它交的是「编号·谓词·装置·结局」⇒ **现象 / 模型 / 猜想 三格不存在**。
+      //   ★★ 而 DESIGN 说得很清楚：`静默失明`、`数的落点` 这些真结论
+      //     全是从「与预期不符的现象」里长出来的 ⇒ 没有那一格，就没有那条路。
+      const ledgerTxt = (() => {
+        try {
+          return readdirSync(join(LAB, "outbox"))
+            .filter((f) => /^EXPERIMENTS.*\.md$/.test(f))
+            .map((f) => readFileSync(join(LAB, "outbox", f), "utf8"))
+            .join(String.fromCharCode(10));
+        } catch {
+          return "";
+        }
+      })();
+      const gap = itemGap(ledgerTxt);
+      P.push("### ★★★ 七项缺口：你的实验账有 **" + (gap.present.join("·") || "无") + "**");
+      P.push("");
+      if (gap.missing.length > 0) {
+        P.push("★ **缺：" + gap.missing.join("·") + "**（列名里读不到这几项）");
+        P.push("");
+        if (gap.missing.includes("现象")) {
+          P.push("★★★ 「现象」这一格最要紧，也最便宜：**它是唯一能装「你没料到的事」的格子**。");
+          P.push("  现在的产物大多是「我预期 X，实测 X，成立」—— 那不是发现，那是**裁决**。");
+          P.push("  真正的结论长这样：**我预期 X，实测 Y，所以那个机制不是我以为的那个**。");
+          P.push("  （书里 `静默失明`、`数的落点` 全是从这一格长出来的。）");
+          P.push("");
+        }
+      }
+      P.push("### ★★★★ 这一轮请先回答：**你有没有一次「实测和预期不一样」？**");
+      P.push("");
+      P.push("(a) **有过，就在 `<产物名>` 里** —— 把那一段贴出来（预期是什么 / 实测是什么 / 你改了什么想法）");
+      P.push("(b) **有过，但我当成「不成立」就放过去了** —— 说清是哪条，它可能是一条被丢掉的真结论");
+      P.push("(c) **没有** —— 说清是「每件都在我预期内」还是「我不记意外」");
+      P.push("");
+      P.push("★ 允许答 (c)，答了不算病。★★ 唯一不许的是**不答**。");
+      P.push("★ 只要你答 (a)/(b)，我会把那一格记进读数 —— 这是「新东西」唯一的入口。");
+      P.push("");
       // ★★★ 设计者投放的文章：**不是任务，是选题池**
       if (providedFiles.length > 0) {
         P.push("### ★ 设计者会时不时往一个目录里放文章（**不是任务**）");
@@ -1135,7 +1175,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const cj = conjectures(readArtifacts(join(LAB, "outbox")));
     for (const line of [
       ...renderProjects(pj.stats, pj.mode).split(String.fromCharCode(10)),
-      `★ 猜想（明写标记）：${cj.total} 条 · 标了「未验证」的 ${cj.unverified} 条`,
+      `★ 猜想：${cj.total} 条 · 行内明写「未验证」${cj.unverified} 条${cj.headerDeclared ? "（★ 表头已声明，按列定义全算标过）" : ""}`,
       renderGeneralizability(generalizability(readArtifacts(join(LAB, "outbox")))),
       renderAttention(attentionMix(readArtifacts(join(LAB, "outbox")))),
       renderCrossCarrier(crossCarrier(readArtifacts(join(LAB, "outbox")))),

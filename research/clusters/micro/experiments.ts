@@ -7,6 +7,8 @@ import {
   conjectures,
   artifactLoci,
   externalUsage,
+  itemGap,
+  renderItemGap,
   providedUsage,
   renderExternal,
   renderProvided,
@@ -23,19 +25,35 @@ import {
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
 import { readProjects, renderProjects } from "../hunt/topology/projects.ts";
+import { readdirSync, readFileSync } from "node:fs";
 
 const root = process.argv[2] ?? "research/labfirst/hunt";
+
+/** ★ 拼出全部实验账的文本（`outbox/EXPERIMENTS*.md`）—— 判「七项有哪几列」只看它 */
+function ledgerTextOf(lab: string): string {
+  try {
+    const dir = lab + "/outbox";
+
+    return readdirSync(dir)
+      .filter((f) => /^EXPERIMENTS.*\.md$/.test(f))
+      .map((f) => readFileSync(dir + "/" + f, "utf8"))
+      .join(String.fromCharCode(10));
+  } catch {
+    return "";
+  }
+}
 const { stats, att, mix, outcomeSamples, ledgerConflicts } = readExperiments(root);
 const cj = conjectures(readArtifacts(root + "/outbox"));
 const pj = readProjects(root);
 console.log(
-  [renderProjects(pj.stats, pj.mode), `★ 猜想（明写标记）：${cj.total} 条 · 其中标了「未验证」${cj.unverified} 条`,
+  [renderProjects(pj.stats, pj.mode), `★ 猜想：${cj.total} 条 · 行内明写「未验证」${cj.unverified} 条${cj.headerDeclared ? "（★ 表头已声明，按列定义全算标过）" : ""}`,
     renderGeneralizability(generalizability(readArtifacts(root + "/outbox"))),
     renderAttention(attentionMix(readArtifacts(root + "/outbox"))),
     renderCrossCarrier(crossCarrier(readArtifacts(root + "/outbox"))),
     renderDialectic(dialecticStats(readChallenges(root))),
     renderLoci(artifactLoci(root, Date.now() - 3 * 3600_000)),
     renderExternal(externalUsage(readArtifacts(root + "/outbox"))),
+    renderItemGap(itemGap(ledgerTextOf(root))),
     renderProvided(
       providedUsage(
         readArtifacts(root + "/outbox"),
