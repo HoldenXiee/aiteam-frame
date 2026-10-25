@@ -6,7 +6,7 @@
 //   · ✗ 不做：在外面盯状态、判断、起 agent
 //   ⇒ 所以这里**没有 while 循环看状态** —— 规则挂在 `agent.on(...)` 上，由事件驱动。
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
@@ -1439,13 +1439,48 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const last = latestSnapshot();
     const lastAt = last ? Date.parse(String((last as { at?: string }).at ?? "")) : 0;
     const ageMs = Number.isFinite(lastAt) ? Date.now() - lastAt : Number.POSITIVE_INFINITY;
-    if (ageMs < SNAP_MIN_GAP_MS) {
+    // ★★★ 2026-10-25：**没新东西就别拍**。
+    //   实测 batch-004 与 batch-005 各 187MB / 20453 文件、**freshOutbox 0 且零变化** ——
+    //   两批逐字节冗余。判据用便宜的量：outbox 份数 + 结构化实验条数 + work 最新 mtime。
+    const sig = (() => {
+      try {
+        const outs = readdirSync(join(LAB, "outbox")).filter((f) => f.endsWith(".md")).length;
+        const exp = readStructured(LAB).length;
+        let newest = 0;
+        for (const f of readdirSync(join(LAB, "work"))) {
+          try {
+            const m = statSync(join(LAB, "work", f)).mtimeMs;
+            if (m > newest) newest = m;
+          } catch {
+            /* 忽略 */
+          }
+        }
+        return `${outs}/${exp}/${Math.floor(newest / 60_000)}`;
+      } catch {
+        return "?";
+      }
+    })();
+    const sigFile = join(LAB, "work", "_snapshot.sig");
+    let prevSig = "";
+    try {
+      prevSig = readFileSync(sigFile, "utf8").trim();
+    } catch {
+      prevSig = "";
+    }
+    if (sig === prevSig) {
+      log("snapshot", `跳过：与上一批**完全没变化**（${sig}）—— 不拍逐字节冗余的批`);
+    } else if (ageMs < SNAP_MIN_GAP_MS) {
       log(
         "snapshot",
         `跳过：距上一批 ${Math.round(ageMs / 3600_000)} 小时 < 6 小时（批次 ${(last as { batch?: number })?.batch ?? "?"}）`,
       );
     } else {
       const r = takeSnapshot();
+      try {
+        writeFileSync(sigFile, sig, "utf8");
+      } catch {
+        /* 写不进去不影响快照本身 */
+      }
       log(
         "snapshot",
         `✔ 已冻结 batch-${String((r as { batch?: number }).batch ?? "?").padStart(3, "0")} ` +

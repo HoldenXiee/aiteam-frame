@@ -78,8 +78,16 @@ describe("sevenStats：★ 「发现型」= 跨载体 + 现象 + 模型", () => 
       ...over,
     }) as Parameters<typeof sevenStats>[0][number];
 
-  it("两个载体都 0 且有现象有模型 ⇒ 发现型", () => {
-    assert.equal(sevenStats([row({})]).discovery, 1);
+  // ★★★ 2026-10-25 **口径变更**（不是放宽）：`discovery` 现在还要求**被别人独立审过**。
+  //   理由：填了 ≠ 真意外（实测被审的现象里 58% 判"补的"）。
+  it("两个载体都 0、有现象有模型、且被独立审过 ⇒ 发现型", () => {
+    assert.equal(sevenStats([row({ reviewedBy: "b", phenomenonVerdict: "真意外" })]).discovery, 1);
+  });
+  it("★★ 同样齐全但**没被别人审** ⇒ 不算发现型（第 18 次「写好了没接上」的守门测试）", () => {
+    assert.equal(sevenStats([row({})]).discovery, 0);
+  });
+  it("★★ 被别人判「补的」⇒ 不算发现型", () => {
+    assert.equal(sevenStats([row({ reviewedBy: "b", phenomenonVerdict: "补的" })]).discovery, 0);
   });
   it("★ 单载体 ⇒ 不算跨载体，也不算发现型（跑过一次不等于可推广）", () => {
     const s = sevenStats([row({ carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }] })]);
@@ -89,8 +97,8 @@ describe("sevenStats：★ 「发现型」= 跨载体 + 现象 + 模型", () => 
   it("★ 一个有现象无模型 ⇒ 不算发现型（裁决不是发现）", () => {
     assert.equal(sevenStats([row({ model: "" })]).discovery, 0);
   });
-  it("★★ 结局=死 有现象有模型 ⇒ 算「反例型」，不算「发现型」（集群 r11 抓到的口径错）", () => {
-    const s = sevenStats([row({ outcome: "死" })]);
+  it("★★ 结局=死 有现象有模型且被审过 ⇒ 算「反例型」，不算「发现型」（集群 r11 抓到的口径错）", () => {
+    const s = sevenStats([row({ outcome: "死", reviewedBy: "b", phenomenonVerdict: "真意外" })]);
     assert.equal(s.discovery, 0);
     assert.equal(s.refuting, 1);
   });
