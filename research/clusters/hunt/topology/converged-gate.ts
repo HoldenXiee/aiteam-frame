@@ -38,6 +38,13 @@ export interface GateResult {
   rows: number;
   /** ★ 门是否通过：引用了 ≥1 条 E*，且没有未审/补的 */
   pass: boolean;
+  /**
+   * ★★ 覆盖率 = 引用了几条 E* / 账上共几条。
+   * ★ 单独报、**不进门**：门只判"引的都对"，覆盖率是另一件事。
+   *   实测（r22）：门通过了，但它只引了 **1 条**（账上 7 条）——
+   *   **薄通过**是可能的（引一条审过的、其余不引）。这正是"形式判据可被最省力满足"的老问题。
+   */
+  coverage: number | null;
   /** 一句话结论 */
   verdict: string;
 }
@@ -81,6 +88,7 @@ export function convergedGate(lab: string, rows: readonly ExperimentRow[]): Gate
       legacyRefs: 0,
       rows: 0,
       pass: false,
+      coverage: null,
       verdict: "没有 `outbox/CONVERGED.md` ⇒ **未声明**（不当作已通过，也不当作失败）",
     };
   }
@@ -104,14 +112,24 @@ export function convergedGate(lab: string, rows: readonly ExperimentRow[]): Gate
       ? `⛔ 状态表的证据 id **一条结构化实验都没有**（旧账引用 ${legacyRefs} 处、表 ${trows} 行）` +
         ` —— 也就是说"我收敛了"**没有经过新门**`
       : `⛔ 状态表引用了 ${cited.length} 条 E*，但 ${unreviewed.length} 条未审、${fabricated.length} 条被判"补的"`;
-  return { cited, unreviewed, fabricated, legacyRefs, rows: trows, pass, verdict };
+  const coverage = rows.length > 0 ? cited.length / rows.length : null;
+  return { cited, unreviewed, fabricated, legacyRefs, rows: trows, pass, coverage, verdict };
 }
 
 export function renderGate(g: GateResult): string {
   const list = (xs: string[]) => (xs.length ? xs.join("·") : "—");
+  const cov =
+    g.coverage !== null && g.cited.length > 0
+      ? ` · 覆盖率 ${g.cited.length}/${Math.round(g.cited.length / g.coverage)}（★ 薄通过也算通过：门只判「引的对不对」）`
+      : "";
   return (
     `★★★★★ 收敛门（CONVERGED 的证据 id 必须指到 E* 且经独立审）：**${g.pass ? "通过" : "未通过"}**` +
-    `\n    ${g.verdict}` +
-    (g.cited.length > 0 ? `\n    引用：${list(g.cited)} · 未审：${list(g.unreviewed)} · 补的：${list(g.fabricated)}` : "")
+    `
+    ${g.verdict}` +
+    (g.cited.length > 0
+      ? `
+    引用：${list(g.cited)} · 未审：${list(g.unreviewed)} · 补的：${list(g.fabricated)}` + cov
+      : "")
   );
 }
+
