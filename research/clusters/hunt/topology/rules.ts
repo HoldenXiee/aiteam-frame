@@ -432,6 +432,7 @@ export async function tick(
 
 import { makeDrainer } from "./dispatch.ts";
 import { canOpenNewAudit, readClosure } from "./closure.ts";
+import { readProjects } from "./projects.ts";
 
 export function makeRules(ctx: TriggerCtx) {
   const { state } = ctx;
@@ -618,8 +619,27 @@ export function makeRules(ctx: TriggerCtx) {
     void canOpenNewAudit;
     void readClosure;
 
+    // ★★★★★ 2026-10-21 · ④ 新闸：**自审必须挂在项目上**（DESIGN §6）
+    //
+    //   ★★★ 这是打断"自喂环"的机制。实测：`手段 I → XXII` 24 层，每层审上一层 ——
+    //     审装置 → 发现缺陷 → 又需要审装置，**没有终点**，而它把产出吃成了 63% 自审。
+    //   ★ 而"自审"本身是合法的活（`先怀疑量具` 是这个集群的角度之一），不能删。
+    //     ⇒ 正确做法：**每条自审必须为某个项目服务**。没有项目 ⇒ 不许开自审。
+    //   ★★ 与"对象必须是外部"合起来才是完整的治：
+    //     项目有外部对象 ⇒ 自审服务于项目 ⇒ 自审被项目限住，而项目朝外。
+    const pj = readProjects(LAB);
+    if (pj.mode === "none" || pj.stats.total === 0) {
+      ctx.trace(
+        "onInstrumentReview",
+        "⛔ 跳过：项目账里**一个项目都没有** —— 自审必须挂在项目上（没有项目 ⇒ 自审自己没有目的）",
+      );
+      return;
+    }
+    const projectList = pj.rows.map((r) => `${r.id}（对象：${r.object || "未声明"}）`).join(" · ");
+
     state.lastInstrumentReviewAt = now;
     state.firedAt["inspirer"] = now;
+    ctx.trace("onInstrumentReview", `项目 ${pj.stats.total} 个 ⇒ 放行（${projectList.slice(0, 80)}）`);
 
     // ★★★ 派给 inspirer，但**换一个完全不同的问题**。
     //   ★ 它平时的任务是"从别的学科借框架"；

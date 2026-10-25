@@ -29,11 +29,14 @@ import { readClosure, renderClosure } from "./topology/closure.ts";
 import {
   artifactMix,
   conjectures,
+  generalizability,
+  renderGeneralizability,
   readArtifacts,
   readExperiments,
   renderExperiments,
 } from "./topology/experiments.ts";
 import { readProjects, renderProjects } from "./topology/projects.ts";
+import { latestSnapshot, takeSnapshot } from "../snapshot.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
@@ -640,6 +643,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       const mix = artifactMix(arts);
       const pj = readProjects(LAB);
       const cj = conjectures(arts);
+      const gen = generalizability(arts);
       const cutoff = Date.now() - 86_400_000;
       const recent = arts.filter((a) => a.mtimeMs >= cutoff);
       const rMix = artifactMix(recent);
@@ -702,7 +706,33 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       //   ★★ 而漂移的起点是**我**：我八轮都在递「你的装置有缺陷」。
       //   ⇒ 这一轮递的是"你能给别人用什么"，不是"你哪里错了"。
       P.push("");
-      P.push("### ★★★ 一个数：196 份产物里，**能给别人用的只有 9%**");
+      // ★★★ 2026-10-21：**读权限今天开了** —— 这件事它不知道，而它上一轮明确说过
+      //   「三个合法对象值，我填不出两个……我读不到它」。所以这一条是**新信息**，必须递。
+      P.push("### ★★★★★ 先纠正一件事：**你现在读得到了**");
+      P.push("");
+      P.push("上一轮你说「三个合法对象值我填不出两个，我读不到它」。**那是真的，但那是昨天。**");
+      P.push("今天我把只读边界打开了（写边界没动：你仍然只能写自己的空间 + `lib/`）：");
+      P.push("");
+      P.push("| 现在可以读（**只读**）| 绝对路径 |");
+      P.push("|---|---|");
+      P.push("| 库正本 | `" + join(REPO, "src") + "` |");
+      P.push("| 书（36 章）| `" + join(REPO, "research/book") + "` |");
+      P.push("| **另一个集群的代码**（forge）| `" + join(REPO, "research/clusters/forge") + "` |");
+      P.push("| 集群设计 + 实验记录 | `" + join(REPO, "research/docs") + "` |");
+      P.push("| 库的设计文档 | `" + join(REPO, "dev/docs") + "` |");
+      P.push("| 示例（合法的「对象」）| `" + join(REPO, "dev/demo") + "` |");
+      P.push("");
+      P.push("★ **例外**：仓库根的 `key`（凭证）**读不到** —— 那是有意的。");
+      P.push("★★ 一个坑：**相对路径是相对 `work/` 的**，读外面必须写**绝对路径**，");
+      P.push("   否则会 `ENOENT` —— 那不是「被拦住」，是「路径没写全」。");
+      P.push("");
+      P.push("### ★★★ 一个数：**可推广 = " + Math.round((gen.share ?? 0) * 100) + "%**（" + gen.generalizable + "/" + gen.total + "）");
+      P.push("");
+      P.push("判据是形式的：标题里只含**可推广概念**算可推广；含本 lab 专有名词（PREREG/seal/账/量具/装置/分母/永远/口径/读数）算地方志。");
+      P.push("按天看：10-19 = **17%** · 10-24 = 1/54 · 10-25 = **0/43**。");
+      P.push("★★ 而**外部对象引用 = 0**：你现在读得到 `forge` 的代码、书、库正本，但**一份产物都没引过它们**。");
+      P.push("");
+      P.push("### ★★★ 一个数（旧的，留档）：196 份产物里，**能给别人用的只有 9%**");
       P.push("");
       P.push("判据是形式的：产物标题里只含**可推广概念**（集群/agent/上下文/角色/权限/gate/成本/范式…）");
       P.push("算可推广；含本 lab 专有名词（PREREG/seal/封口/账/量具/装置/分母/复算/口径/状态表/读数）算地方志。");
@@ -735,13 +765,15 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       P.push("   把 `版本` +1，并写清**这一版改了上一版的什么**。（现在 链深≥3 的项目 = **" + pj.stats.deep + "**）");
       P.push("");
       P.push("### 一个问题（★ 必须回答，三选一）");
-      P.push("**「你的研究成果，除了本 lab，还有谁能用？」**");
+      P.push("**你现在读得到书、库正本、forge 的代码 —— 你打算读哪一个，用来做什么？**");
       P.push("");
-      P.push("(a) **没人能用，我也不打算给别人用** —— 说清为什么（比如：本 lab 的尺子还没准，先自用更值）");
-      P.push("(b) **我想给别人用，但不知道对谁** —— 说清你缺的是：**一个对象** / **一个外部问题** / **一个能跑的对照**");
-      P.push("(c) **有，我现在就写一条** —— 挑一个你已有的结论，补上「可推广」+「边界」两句，并说清它在**哪个别的集群**上会成立");
+      P.push("(a) **都不打算读** —— 说清为什么（比如：读了也不知道拿来干什么 / 现在的活更值）");
+      P.push("(b) **想读，但不知道读什么** —— 说清你缺的是：**一个具体问题** / **一段该读的范围**");
+      P.push("(c) **我这轮就读** —— 挑一处（书 / 库正本 / forge 的代码），");
+      P.push("    在产物里**引一个绝对路径 + 一句你从里面学到的东西**，并说清它对你的项目有什么用");
       P.push("");
       P.push("★ 允许答 (a)，答了不算病。★★ 唯一不许的是**不答**。");
+      P.push("★★★ 我不给题目：读哪一段、用它做什么，你自己选。");
       P.push("");
       return P.join(String.fromCharCode(10));
     } catch (e) {
@@ -965,6 +997,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     for (const line of [
       ...renderProjects(pj.stats, pj.mode).split(String.fromCharCode(10)),
       `★ 猜想（明写标记）：${cj.total} 条 · 标了「未验证」的 ${cj.unverified} 条`,
+      renderGeneralizability(generalizability(readArtifacts(join(LAB, "outbox")))),
     ]) {
       log("readout", line);
     }
@@ -1053,6 +1086,39 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     }
   } catch (e) {
     log("cost", `成本读数失败：${(e as Error).message}`);
+  }
+
+  // ★★★★★ 2026-10-21 · **把原料流接回来**（DESIGN §0「产物去处」）
+  //
+  //   ★★★ 实测断裂：`batches.jsonl` 最后一批是 `batch-002 @ 2026-10-19` ——
+  //     之后 hunt 又产出 100+ 份，**forge 一份都没见过**。DESIGN 里
+  //     「hunt 的产物作为原料经快照进 forge 的 source/」这条**完全没在跑**。
+  //   ★ 纪律⑩：快照**冻结不覆盖**（不传 force）。★ 每轮都拍会占盘
+  //     （上一批 39MB / 5137 文件）⇒ 只在**距上一批 ≥ 6 小时**时拍。
+  if (!closing) {
+    /* 不会走到 */
+  }
+  try {
+    const SNAP_MIN_GAP_MS = 6 * 3600_000;
+    const last = latestSnapshot();
+    const lastAt = last ? Date.parse(String((last as { at?: string }).at ?? "")) : 0;
+    const ageMs = Number.isFinite(lastAt) ? Date.now() - lastAt : Number.POSITIVE_INFINITY;
+    if (ageMs < SNAP_MIN_GAP_MS) {
+      log(
+        "snapshot",
+        `跳过：距上一批 ${Math.round(ageMs / 3600_000)} 小时 < 6 小时（批次 ${(last as { batch?: number })?.batch ?? "?"}）`,
+      );
+    } else {
+      const r = takeSnapshot();
+      log(
+        "snapshot",
+        `✔ 已冻结 batch-${String((r as { batch?: number }).batch ?? "?").padStart(3, "0")} ` +
+          `· outbox ${(r as { freshOutbox?: number }).freshOutbox ?? "?"} 份 → forge 的 source/（★ 冻结不覆盖）`,
+      );
+    }
+  } catch (e) {
+    // ★ 快照失败必须响 —— 否则"原料流断了"又会静默
+    log("error", `快照失败：${(e as Error).message}`);
   }
 
   log("rule:done", closingLine);

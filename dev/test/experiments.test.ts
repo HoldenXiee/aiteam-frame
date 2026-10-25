@@ -12,7 +12,9 @@ import { describe, it } from "node:test";
 
 import {
   artifactMix,
+  generalizability,
   ledgerColumns,
+  renderGeneralizability,
   classifyOutcome,
   deliveryDriven,
   deviceRefs,
@@ -253,6 +255,42 @@ describe("ledgerColumns：把「账有哪些列」打出来（DESIGN §1 缺口�
     // ★ 集群的账用「四态」当列名 —— 而 OUT_HEAD 原来不认它 ⇒ 整张表读不到（真 bug）
     const t2 = ["| 编号 | 装置 | 四态 | 判死句 / 死因（要可核） |", "| --- | --- | --- | --- |"].join(NL);
     assert.ok(ledgerColumns(t2).some((c) => c.includes("死因")));
+  });
+});
+
+describe("★★★ generalizability：可推广 vs 地方志（这一阶段的主判据）", () => {
+  const arts = [
+    art("P28-编排写进代码稳且省-模型自写编排贵且不稳.md", ""),
+    art("P30-服从由完成成本门控-通道只是它的代理.md", ""),
+    art("手段VII-seal的字节窗口会把别人写的行签成自己.md", ""),
+    art("回应-falsifier-三处接受-量具读数不可复算.md", ""),
+    art("随便什么.md", ""),
+  ];
+  const g = generalizability(arts);
+
+  it("只含通用概念 ⇒ 可推广", () => {
+    assert.equal(g.generalizable, 2);
+  });
+  it("★ 只含本 lab 专有名词 ⇒ 地方志（不算可推广）", () => {
+    assert.equal(g.local, 2); // 手段VII(seal/量具?) 与 回应(量具/读数)
+  });
+  it("都不是的进 neither，不硬塞", () => {
+    assert.equal(g.neither, 1);
+  });
+  it("比例的分母是全部；空集 null 不是 0", () => {
+    assert.equal(g.share, 2 / 5);
+    assert.equal(generalizability([]).share, null);
+    assert.equal(generalizability([]).looseShare, null);
+  });
+  it("★★ 宽口径 = 不是地方志（含 neither）—— 两个口径都报，真值在中间", () => {
+    // 5 份里 local=2, both=0 ⇒ loose = (5-2-0)/5
+    assert.equal(g.looseShare, 3 / 5);
+    assert.ok(g.looseShare! > g.share!);
+  });
+  it("渲染里带「可推广」和口径说明", () => {
+    const txt = renderGeneralizability(g);
+    assert.ok(txt.includes("可推广"), txt);
+    assert.ok(txt.includes("地方志"), txt);
   });
 });
 

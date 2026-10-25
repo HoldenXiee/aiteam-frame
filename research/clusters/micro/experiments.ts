@@ -3,7 +3,14 @@
  *
  * ★ 用法：`npm run exp`（默认读 research/labfirst/hunt）
  */
-import { conjectures, readArtifacts, readExperiments, renderExperiments } from "../hunt/topology/experiments.ts";
+import {
+  conjectures,
+  generalizability,
+  readArtifacts,
+  readExperiments,
+  renderExperiments,
+  renderGeneralizability,
+} from "../hunt/topology/experiments.ts";
 import { readProjects, renderProjects } from "../hunt/topology/projects.ts";
 
 const root = process.argv[2] ?? "research/labfirst/hunt";
@@ -11,7 +18,8 @@ const { stats, att, mix, outcomeSamples, ledgerConflicts } = readExperiments(roo
 const cj = conjectures(readArtifacts(root + "/outbox"));
 const pj = readProjects(root);
 console.log(
-  [renderProjects(pj.stats, pj.mode), `★ 猜想（明写标记）：${cj.total} 条 · 其中标了「未验证」${cj.unverified} 条`].join(String.fromCharCode(10)) +
+  [renderProjects(pj.stats, pj.mode), `★ 猜想（明写标记）：${cj.total} 条 · 其中标了「未验证」${cj.unverified} 条`,
+    renderGeneralizability(generalizability(readArtifacts(root + "/outbox")))].join(String.fromCharCode(10)) +
     String.fromCharCode(10) +
   renderExperiments(
     stats,

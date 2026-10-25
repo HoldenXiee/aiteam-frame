@@ -327,6 +327,71 @@ export function conjectures(arts: Artifact[]): { total: number; unverified: numb
   return { total, unverified };
 }
 
+/**
+ * ★★★★★ 可推广占比 —— 这一阶段的主判据（`真因-研究对象被驯化了-2026-10-21.md`）
+ *
+ * ★ 实测背景：196 份产物里，标题只含**可推广概念**的 17 份（9%）；
+ *   按天看 10-19 = 16/94（17%）· 10-24 = 1/54 · 10-25 = **0/43**。
+ *   ⇒ 研究对象从「集群」漂移成「本 lab 的测量装置」。这是"能不能创新"的直接读数。
+ *
+ * ★★ 判据是**标题级**的形式判据（不读正文，避免内容判断）：
+ *   · 含本 lab 专有名词 ⇒ 地方志
+ *   · 只含可推广概念 ⇒ 可推广
+ *   ★ 局限要说清：正文里可能有可推广结论而标题看不出来（口径偏保守）。
+ */
+const LOCAL_WORDS =
+  /(PREREG|seal|封口|INSPIR|O[0-9]+|账|量具|装置|分母|复算|口径|CONVERGED|EXPERIMENTS|状态表|吸收率|判据|读数|上级|面-)/;
+const GEN_WORDS =
+  /(集群|agent|上下文|prompt|角色|座位|权限|gate|模型|思考档|成本|范式|意图|目标|探索)/;
+
+export interface Generalizability {
+  /** 标题只含可推广概念的份数 */
+  generalizable: number;
+  /** 标题只含本 lab 专有名词的份数（地方志） */
+  local: number;
+  /** 两者都有 */
+  both: number;
+  neither: number;
+  total: number;
+  /** 严格口径：可推广 / 全部；total=0 ⇒ null */
+  share: number | null;
+  /**
+   * ★★ 宽口径：**不含本 lab 专有名词**的比例（= 1 - 地方志 - 两者都有）。
+   * ★ 为什么两个都报：严格口径靠**关键词表**，会漏掉"结论很通用但用词不同"的产物
+   *   （实测 `P123-率的净变化是两项大数相消的残差` 就被漏了：它既没有我的通用词、
+   *    也没有本 lab 词 ⇒ 掉进 neither）。
+   * ★★ 真值在两者之间；**只报一个就会误导**（纪律㉞）。
+   */
+  looseShare: number | null;
+}
+
+export function generalizability(arts: Artifact[]): Generalizability {
+  let generalizable = 0;
+  let local = 0;
+  let both = 0;
+  let neither = 0;
+  for (const a of arts) {
+    const t = a.file.replace(/\.md$/i, "");
+    const l = LOCAL_WORDS.test(t);
+    const g = GEN_WORDS.test(t);
+    if (l && g) both++;
+    else if (l) local++;
+    else if (g) generalizable++;
+    else neither++;
+  }
+  const total = arts.length;
+  return {
+    generalizable,
+    local,
+    both,
+    neither,
+    total,
+    share: total ? generalizable / total : null,
+    // 宽：不是地方志（既不是 local，也不是 local+gen 混合）
+    looseShare: total ? (total - local - both) / total : null,
+  };
+}
+
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
 
 /**
@@ -433,6 +498,16 @@ export function experimentStats(
 }
 
 /** 渲染（★ 缺数据写「未声明」，绝不写 0 —— 纪律㉜） */
+export function renderGeneralizability(g: Generalizability): string {
+  const pct = (v: number | null) => (v === null ? "未声明" : `${Math.round(v * 100)}%`);
+  return (
+    `★★★ 可推广：**${pct(g.share)} 严格**（只含通用概念 ${g.generalizable}/${g.total}）` +
+    ` / **${pct(g.looseShare)} 宽**（不含本 lab 专有名词）` +
+    ` · 地方志 ${g.local} · 两者都有 ${g.both} · 都不是 ${g.neither}` +
+    `　← ★ 真值在两者之间（严格口径靠关键词，会漏"通但用词不同"的；纪律㉞）`
+  );
+}
+
 export function renderExperiments(
   s: Stats,
   att: Attribution,
