@@ -26,7 +26,14 @@ import { listOutbox, makeRules, newState, tick, THROTTLE_N, THROTTLE_MS } from "
 import { readPreregTraceability, renderPrereg } from "./topology/prereg-trace.ts";
 import { readAbsorption, renderAbsorption, shortCode } from "./topology/absorption.ts";
 import { readClosure, renderClosure } from "./topology/closure.ts";
-import { artifactMix, readArtifacts, readExperiments, renderExperiments } from "./topology/experiments.ts";
+import {
+  artifactMix,
+  conjectures,
+  readArtifacts,
+  readExperiments,
+  renderExperiments,
+} from "./topology/experiments.ts";
+import { readProjects, renderProjects } from "./topology/projects.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
@@ -898,6 +905,14 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //     「没发生」和「发生了但我没看见」（纪律㉖）。
   //   ★ 模式自报家门：`inferred` = 从文件名推断（有偏差）；`ledger` = 它自己登记的账。
   try {
+    const pj = readProjects(LAB);
+    const cj = conjectures(readArtifacts(join(LAB, "outbox")));
+    for (const line of [
+      ...renderProjects(pj.stats, pj.mode).split(String.fromCharCode(10)),
+      `★ 猜想（明写标记）：${cj.total} 条 · 标了「未验证」的 ${cj.unverified} 条`,
+    ]) {
+      log("readout", line);
+    }
     const x = readExperiments(LAB);
     for (const line of renderExperiments(
         x.stats,

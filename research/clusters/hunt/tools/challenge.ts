@@ -46,8 +46,21 @@ export function makeChallenge(deps: {
       artifact: Type.String({ description: "挑战的是哪份产物（路径）" }),
       claim: Type.String({ description: "★ 你挑战的那条 claim（一句话，要能指回原文）" }),
       verdict: Type.Union(
-        [Type.Literal("反例"), Type.Literal("缺陷"), Type.Literal("我同意")],
-        { description: "你的结论：给出反例 / 指出缺陷 / 我同意（★ 三选一，不许含糊）" },
+        [
+          Type.Literal("反例"),
+          Type.Literal("缺陷"),
+          Type.Literal("我同意"),
+          // ★★★ 2026-10-21 新增两项：**猜想的免罚区**（DESIGN v2 §2 轮B）
+          Type.Literal("猜想值得做"),
+          Type.Literal("猜想的判死条件写错了"),
+        ],
+        {
+          description:
+            "你的结论：反例 / 缺陷 / 我同意 / 猜想值得做 / 猜想的判死条件写错了（★ 五选一，不许含糊）" +
+            "★★ 对**已标「未验证」的猜想**：**不许**用『缺陷』。只能用后两项 —— " +
+            "『猜想值得做』（并给一个**能判死它的实验**）或『猜想的判死条件写错了』。" +
+            "★ 因为猜想天生没有证据；用『缺陷：没有读数』去判它，等于禁掉猜想本身。",
+        },
       ),
       evidence: Type.String({
         description: "★ 证据：指到文件/数字/实验。若选「我同意」，写你**核对过什么**才同意的。",

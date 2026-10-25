@@ -306,6 +306,27 @@ export function artifactMix(arts: Artifact[], expPrefixes = ["P"]): ArtifactMix 
   return { byPrefix, total: arts.length, experiments, apparatus, longestChain };
 }
 
+/**
+ * ★★★ 猜想计数（DESIGN v2 §2 轮A 的第三个读数）
+ *
+ * ★ 实测背景（191 份）：只有 **3%** 的产物出现「猜想/推测」字样 —— 而设计要的
+ *   「创新 = 猜想 → 接口 → 对照」里，**猜想那一段基本是空的**。
+ * ★★ 这里只认**明写的标记**（`猜想：…` / `类型：猜想`），不靠语气词 —— 否则"可能"两个字
+ *   到处都是，读数就成了恒真。
+ */
+const CONJ_MARK = /^\s*(?:[-*]\s*)?(?:类型\s*[：:]\s*猜想|猜想\s*[：:])/m;
+
+export function conjectures(arts: Artifact[]): { total: number; unverified: number } {
+  let total = 0;
+  let unverified = 0;
+  for (const a of arts) {
+    if (!CONJ_MARK.test(a.text)) continue;
+    total++;
+    if (/未验证/.test(a.text)) unverified++;
+  }
+  return { total, unverified };
+}
+
 const DELIVERY_RE = /(回答上级|回应上级|上级要的|上级那|按上级|上级的指示|上级让我)/;
 
 /**
