@@ -1,0 +1,15 @@
+{
+  "name": "aiteam-frame",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "用代码组织 agent 的生产范式：底层库 + 书 + 使用手册。复制即用，离线可跑。",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-ai": "1.2.0",
+    "typebox": "1.3.27"
+  }
+}

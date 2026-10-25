@@ -701,6 +701,33 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★★ 它不能一直当"要求"。它现在放在**最前面**（比问题还前），
   //     下一轮如果还是不涨版本，就说明"要求"这条路彻底不行，
   //     只能把它做成前置条件（不涨版本 ⇒ 新产物不算数）。
+
+  // ★★★★★ 2026-10-25 · **每轮只有一个主目标，轮换**
+  //
+  //   ★ 实测（r23 四遍）：投递里同时要求「续项目 / 记一条实验 / 审别人的现象 /
+  //     找外部材料 / 过收敛门 / 清收敛欠账 / 回答现象问」——七件事。
+  //     结果：收敛欠账 **17 条清 0**，审查覆盖 39%，真外部 18%。
+  //   ★★ 而单独一件"递清单+逼回答"历来灵（结账率 2%→21%、术语 51%→0）。
+  //     ⇒ 结论：**多要求 = 都不做**。改成单主目标轮换，其余明确标"背景，不要求这轮做"。
+  const FOCUS_LIST = ["记一条实验", "审别人的现象", "清收敛欠账", "找一条外部材料"] as const;
+  const focusIdx = (() => {
+    const f = join(LAB, "work", "_focus.txt");
+    let n = 0;
+    try {
+      n = Number(readFileSync(f, "utf8").trim()) || 0;
+    } catch {
+      n = 0;
+    }
+    try {
+      mkdirSync(join(LAB, "work"), { recursive: true });
+      writeFileSync(f, String((n + 1) % FOCUS_LIST.length), "utf8");
+    } catch {
+      /* 写不进去就用当前值，不静默影响投递 */
+    }
+    return n % FOCUS_LIST.length;
+  })();
+  const focus = process.env.HUNT_NO_ROTATE ? undefined : FOCUS_LIST[focusIdx];
+
   const continueProjectBody = (() => {
     try {
       const pj = readProjects(LAB);
@@ -943,6 +970,15 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
         if (debt.clearedFromLast !== null) {
           P.push("★★★ 上一轮列了 **" + debt.lastListed + "** 条，这一轮清掉 **" + debt.clearedFromLast + "** 条。");
         }
+        P.push("");
+      }
+
+      if (focus) {
+        P.push("### ★★★★★ 这一轮**只有一个主目标**：" + focus);
+        P.push("");
+        P.push("★ 其余的事（续项目 / 记实验 / 审现象 / 外部材料 / 收敛门 / 欠账）**这一轮不要求做** ——");
+        P.push("  它们还在下面的清单里，但**别把它们全塞进这一轮**。");
+        P.push("  ★ 实测过代价：七件事一起要求时，收敛欠账 17 条**清 0**、审查覆盖 39%。");
         P.push("");
       }
 
@@ -1419,6 +1455,21 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   } catch (e) {
     // ★ 快照失败必须响 —— 否则"原料流断了"又会静默
     log("error", `快照失败：${(e as Error).message}`);
+  }
+
+  // ★★★★ 收敛欠账**落盘**（2026-10-25 · 我先前只接了"读"，没接"写"——第 17 次「写好了没接上」）
+  //   ★ 不落盘就量不出「上一轮列了 N 条，这一轮清掉 M 条」，那这条欠账就退化成一次性提示。
+  try {
+    const finalRows = readStructured(LAB);
+    const d = convergenceDebt(LAB, finalRows);
+    writeDebtFile(LAB, d, new Date().toISOString().slice(0, 19));
+    log(
+      "debt",
+      `收敛欠账落盘：账上 ${d.total} 条 · 状态表引 ${d.cited} · 欠 ${d.uncited.length}` +
+        (d.clearedFromLast !== null ? ` · 上一轮列 ${d.lastListed} 清掉 ${d.clearedFromLast}` : ""),
+    );
+  } catch (e) {
+    log("error", `收敛欠账落盘失败：${(e as Error).message}`);
   }
 
   log("rule:done", closingLine);

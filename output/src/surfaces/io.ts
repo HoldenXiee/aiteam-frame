@@ -1,0 +1,206 @@
+// io 面：驱动（prompt / queue / steer / interrupt / abort / waitIdle）与**调用绑定的结算**。
+//
+// 结算的真相是「一次运行 = agent_start → agent_settled」（规格 §5）。pi 的 `session.prompt()`
+// 在 agent_settled 之后才 resolve，所以「prompt 起止之间的消息区间」就是本次运行的产出 ——
+// 不再像 v1 那样排干共享消息池取最后一条（重叠投递会串台）。
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { Bridge } from "../agent/bridge.ts";
+import type { Agent, AgentMessage, ImageContent, IoSurface, RunResult, Usage } from "../agent/types.ts";
+import { addUsage, emptyUsage } from "../agent/usage.ts";
+
+/** runId 全局计数器：跨 agent 唯一（`r1, r2, …`），便于把 trace 关联起来 */
+let runCounter = 0;
+function nextRunId(): string {
+  runCounter += 1;
+  return `r${runCounter}`;
+}
+
+export interface IoDeps {
+  session: AgentSession;
+  bridge: Pick<Bridge, "setRunId">;
+  assertAlive: () => void;
+  getStatus: () => Agent["status"];
+  setStatus: (status: Agent["status"]) => void;
+  /** 把本次用量计入全生命周期累计（调用方持有那个 Usage 对象） */
+  accumulate: (usage: Usage) => void;
+  /**
+   * ★★★ 这个实验室是不是跑的**本机假服务**（2026-10-19）。
+   *
+   * ★ 为什么要标在**结果**上（而不是只在配置里）：
+   *   用假服务跑出来的读数与真实样本**在数据上分不开** ⇒ 后人可能误当真实结论。
+   * ★ `modelAllow` 是字符串判据，拦不住"同一个名字下面接的是假服务"——
+   *   所以不能只靠白名单，必须让**每一条结果自带标记**。
+   */
+  isMock?: () => boolean;
+}
+
+export function createIo(deps: IoDeps): IoSurface {
+  const { session, bridge } = deps;
+  /** 已计入累计的 assistant 消息**对象身份**（v1 决策 #6）：同一条消息只计一次 */
+  const counted = new WeakSet<AgentMessage>();
+  /** 库自己发起的在飞运行数。pi 的 isStreaming 要等 prompt() 内部几个 await 之后才翻真，
+   *  只看它的话「启动窗口」里的第二次投递会被 pi 拒掉 —— 忙闲判据必须加上这个计数。 */
+  let running = 0;
+  const inFlight = new Set<Promise<void>>();
+
+  const isRunning = (): boolean => running > 0 || session.isStreaming;
+
+  /** 记一次在飞运行；返回的 end() 在运行彻底结束时调用（promise 只 resolve、不 reject） */
+  function beginRun(): () => void {
+    running += 1;
+    let end!: () => void;
+    const done = new Promise<void>((resolve) => {
+      end = resolve;
+    });
+    inFlight.add(done);
+    return () => {
+      running -= 1;
+      inFlight.delete(done);
+      end();
+    };
+  }
+
+  /** 结算 `from` 之后的消息区间：文本、本次用量、错误；顺带把新 assistant 计入累计 */
+  function settle(from: number, runId: string): RunResult {
+    const all = session.messages;
+    // 首轮里 pi 才建出那条 system 消息（它在 from 之前还不存在），所以区间要按角色滤掉它 ——
+    // 它既不属于本次运行的对话区间，与「区间 = from 之后的会话消息」也自洽。
+    const messages = all.slice(from).filter((m) => m.role !== "system");
+    let text = "";
+    let error: string | undefined;
+    let usage = emptyUsage();
+    for (const message of messages) {
+      if (message.role !== "assistant") continue;
+      usage = addUsage(usage, message.usage);
+      const chunk = message.content
+        .filter((c): c is { type: "text"; text: string } => c.type === "text")
+        .map((c) => c.text)
+        .join("");
+      if (chunk) text = chunk;
+      if (message.errorMessage) error = message.errorMessage;   // pi 对「接受后失败」不 reject
+    }
+    // 累计走全历史 + 对象身份去重：raw 逃生口直接跑的那些轮次也要被记上，且绝不重复计
+    for (const message of all) {
+      if (message.role !== "assistant" || counted.has(message)) continue;
+      counted.add(message);
+      deps.accumulate(message.usage);
+    }
+    return {
+      runId,
+      text,
+      usage,
+      ...(error ? { error } : {}),
+      messages,
+      // ★★★ 假服务标记：一眼可辨「这条结果不是真模型跑的」
+      ...(deps.isMock?.() ? { mock: true as const } : {}),
+    };
+  }
+
+  /** 起一次运行并结算。忙 → 抛错（调用者该走 queue）；未接受就失败 → 结算完区间再原样抛出。
+   *  runId 由调用方生成后传入：queue 的 fire-and-forget 路径要把 runId 带进错误上报里。 */
+  async function run(text: string, opts: { images?: ImageContent[] } | undefined, runId: string): Promise<RunResult> {
+    deps.assertAlive();
+    if (isRunning()) {
+      throw new Error("agent 正在运行：请用 io.queue() 投递，或用 io.waitIdle() 等它跑完");
+    }
+    const end = beginRun();
+    const from = session.messages.length;
+    deps.setStatus("running");
+    bridge.setRunId(runId);
+    let failure: unknown;
+    try {
+      await session.prompt(text, opts?.images ? { images: opts.images } : undefined);
+    } catch (err) {
+      failure = err;
+    } finally {
+      bridge.setRunId(undefined);
+      end();
+      if (deps.getStatus() === "running") deps.setStatus("idle");
+    }
+    const result = settle(from, runId);
+    if (failure) throw failure;
+    return result;
+  }
+
+  /** 等 pi 侧静下来 + 库自己的在飞运行全部收尾（已回收的分身永远「已静下来」，不抛错） */
+  async function waitIdle(): Promise<void> {
+    // 已回收的分身永远「已静下来」，不抛错、直接 resolve（v1 决策 #21）
+    if (deps.getStatus() === "disposed") return;
+    await session.waitForIdle();
+    // session 静下来 ≠ 库这边的运行都已收尾（finally 里还要清 runId / 状态）；等它们真的结算完
+    while (inFlight.size > 0) await Promise.all([...inFlight]);
+  }
+
+  return {
+    // R48：与其余六个面统一——dispose 之后**一切**都不可再用（含读数与 raw 逃生口）。
+    // 原先只有 pending / isRunning / raw 三个漏了守卫，成了「七分之六遵守、一个面例外」的隐形不对称；
+    // 读数在 dispose 后不会炸（返回陈旧值），但「能用」本身就是误导：调用方无从判断读到的是不是死值。
+    // 唯一的例外是 waitIdle（已回收的 agent 永远「已静下来」，v1 决策 #21）——那是有注释的例外，
+    // 而这三个当时没有。
+    get pending() {
+      deps.assertAlive();
+      return session.pendingMessageCount;
+    },
+    get isRunning() {
+      deps.assertAlive();
+      return isRunning();
+    },
+    prompt: (text, opts) => run(text, opts, nextRunId()),
+    async queue(text) {
+      deps.assertAlive();
+      if (isRunning()) {
+        // 忙 → 排进**当前这次运行**（结算区间里包含它，不谎报「另起一轮」）
+        await session.followUp(text);
+        return { queued: true };
+      }
+      // 闲 → 起一次运行但**不 await**（await 了 queue 就变成同步 ask）；结果只从事件可见。
+      // 但**失败必须上报**：这条路径没有返回值、也没有 promise 给调用者，吞掉错误就是 v1 那种静默
+      // 失效（一次运行根本没跑起来，用户什么都看不到）。通道与扩展错误一致（R17）：console.error，
+      // 带 [aiteam] 前缀与 runId，便于和 pi 事件关联。
+      const runId = nextRunId();
+      const report = (err: unknown): void => {
+        console.error(`[aiteam] io.queue 起的运行失败 runId=${runId}：${err instanceof Error ? err.message : String(err)}`);
+      };
+      void run(text, undefined, runId).then(
+        // pi 对「接下了但跑挂了」不 reject（只把错误写进消息），所以两条路都要报
+        (result) => { if (result.error) report(result.error); },
+        report,
+      );
+      return { queued: true };
+    },
+    async steer(text) {
+      deps.assertAlive();
+      await session.steer(text);
+    },
+    /**
+     * 截断输入 = abort → 等库自己的在飞运行收尾 → 正常跑一轮。
+     * 三步缺一不可：pi 的 `session.abort()` 内部已经 `await this.waitForIdle()`（agent-session.js:1841-1851），
+     * 但库自己的 `run()` 还在 finally 里清 runId / status，不排干 `inFlight` 就调 `run()` 会撞
+     * 「agent 正在运行」——把一次合法的中断变成假错误。
+     * 已排队的 queue 消息**不清**：`queue` 承诺过「等空闲再发」，那一轮就是这一轮（用例钉住）。
+     */
+    async interrupt(text, opts) {
+      deps.assertAlive();
+      // 循环而不是「判一次忙」：连打两次 interrupt（用户连按两下「停止并发送」）时，先到的那次刚投出
+      // 新的一轮，后到的若只判一次就会撞 run() 的忙判据、抛「agent 正在运行」—— 那是把一次合法输入
+      // 直接丢掉，还给出与真实原因无关的补救建议（queue）。忙时不抛错是这个方法写下的契约。
+      // 语义：后到的那刀砍掉先到的那一轮（先到者以 abort 结算，调用方可以 catch 掉）。
+      // 空闲时循环一次都不进，等价于 prompt —— abort 也不需要。
+      while (isRunning()) {
+        await session.abort();
+        await waitIdle();
+      }
+      return run(text, opts, nextRunId());
+    },
+    async abort() {
+      deps.assertAlive();
+      await session.abort();
+    },
+    async waitIdle() {
+      await waitIdle();
+    },
+    get raw() {
+      deps.assertAlive();
+      return session;
+    },  };
+}

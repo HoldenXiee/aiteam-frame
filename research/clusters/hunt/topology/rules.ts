@@ -974,7 +974,11 @@ export function makeRules(ctx: TriggerCtx) {
     if (ctx.closing?.()) return;
     if (!ctx.challenge) return;
     const now = Date.now();
-    if (now - state.lastPhenomenonAt < PHENOMENON_MS) return;
+    // ★★★ 按**积压**调速（2026-10-25）：审查必须跑赢生产，否则账上永远是"未审"。
+    //   实测 r23：实验 28 条、独立审 11 条（39%）—— 定时 12 分钟一次追不上。
+    const backlogAll = readStructured(LAB).filter((r) => !r.reviewedBy && r.phenomenon.trim()).length;
+    const gap = backlogAll >= 5 ? Math.min(PHENOMENON_MS, 150_000) : backlogAll >= 2 ? Math.min(PHENOMENON_MS, 360_000) : PHENOMENON_MS;
+    if (now - state.lastPhenomenonAt < gap) return;
 
     const rows = readStructured(LAB).filter((r) => !r.reviewedBy && r.phenomenon.trim());
     if (rows.length === 0) return;

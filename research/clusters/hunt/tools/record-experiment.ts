@@ -288,9 +288,12 @@ export function sevenStats(rows: readonly ExperimentRow[]): SevenStats {
   const withPhen = (r: ExperimentRow) =>
     r.carriers.length >= 2 && r.carriers.every((c) => c.exit === 0) && !!r.phenomenon.trim() && !!r.model.trim();
   // ★★ 独立审查过、且没被判"补的" —— 这才算现象站得住（自己审自己不算）
-  const independent = (r: ExperimentRow) => !!r.reviewedBy && r.reviewedBy !== r.by;
-  const discovery = rows.filter((r) => withPhen(r) && r.outcome === "活").length;
-  const refuting = rows.filter((r) => withPhen(r) && r.outcome === "死").length;
+  // ★★★ 独立审查过、且没被判"补的" —— 这才算现象站得住（自己审自己不算）
+  //   ★★★★ 2026-10-25 补接线：这个谓词我上一批**写了但没用**
+  //     （`discovery` 原来只要"填了+活"）⇒ 「发现型 23」是高估的。第 18 次「写好了没接上」。
+  const independent = (r: ExperimentRow) => !!r.reviewedBy && r.reviewedBy !== r.by && r.phenomenonVerdict !== "补的";
+  const discovery = rows.filter((r) => withPhen(r) && r.outcome === "活" && independent(r)).length;
+  const refuting = rows.filter((r) => withPhen(r) && r.outcome === "死" && independent(r)).length;
   const sources = rows.filter((r) => !!r.source.trim()).length;
   const reviewed = rows.filter((r) => !!r.reviewedBy && r.reviewedBy !== r.by).length;
   const calledFake = rows.filter((r) => r.phenomenonVerdict === "补的").length;

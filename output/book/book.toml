@@ -1,0 +1,19 @@
+[book]
+title = "如何用好近乎零成本的智力"
+description = "用代码组织 agent —— 这套生产方式的经验与做法"
+authors = ["HoldenXie"]
+language = "zh-CN"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+no-section-label = false
+git-repository-url = "https://github.com/HoldenXiee/aiteam-frame"
+edit-url-template = "https://github.com/HoldenXiee/aiteam-frame/edit/main/research/book/src/{path}"
+
+[output.html.search]
+enable = true
