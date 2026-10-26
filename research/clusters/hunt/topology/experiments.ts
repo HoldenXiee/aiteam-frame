@@ -1143,3 +1143,49 @@ export function renderToolUsage(u: ToolUsage): string {
     "（★ 只数 `_topology.log` 的 `tool:` 行；这之前的历史没有这个字段，属「未声明」，不是 0 —— 纪律㉜）"
   );
 }
+
+/**
+ * ★★★★★ 「预期是不是跑前就写在那儿」——**机械可查**（2026-10-26）
+ *
+ * ★ 以前这件事只能靠另一位凭印象判（`review_experiment`），实测被判"补的" 37% 且
+ *   **四段持平**（40/40/25/44%）⇒ 不是能力问题，是结构问题。
+ * ★★ 现在两条机械判据同时成立才算：
+ *   ① `expected` **逐字**出现在 PREREG 文件里（记了 `expectedAtLine`）
+ *   ② `preregBeforeRun`：PREREG 的 mtime 早于装置的第一次执行
+ * ★★★ 三分类（纪律㉜）：成立 / 不成立 / **未声明**（旧行没有 `expected` 这一格）
+ */
+export interface ExpectedTrace {
+  ok: number;
+  bad: number;
+  /** 旧行：没有 expected 这一格 ⇒ 未声明，不是失败 */
+  undeclared: number;
+}
+
+export function expectedTrace(rows: readonly ExperimentRow[]): ExpectedTrace {
+  let ok = 0;
+  let bad = 0;
+  let undeclared = 0;
+  for (const r of rows) {
+    if (!r.expected) {
+      undeclared++;
+      continue;
+    }
+    if ((r.expectedAtLine ?? 0) > 0 && r.preregBeforeRun) ok++;
+    else bad++;
+  }
+  return { ok, bad, undeclared };
+}
+
+export function renderExpectedTrace(t: ExpectedTrace): string {
+  const total = t.ok + t.bad;
+  const head =
+    total === 0
+      ? "★★★★ 预期可追溯：**未声明**（还没有一条实验带 `expected` —— 这一格是 2026-10-26 才加的）"
+      : `★★★★ 预期可追溯（逐字在 PREREG 里 + PREREG 早于执行）：**${t.ok}/${total}**` +
+        (t.bad > 0 ? ` · ★ 不成立 ${t.bad}` : "");
+  return (
+    head +
+    (t.undeclared > 0 ? `　· 旧行未声明 ${t.undeclared} 条（不是失败，纪律㉜）` : "") +
+    `　← ★ 这条是「先果后因」的机器判据：不判预期写得好不好，只判它**是不是跑前就在那儿**`
+  );
+}

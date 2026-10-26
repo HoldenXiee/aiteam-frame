@@ -109,6 +109,20 @@ export interface ExperimentRow {
    * ★★★ 这一步不判对错（那是内容判断），只是**把可核的东西放到账上**。
    */
   prereg: string;
+  /**
+   * ★★★★★ **跑之前写死的预期**（2026-10-26 新增，必填）
+   *
+   * ★ 为什么要单独一格：判"补的"一直靠在 PREREG 里**人眼找**那条预期有没有，
+   *   37% 被判"补的"且**四段持平**（40/40/25/44%），说明这不是能力问题，是结构问题。
+   * ★★ 结构解法：`expected` 必须**逐字出现在 PREREG 文件里**。
+   *   配上已有的「PREREG 必须早于装置第一次执行」，"预期是不是事后补的"就**不再靠判断**：
+   *     · 逐字在里面 + PREREG 早于执行  ⇒ 预期**确实**先有
+   *     · 逐字不在里面（或 PREREG 晚了）⇒ 它是**事后**写的，机械可查
+   * ★★★ 我不判"这条预期写得对不对"（那是内容），只判"它是不是跑前就写在那儿"。
+   */
+  expected: string;
+  /** ★ 逐字命中 PREREG 的第几行（0 = 没命中）*/
+  expectedAtLine?: number;
   preregMtime: number;
   preregBeforeRun: boolean;
   phenomenon: string;
@@ -375,6 +389,7 @@ export function validateExperiment(p: {
   killCondition: string;
   source: string;
   prereg: string;
+  expected: string;
   carriers: readonly { dir: string; cmd: string }[];
   phenomenon: string;
   phenomenonAbsent: string;
@@ -393,6 +408,12 @@ export function validateExperiment(p: {
   }
   if (!p.prereg.trim()) {
     errs.push("prereg 必填：写清**跑前冻结**的那份文件（`work/…-PREREG.md`）—— 它是「预期是否事后补」唯一可核的东西");
+  }
+  if (!p.expected.trim()) {
+    errs.push(
+      "expected 必填：**跑之前**你写死的那句预期（★ 必须**逐字**出现在 PREREG 文件里）—— " +
+        "没有它，「现象」就只能靠别人凭印象判「是真的意外还是事后补的」",
+    );
   }
   if (p.carriers.length === 0) errs.push("至少要一个载体（carrier），否则读数没有落点");
   for (const c of p.carriers) {
@@ -435,6 +456,12 @@ export function makeRecordExperiment(deps: {
       prereg: Type.String({
         description:
           "★ **跑前冻结**的 PREREG 文件路径（例如 `work/xxx-PREREG.md`）。必须已存在；工具会记 mtime 并判它是不是本轮开跑前就写好的",
+      }),
+      expected: Type.String({
+        description:
+          "★★★★ **跑之前写死的那句预期** —— 必须**逐字**出现在 `prereg` 文件里（工具会核对行号）。" +
+          "★ 这一格存在的原因：以前「现象是不是真意外」只能靠另一位凭印象判，37% 被判\"补的\"且四段持平；" +
+          "有了它，「预期是不是事后补的」变成**机械核对**（逐字在不在 + PREREG 早不早于执行）。",
       }),
       carriers: Type.Array(
         Type.Object({
@@ -545,6 +572,24 @@ export function makeRecordExperiment(deps: {
         killCondition: p.killCondition,
         source: p.source,
         prereg: p.prereg,
+        expected: p.expected,
+        expectedAtLine: (() => {
+          // ★★★★★ 逐字核对：`expected` 必须是 PREREG 文件里**已有的**那一段（不是它事后补的）
+          //
+          //   ★ 只判"在不在 + 在第几行"，不判它写得对不对（那是内容）。
+          //   ★★ 配 `preregBeforeRun` 一起看：两条都成立 ⇒ 预期**确实**先有，机械可查。
+          let text = "";
+          try {
+            text = readFileSync(preregPath, "utf8");
+          } catch {
+            return 0;
+          }
+          const lines = text.split(String.fromCharCode(10));
+          const needle = p.expected.trim();
+          if (!needle) return 0;
+          const i = lines.findIndex((l) => l.includes(needle));
+          return i >= 0 ? i + 1 : 0;
+        })(),
         preregMtime,
         preregBeforeRun: (() => {
           const firstRun = Math.min(...runs.map((r) => r.ranAt ?? Number.POSITIVE_INFINITY));

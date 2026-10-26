@@ -14,6 +14,7 @@ import {
   sevenStats,
   validateExperiment,
 } from "../../research/clusters/hunt/tools/record-experiment.ts";
+import { expectedTrace, renderExpectedTrace } from "../../research/clusters/hunt/topology/experiments.ts";
 
 const base = {
   project: "X2",
@@ -21,6 +22,7 @@ const base = {
   killCondition: "若 12 条探针全部判决正确 ⇒ 假设错",
   source: "https://bazel.build/basics/hermeticity",
   prereg: "work/x-PREREG.md",
+    expected: "跑之前写死的预期句",
   carriers: [{ dir: "work/lab-A", cmd: "node probe.mjs" }],
   phenomenon: "实测 8 条判错，我预期 0 条",
   phenomenonAbsent: "",
@@ -71,7 +73,8 @@ describe("validateExperiment：★ 缺格就拒收（这是它代替「要求」
 describe("sevenStats：★ 「发现型」= 跨载体 + 现象 + 模型", () => {
   const row = (over: Partial<Parameters<typeof sevenStats>[0][number]>) =>
     ({
-      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p", preregMtime: 0, preregBeforeRun: true,
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p",
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
@@ -116,7 +119,8 @@ describe("insideLabDir / 落账", () => {
   it("append + read 往返", () => {
     rmSync(`${lab}/work`, { recursive: true, force: true });
     appendStructured(lab, {
-      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p", preregMtime: 0, preregBeforeRun: true,
+      at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p",
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
       carriers: [], phenomenon: "", phenomenonAbsent: "没有意外", model: "", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
     });
@@ -128,7 +132,8 @@ describe("★★★★ 大改：链深聚合 / 真外部 URL / 现象必须被�
   const mk = (over: Record<string, unknown>) =>
     ({
       at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k",
-      source: "https://bazel.build/x", prereg: "p", preregMtime: 0, preregBeforeRun: true,
+      source: "https://bazel.build/x", prereg: "p",
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
@@ -166,7 +171,8 @@ describe("★★★★ 大改：链深聚合 / 真外部 URL / 现象必须被�
 describe("applyReview：★ 自签会被拒（与 forge 的作者自签同一个病）", () => {
   const lab = "dev/test/_sandbox-review";
   const row = {
-    at: "t", id: "E7", by: "me", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p", preregMtime: 0, preregBeforeRun: true,
+    at: "t", id: "E7", by: "me", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p",
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
     carriers: [], phenomenon: "意外", phenomenonAbsent: "", model: "m", conjecture: "", outcome: "活",
     phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
   } as never;
@@ -218,4 +224,30 @@ describe("★★★ 一份 PREREG 只能服务一个实验", () => {
   it("没用过 ⇒ undefined", () => {
     assert.equal(preregAlreadyUsed(lab, "work/b-PREREG.md"), undefined);
   });
+});
+
+// ══════════════════════════════════════════════════════════════
+// ★★★★★ 2026-10-26 · 「预期是不是跑前就写在那儿」必须机械可查
+//
+//   以前只能靠另一位凭印象判 ⇒ 37% 被判"补的"且四段持平。
+//   现在两条同时成立才算：① `expected` 逐字在 PREREG 里 ② PREREG 早于执行。
+// ══════════════════════════════════════════════════════════════
+
+it("expected 必填：没有它，「现象」只能靠别人凭印象判", () => {
+  const errs = validateExperiment({ ...base, expected: "   " });
+  assert.ok(errs.some((e) => e.includes("expected 必填")));
+});
+
+it("expectedTrace 三分类：成立 / 不成立 / 未声明（旧行不许算失败）", () => {
+  const t = expectedTrace([
+    { expected: "预期 A", expectedAtLine: 3, preregBeforeRun: true } as never,
+    { expected: "预期 B", expectedAtLine: 0, preregBeforeRun: true } as never, // 逐字不在
+    { expected: "预期 C", expectedAtLine: 5, preregBeforeRun: false } as never, // PREREG 晚了
+    { prereg: "work/x.md" } as never, // 旧行：没有 expected 这一格
+  ]);
+  assert.equal(t.ok, 1);
+  assert.equal(t.bad, 2);
+  assert.equal(t.undeclared, 1);
+  assert.match(renderExpectedTrace(t), /1\/3/);
+  assert.match(renderExpectedTrace(t), /旧行未声明 1 条/);
 });

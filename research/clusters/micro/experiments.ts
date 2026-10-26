@@ -25,7 +25,14 @@ import {
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
 import { runLibTests, renderLibTests } from "./libtest.ts";
-import { deadUse, renderDeadUse, toolUsageFromLog, renderToolUsage } from "../hunt/topology/experiments.ts";
+import {
+  deadUse,
+  renderDeadUse,
+  toolUsageFromLog,
+  renderToolUsage,
+  expectedTrace,
+  renderExpectedTrace,
+} from "../hunt/topology/experiments.ts";
 import {
   convergenceDebt,
   convergedGate,
@@ -109,6 +116,7 @@ console.log(
       ),
     ),
     renderDeadUse(deadUse(readStructured(root))),
+    renderExpectedTrace(expectedTrace(readStructured(root))),
     (() => {
       try {
         return renderToolUsage(toolUsageFromLog(readFileSync(root + "/work/_topology.log", "utf8")));
