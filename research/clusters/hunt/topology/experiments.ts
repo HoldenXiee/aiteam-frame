@@ -1112,6 +1112,11 @@ const CUSTOM_TOOLS = [
   "spawn_line",
   "consult",
   "challenge",
+  // ★ 2026-10-26：外网工具也记账（扩展里挂的 `tool_call` 钩子写同一本账）
+  "web_search",
+  "fetch_content",
+  "get_search_content",
+  "source_check",
 ] as const;
 
 export function toolUsageFromLog(logText: string): ToolUsage {
