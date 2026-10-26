@@ -74,6 +74,7 @@ import { portStats, readPort, readPortTorn, renderPort } from "./tools/port-run.
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
 import { renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
+import { renderLibTests, runLibTests } from "../micro/libtest.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
 import { makeChallenge } from "./tools/challenge.ts";
 import { makeSpawnLine } from "./tools/spawn-line.ts";
@@ -1136,6 +1137,25 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       L.push("```");
     } catch (e) {
       L.push(`实验账读不出来：${(e as Error).message}`);
+    }
+    // ★★★★★ 集群自己的库测试有没有红灯 —— 必须在**处境**里，不能只在读数里
+    //
+    //   ★ 实测（2026-10-26）：`labfirst/hunt/lib` 与 `src` 已漂 57 处（改过 13 · 新增 44 个文件），
+    //     其中 `acceptance.test.ts` 是**它自己写的**测试 —— 而**没有任何东西在跑它**。
+    //     我一跑：`A13d 函数谓词的正文可读` **FAIL**。
+    //   ★★ 这是纪律⑧：装置红着 ⇒ 在这套装置上跑出的读数**不能算它的能力**。
+    //     所以红灯要出现在它每天看的那张纸上，而且**只给事实，不给题**。
+    try {
+      const lt = await runLibTests(LAB);
+      if (lt.files > 0) {
+        L.push("");
+        L.push("## 你自己的库测试（★ 装置红着，读数就不算能力）");
+        L.push("```");
+        L.push(renderLibTests(lt));
+        L.push("```");
+      }
+    } catch (e) {
+      L.push(`库测试跑不起来：${(e as Error).message}`);
     }
     L.push("");
     L.push("## 你的缺陷账（三态见要求 ③）");

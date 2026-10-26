@@ -10,7 +10,8 @@
     "book": "npx tsx research/clusters/forge/micro/readout-book.ts",
     "tsclab": "npx tsc --noEmit -p tsconfig.lab.json",
     "exp": "npx tsx research/clusters/micro/experiments.ts",
-    "libdrift": "npx tsx research/clusters/micro/libdrift.ts"
+    "libdrift": "npx tsx research/clusters/micro/libdrift.ts",
+    "huntlib": "npx tsx research/clusters/micro/libtest.ts research/labfirst/hunt"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "file:dev/pi/packages/ai",

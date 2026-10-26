@@ -24,6 +24,7 @@ import {
   renderGeneralizability,
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
+import { runLibTests, renderLibTests } from "./libtest.ts";
 import {
   convergenceDebt,
   convergedGate,
@@ -105,7 +106,10 @@ console.log(
           ? (await import("node:fs")).readdirSync("research/docs/研究员提供的网上文章").filter((f: string) => f.endsWith(".md"))
           : [],
       ),
-    )].join(String.fromCharCode(10)) +
+    ),
+    // ★ 集群自己的库测试有没有红灯（装置失败 ≠ 能力失败，纪律⑧）
+    renderLibTests(await runLibTests(root)),
+  ].join(String.fromCharCode(10)) +
     String.fromCharCode(10) +
   renderExperiments(
     stats,
