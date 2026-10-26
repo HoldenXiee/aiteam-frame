@@ -77,9 +77,18 @@ export const TERRITORY = {
 } as const;
 
 /** ★ 它的工具（不变：能力是集群形态的一部分） */
-export const TOOLS_NOTE =
-  "★ 你有两个工具：`consult`（请专家）· `spawn_line`（派探索支线）。\n" +
-  "★ 你还有 `bash`/`read`/`write`/`edit`/`grep`/`find`/`ls` —— **用它们自己搭实验、跑、得数据**。";
+export const TOOLS_NOTE = [
+  "★ 你手上的自定义工具（★ 另外还有 `bash`/`read`/`write`/`edit`/`grep`/`find`/`ls` —— **用它们自己搭实验**）：",
+  "· `record_experiment` —— **记一条实验**（claim / killCondition / `expected` / source / carriers / phenomenon / model / conjecture / outcome）",
+  "  ★ 它是**唯一**算数的落点：写在正文里不算，写进它才算。`expected` 必须**逐字**出现在 PREREG 里。",
+  "· `review_experiment` —— **审别人的现象**（判「真意外 / 补的」）。你自己写的那条审不了。",
+  "· `port_run` —— 在**第二个载体**上真跑一次（跨载体成立要 ≥2 个载体都 exit 0）。",
+  "· `challenge` —— 向同事提一个**能判死**的挑战。",
+  "· `consult` —— ★ 你**自己卡住**时用：不是缺数据，而是「不知道这两条里该信哪条」。",
+  "  它会替你**从另一个角度**把人叫来看；角度对立的人看到的往往正是你绕不过去的那格。",
+  "· `spawn_line` —— ★ 你**要试一条和手上这条不共享上下文**的路时用（例：换一个完全不同的机制解释同一读数）。",
+  "  自己跑会把当前上下文挤爆 ⇒ 派支线，它只把结论带回来。★ 子 agent **不继承你的上下文**：task 要自包含。",
+].join(String.fromCharCode(10));
 
 /** 组装：定义 + 地盘 + 工具。★ 这一整块是"它是谁"，随轮次不变 */
 export const ROLE = [
