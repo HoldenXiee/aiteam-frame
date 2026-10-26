@@ -1189,3 +1189,68 @@ export function renderExpectedTrace(t: ExpectedTrace): string {
     `　← ★ 这条是「先果后因」的机器判据：不判预期写得好不好，只判它**是不是跑前就在那儿**`
   );
 }
+
+/**
+ * ★★★★★ DESIGN 三处"打折"的读数（2026-10-26）
+ *
+ * ★ 打折三处（评估文档 `评估-是否达到DESIGN-2026-10-26.md`）：
+ *   ① 猜想"必须标未验证"只到**表头级**（逐条 1/91）
+ *   ② **人造答案率**从没有读数（DESIGN §7③ 是硬要求）
+ *   ③ 有出处只有 46%，一半实验**纯本仓**，"外面有没有人做过"从没被问过
+ * ★★ 三处都改成了**字段**（拒收 / 三态），这里只负责数：
+ *   · `conjectureState` —— 逐条标了状态的
+ *   · `control` —— 有对照**且真的失败**的（`exit !== 0` 才算"该失败时它失败"）
+ *   · `externalCheck` —— 纯本仓时声明了"我搜过什么"的
+ * ★★★ 三分类（纪律㉜）：有 / 没有 / 未声明（旧行没有这一格）
+ */
+export interface DesignGaps {
+  conjecture: { marked: number; evidenced: number; undeclared: number };
+  control: { failed: number; passedZero: number; declared: number; undeclared: number };
+  external: { withExternal: number; asked: number; undeclared: number };
+  total: number;
+}
+
+export function designGaps(rows: readonly ExperimentRow[]): DesignGaps {
+  const g: DesignGaps = {
+    conjecture: { marked: 0, evidenced: 0, undeclared: 0 },
+    control: { failed: 0, passedZero: 0, declared: 0, undeclared: 0 },
+    external: { withExternal: 0, asked: 0, undeclared: 0 },
+    total: rows.length,
+  };
+  for (const r of rows) {
+    if (r.conjectureState) {
+      g.conjecture.marked++;
+      if (r.conjectureState !== "未验证" && (r.conjectureEvidence ?? "").trim()) g.conjecture.evidenced++;
+    } else g.conjecture.undeclared++;
+
+    if (r.control) {
+      if (r.control.exit !== 0) g.control.failed++;
+      else g.control.passedZero++;
+    } else if (r.controlAbsent) g.control.declared++;
+    else g.control.undeclared++;
+
+    if (/https?:\/\/|arxiv:|doi:|10\.\d{4}\//i.test(r.source)) g.external.withExternal++;
+    else if ((r.externalCheck ?? "").trim()) g.external.asked++;
+    else g.external.undeclared++;
+  }
+  return g;
+}
+
+export function renderDesignGaps(g: DesignGaps): string {
+  const c = g.conjecture;
+  const k = g.control;
+  const e = g.external;
+  const line1 =
+    `★ ① 猜想逐条标状态：**${c.marked}/${g.total}**` +
+    (c.evidenced ? `（其中"已验证"带证据 ${c.evidenced}）` : "") +
+    (c.undeclared ? ` · 旧行未声明 ${c.undeclared}` : "");
+  const line2 =
+    `★ ② 人造答案（对照**真失败**）：**${k.failed}**` +
+    (k.passedZero ? ` · ⚠ 对照竟然成功 ${k.passedZero}（装置对错不敏感）` : "") +
+    (k.declared ? ` · 声明"没对照" ${k.declared}` : "") +
+    (k.undeclared ? ` · 旧行未声明 ${k.undeclared}` : "");
+  const line3 =
+    `★ ③ 外面问过没有：引了外部 ${e.withExternal} + 纯本仓但**声明搜过** ${e.asked} = **${e.withExternal + e.asked}/${g.total}**` +
+    (e.undeclared ? ` · 未声明 ${e.undeclared}` : "");
+  return ["★★★★ DESIGN 三处「打折」的现状：", "　" + line1, "　" + line2, "　" + line3].join(String.fromCharCode(10));
+}

@@ -14,7 +14,7 @@ import {
   sevenStats,
   validateExperiment,
 } from "../../research/clusters/hunt/tools/record-experiment.ts";
-import { expectedTrace, renderExpectedTrace } from "../../research/clusters/hunt/topology/experiments.ts";
+import { expectedTrace, renderExpectedTrace, designGaps } from "../../research/clusters/hunt/topology/experiments.ts";
 
 const base = {
   project: "X2",
@@ -28,6 +28,8 @@ const base = {
   phenomenonAbsent: "",
   model: "护栏做前缀比较，不做真实落点归一化",
   outcome: "活",
+  conjectureState: "未验证",
+  controlAbsent: "这次没有对照",
   projectIds: ["X2"],
 };
 
@@ -52,7 +54,14 @@ describe("validateExperiment：★ 缺格就拒收（这是它代替「要求」
     assert.ok(validateExperiment({ ...base, source: "" }).some((e) => e.includes("source")));
     assert.ok(validateExperiment({ ...base, source: "我记得看过一篇" }).some((e) => e.includes("source")));
     assert.deepEqual(validateExperiment({ ...base, source: "arxiv:2508.17536" }), []);
-    assert.deepEqual(validateExperiment({ ...base, source: "本仓:research/book" }), []);
+    // ★ 2026-10-26 口径变了（不是放宽）：纯本仓出处现在**必须**声明"外面问过没有"
+    assert.ok(
+      validateExperiment({ ...base, source: "本仓:research/book" }).some((e) => e.includes("externalCheck")),
+    );
+    assert.deepEqual(
+      validateExperiment({ ...base, source: "本仓:research/book", externalCheck: "搜过 MDN/W3C，无对应项" }),
+      [],
+    );
   });
 
   it("★★ project 不在 PROJECTS.md 里 ⇒ 拒（链深靠这个键）", () => {
@@ -74,7 +83,7 @@ describe("sevenStats：★ 「发现型」= 跨载体 + 现象 + 模型", () => 
   const row = (over: Partial<Parameters<typeof sevenStats>[0][number]>) =>
     ({
       at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p",
-    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true, conjectureState: "未验证",
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
@@ -120,7 +129,7 @@ describe("insideLabDir / 落账", () => {
     rmSync(`${lab}/work`, { recursive: true, force: true });
     appendStructured(lab, {
       at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p",
-    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true, conjectureState: "未验证",
       carriers: [], phenomenon: "", phenomenonAbsent: "没有意外", model: "", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
     });
@@ -133,7 +142,7 @@ describe("★★★★ 大改：链深聚合 / 真外部 URL / 现象必须被�
     ({
       at: "t", id: "E1", by: "a", project: "X2", claim: "c", killCondition: "k",
       source: "https://bazel.build/x", prereg: "p",
-    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true, conjectureState: "未验证",
       carriers: [{ dir: "work/A", cmd: "x", exit: 0, head: "" }, { dir: "work/B", cmd: "x", exit: 0, head: "" }],
       phenomenon: "意外", phenomenonAbsent: "", model: "机制", conjecture: "", outcome: "活",
       phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
@@ -172,7 +181,7 @@ describe("applyReview：★ 自签会被拒（与 forge 的作者自签同一个
   const lab = "dev/test/_sandbox-review";
   const row = {
     at: "t", id: "E7", by: "me", project: "X2", claim: "c", killCondition: "k", source: "u", prereg: "p",
-    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true,
+    expected: "跑之前写死的预期句", preregMtime: 0, preregBeforeRun: true, conjectureState: "未验证",
     carriers: [], phenomenon: "意外", phenomenonAbsent: "", model: "m", conjecture: "", outcome: "活",
     phenomenonVerdict: "未审", reviewedBy: "", reviewNote: "",
   } as never;
@@ -250,4 +259,52 @@ it("expectedTrace 三分类：成立 / 不成立 / 未声明（旧行不许算�
   assert.equal(t.undeclared, 1);
   assert.match(renderExpectedTrace(t), /1\/3/);
   assert.match(renderExpectedTrace(t), /旧行未声明 1 条/);
+});
+
+// ══════════════════════════════════════════════════════════════
+// ★★★★★ 2026-10-26 · DESIGN 三处"打折"改成结构（拒收 / 三态）
+//   ① 猜想必须**逐条**标状态（以前只有表头写着"未验证"）
+//   ② 人造答案（对照必须真失败）—— 以前没有读数
+//   ③ 纯本仓出处必须声明"外面问过没有"
+// ══════════════════════════════════════════════════════════════
+
+it("猜想状态必填：表头写着「未验证」不算它标了", () => {
+  const errs = validateExperiment({ ...base, conjectureState: undefined as never });
+  assert.ok(errs.some((e) => e.includes("conjectureState 必填")));
+});
+
+it("说「已验证」却指不出证据 ⇒ 拒收（把猜想当结论）", () => {
+  const errs = validateExperiment({ ...base, conjectureState: "已验证", conjectureEvidence: "" });
+  assert.ok(errs.some((e) => e.includes("必须给 conjectureEvidence")));
+});
+
+it("没有对照 ⇒ 必须二选一说明（不许静默跳过）", () => {
+  const errs = validateExperiment({ ...base, control: undefined, controlAbsent: "" });
+  assert.ok(errs.some((e) => e.includes("没有对照")));
+});
+
+it("source 里一条外部都没有 ⇒ 必须填 externalCheck（没找到也要写）", () => {
+  const errs = validateExperiment({ ...base, source: "本仓:work/x/PREREG.md" });
+  assert.ok(errs.some((e) => e.includes("externalCheck")));
+  const ok = validateExperiment({ ...base, source: "本仓:work/x/PREREG.md", externalCheck: "搜了 NIST/SEMATECH，没找到对应项" });
+  assert.equal(ok.filter((e) => e.includes("externalCheck")).length, 0);
+});
+
+it("designGaps 三分类：有 / 没有 / 未声明（旧行不许算失败）", () => {
+  const g = designGaps([
+    { source: "https://x.org", conjectureState: "未验证", control: { dir: "d", cmd: "c", exit: 1, at: "t" } } as never,
+    { source: "本仓:a", externalCheck: "搜过", conjectureState: "已验证", conjectureEvidence: "E1", controlAbsent: "这次没有对照" } as never,
+    { source: "本仓:b", control: { dir: "d", cmd: "c", exit: 0, at: "t" } } as never, // 对照竟然成功
+    { source: "本仓:c" } as never, // 旧行：三格都没有
+  ]);
+  assert.equal(g.conjecture.marked, 2);
+  assert.equal(g.conjecture.undeclared, 2);
+  assert.equal(g.conjecture.evidenced, 1);
+  assert.equal(g.control.failed, 1);
+  assert.equal(g.control.passedZero, 1);
+  assert.equal(g.control.declared, 1);
+  assert.equal(g.control.undeclared, 1);
+  assert.equal(g.external.withExternal, 1);
+  assert.equal(g.external.asked, 1);
+  assert.equal(g.external.undeclared, 2);
 });

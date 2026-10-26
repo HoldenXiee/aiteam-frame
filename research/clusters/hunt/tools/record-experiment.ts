@@ -129,6 +129,39 @@ export interface ExperimentRow {
   phenomenonAbsent: "" | "没有意外" | "有但没记";
   /** ★ 结局=活 时必填：没模型的"活"只是巧合 */
   model: string;
+  /**
+   * ★★★★★ 猜想的状态（2026-10-26 新增，必填三选一）
+   *
+   * ★ 为什么：DESIGN §1 硬要求「模型/猜想**必须标「未验证」**」，
+   *   而实测**逐条标注 1/91** —— 我之前的合规只是**表头级**的（列名叫"猜想（未验证）"），
+   *   那不是它标了，是我给它算了。
+   * ★★ 结构解法：不做"要求它记得写"，做**字段**：每条实验必须选一个状态，
+   *   选「已验证」还要给出证据（`conjectureEvidence`），否则拒收。
+   */
+  conjectureState: "未验证" | "已验证" | "已推翻";
+  /** ★ 选「已验证 / 已推翻」时必须指到证据（实验 id / 产物名 / 读数文件）*/
+  conjectureEvidence?: string;
+  /**
+   * ★★★★★ 对照（人造答案）（2026-10-26 新增）
+   *
+   * ★ 为什么：DESIGN §7③「读数必须自带**人造答案**（能证明"该失败时它失败"）」
+   *   是硬要求，但**从来没有读数** —— 我粗测 52/91 有 fixture 痕迹，不可核。
+   * ★★ 结构解法：跟 `phenomenon` 同形 ——
+   *   · 给了 `control`（一条**应该失败**的命令）：工具真跑它，记退出码，
+   *     `controlExit !== 0` 才算"该失败时它失败"
+   *   · 没给：必须二选一说明（`controlAbsent`）—— 三态，不许静默跳过（纪律㉜）
+   */
+  control?: { dir: string; cmd: string; exit: number; at: string };
+  controlAbsent?: "" | "这次没有对照" | "有但没记";
+  /**
+   * ★★★★★ 本仓出处的**外部对照**（2026-10-26 新增）
+   *
+   * ★ 现状：`source` 一半是纯 `本仓:`（49/91）⇒ "外部有没有人做过" 根本没被问过。
+   * ★★ 不做"必须有外部链接"（那会逼出假引用），做**必须声明**：
+   *   出处里一个外部都没有 ⇒ 写一句"我搜过什么、找到什么 / 没找到"。
+   *   ★ 三态：写了 / 不需要（有外部）/ 未声明（旧行）。
+   */
+  externalCheck?: string;
   conjecture: string;
   outcome: Outcome;
   /**
@@ -408,6 +441,11 @@ export function validateExperiment(p: {
   model: string;
   outcome: string;
   projectIds: readonly string[];
+  conjectureState?: string;
+  conjectureEvidence?: string;
+  control?: { dir: string; cmd: string };
+  controlAbsent?: string;
+  externalCheck?: string;
 }): string[] {
   const errs: string[] = [];
   if (p.projectIds.length > 0 && !p.projectIds.includes(p.project)) {
@@ -435,6 +473,32 @@ export function validateExperiment(p: {
   if (!p.phenomenon.trim() && !p.phenomenonAbsent) {
     errs.push(
       "现象为空 ⇒ 必须二选一说明：`没有意外` 或 `有但没记`（★ 这是唯一能装「你没料到的事」的格子，不许静默空着）",
+    );
+  }
+  if (!p.conjectureState) {
+    errs.push(
+      "conjectureState 必填（未验证 / 已验证 / 已推翻）—— DESIGN 要求猜想**必须标状态**，" +
+        "以前只有表头写着「未验证」，等于没标",
+    );
+  } else if (p.conjectureState !== "未验证" && !(p.conjectureEvidence ?? "").trim()) {
+    errs.push(
+      `conjectureState=${p.conjectureState} ⇒ 必须给 conjectureEvidence（指到实验 id / 产物 / 读数文件）` +
+        " —— 说「已验证」却指不出证据，等于把猜想当结论",
+    );
+  }
+  // ★ 出处里一个外部都没有 ⇒ 必须声明"外面的世界怎么说"
+  const hasExternal = /https?:\/\/|arxiv:|doi:|10\.\d{4}\//i.test(p.source);
+  if (!hasExternal && !(p.externalCheck ?? "").trim()) {
+    errs.push(
+      "source 里没有一条外部（URL/arXiv/DOI）⇒ 必须填 `externalCheck`：" +
+        "你搜过什么、找到什么；**没找到也要写**（★ 不逼你编引用，但逼你问过外面）",
+    );
+  }
+  if (!p.control && !p.controlAbsent) {
+    errs.push(
+      "★ 没有对照（`control`）⇒ 必须二选一说明：`这次没有对照` 或 `有但没记`。" +
+        "对照 = 一条**应该失败**的命令（人造答案）；没有它，" +
+        "读数通过只能说明「跑起来了」，不能说明「判得对」",
     );
   }
   if (p.outcome === "活" && !p.model.trim()) {
@@ -488,6 +552,36 @@ export function makeRecordExperiment(deps: {
       }),
       model: Type.String({ description: "★ 模型/机制：为什么会得到这个读数（结局=活 时必填）" }),
       conjecture: Type.String({ description: "猜想：这条读数指向的下一个可验证问题（可空）" }),
+      conjectureState: Type.Union(
+        [Type.Literal("未验证"), Type.Literal("已验证"), Type.Literal("已推翻")],
+        {
+          description:
+            "★★★★ **猜想的状态**（必填）。默认「未验证」—— DESIGN 要求猜想必须标状态；" +
+            "选「已验证/已推翻」必须同时给 `conjectureEvidence`（指到实验 id / 产物 / 读数文件）。" +
+            "★ 这一格是 2026-10-26 加的：之前只有表头写着「未验证」，逐条标注 1/91，等于没标。",
+        },
+      ),
+      conjectureEvidence: Type.Optional(
+        Type.String({ description: "★ 选「已验证/已推翻」时必填：证据指到哪（实验 id / 产物名 / 读数文件）" }),
+      ),
+      control: Type.Optional(
+        Type.Object({
+          dir: Type.String({ description: "★ 对照跑的目录（相对本 lab）" }),
+          cmd: Type.String({ description: "★ **应该失败**的命令（人造答案：它必须 exit ≠ 0）" }),
+        }, { description: "★★★★ 对照（人造答案）：一条**应该失败**的命令。工具会真跑它并记退出码；`exit ≠ 0` 才算「该失败时它失败」" }),
+      ),
+      externalCheck: Type.Optional(
+        Type.String({
+          description:
+            "★ `source` 里没有外部出处时**必填**：你搜过什么、找到什么（**没找到也要写**）。" +
+            "★ 不逼你编引用，但逼你**问过外面的世界** —— 没有外部输入，再大的权限也只会自我循环。",
+        }),
+      ),
+      controlAbsent: Type.Optional(
+        Type.Union([Type.Literal(""), Type.Literal("这次没有对照"), Type.Literal("有但没记")], {
+          description: "★ 没给 `control` 时必填：这次真没有对照，还是有但你没记",
+        }),
+      ),
       outcome: Type.Union([Type.Literal("活"), Type.Literal("死"), Type.Literal("挂起")], {
         description: "结局：活（假设没被推翻）/ 死（被推翻，说清死因）/ 挂起（缺什么证据）",
       }),
@@ -571,6 +665,32 @@ export function makeRecordExperiment(deps: {
           details: {},
         };
       }
+
+      // ★★★★★ 对照（人造答案）—— 工具**真跑**那条"应该失败"的命令
+      //
+      //   ★ DESIGN §7③ 要求"读数必须自带人造答案"，以前没有读数、也没结构。
+      //   ★★ 判据：`exit !== 0` 才算「该失败时它失败」。它真失败 ⇒ 说明装置不是在瞎报成功。
+      //   ★★★ 若它**竟然成功了**（exit === 0），不改判它，但**必须让这件事响**：
+      //     返回值里明说"你的对照没失败 ⇒ 这个装置对错不敏感"。
+      let controlRun: ExperimentRow["control"];
+      let controlWarn = "";
+      if (p.control && p.control.cmd.trim()) {
+        const cdir = p.control.dir.startsWith("/") || /^[A-Za-z]:/.test(p.control.dir)
+          ? p.control.dir
+          : join(deps.lab, p.control.dir);
+        if (!insideLabDir(deps.lab, cdir)) {
+          return {
+            content: [{ type: "text" as const, text: "⛔ 对照目录不在本 lab 里面（写边界不变）" }],
+            details: {},
+          };
+        }
+        const cr = await runCmd(p.control.cmd, cdir);
+        controlRun = { dir: p.control.dir, cmd: p.control.cmd, exit: cr.exit, at: new Date().toISOString() };
+        if (cr.exit === 0) {
+          controlWarn =
+            "\n⚠ **你的对照没失败**（exit=0）⇒ 这个装置对「对/错」不敏感，「跑通了」不能证明「判得对」。";
+        }
+      }
       const row: ExperimentRow = {
         at: new Date().toISOString(),
         recordedAt: new Date().toISOString(),
@@ -613,6 +733,11 @@ export function makeRecordExperiment(deps: {
         phenomenonAbsent: p.phenomenonAbsent as ExperimentRow["phenomenonAbsent"],
         model: p.model,
         conjecture: p.conjecture,
+        conjectureState: (p.conjectureState ?? "未验证") as ExperimentRow["conjectureState"],
+        conjectureEvidence: p.conjectureEvidence ?? "",
+        control: controlRun,
+        controlAbsent: (p.controlAbsent ?? "") as ExperimentRow["controlAbsent"],
+        externalCheck: p.externalCheck ?? "",
         outcome: p.outcome,
       };
       appendStructured(deps.lab, row);

@@ -42,6 +42,7 @@ import {
   unsupportedClaims,
   debtClasses,
 } from "../hunt/topology/converged-gate.ts";
+import { designGaps, renderDesignGaps } from "../hunt/topology/experiments.ts";
 import {
   deepProjects,
   externalUrlShare,
@@ -143,6 +144,7 @@ console.log(
     ),
     renderDeadUse(deadUse(readStructured(root))),
     renderExpectedTrace(expectedTrace(readStructured(root))),
+    renderDesignGaps(designGaps(readStructured(root))),
     (() => {
       try {
         return renderToolUsage(toolUsageFromLog(readFileSync(root + "/work/_topology.log", "utf8")));
