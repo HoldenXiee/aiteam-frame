@@ -130,7 +130,7 @@ console.log(
       return (
         `★★ 项目链深：${chains || "未声明"}　← ★ 链深 ≥3 的项目 **${deepProjects(rows)}** 个` +
         String.fromCharCode(10) +
-        `★★ 真外部 URL（一等判据，不与「本仓:」混）：**${pct}**（${ex.n}/${ex.total}）`
+        `★★ 外部出处：**含外部 ${pct}**（${ex.any}/${ex.total}）· 其中**以外部为主** ${ex.n}　← ★ 两个口径并排，别只看一个`
       );
     })(),
     renderProvided(

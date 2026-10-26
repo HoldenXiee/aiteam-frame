@@ -331,9 +331,21 @@ export function deepProjects(rows: readonly ExperimentRow[], min = 3): number {
 /** ★★★ 「真外部 URL」一等判据（与 `本仓:` 分开数，不许混）*/
 const EXTERNAL_URL = /^(https?:\/\/|arxiv:|doi:|10\.\d{4}\/)/i;
 
-export function externalUrlShare(rows: readonly ExperimentRow[]): { n: number; total: number; share: number | null } {
+export function externalUrlShare(rows: readonly ExperimentRow[]): {
+  /** ★ 出处**以外部为主**（source 开头就是 URL/arXiv/DOI）*/
+  n: number;
+  /** ★★ 出处里**含**外部（`本仓:… + https://…` 也算 —— 它确实引了外部）*/
+  any: number;
+  total: number;
+  share: number | null;
+} {
+  // ★★★ 2026-10-26 · **这个字段原来只算"以外部为主"**，而 DESIGN §9 要的是「写了出处」
+  //   实测差 17 条：`本仓:work/P213/… · https://tc39.es/…` 这种被判成"没有外部"，
+  //   而它真引了 TC39 / RFC / HL7。
+  //   ⇒ 两个口径**并排报**，别让一个名字骗了下一个读它的人（纪律㉔）。
   const n = rows.filter((r) => EXTERNAL_URL.test(r.source)).length;
-  return { n, total: rows.length, share: rows.length ? n / rows.length : null };
+  const any = rows.filter((r) => /https?:\/\/|arxiv:|doi:|10\.\d{4}\//i.test(r.source)).length;
+  return { n, any, total: rows.length, share: rows.length ? any / rows.length : null };
 }
 
 export function sevenStats(rows: readonly ExperimentRow[]): SevenStats {
