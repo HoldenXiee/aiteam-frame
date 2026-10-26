@@ -238,15 +238,44 @@ export interface UnsupportedClaim {
 export function unsupportedClaims(convergedText: string, rows: readonly ExperimentRow[]): UnsupportedClaim[] {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: UnsupportedClaim[] = [];
-  for (const line of convergedText.split(String.fromCharCode(10))) {
-    const m = /^\|[ ]*([^|]+?)[ ]*\|[ ]*([^|]+?)[ ]*\|/.exec(line.trim());
-    if (!m) continue;
-    const claimCell = m[1]!;
-    const evCell = m[2]!;
+  const lines = convergedText.split(String.fromCharCode(10));
+
+  // ★★★★★ 2026-10-26 · **这一次是集群纠正我**（第 18 次量具错）
+  //
+  //   ★ 我原来把**任何**提到 `E2` 的表格行都算「用 E2 撑这条 claim」。
+  //     而 `CONVERGED.md` 有 2264 行、39 张表、`E2` 出现 65 次，其中
+  //     · 「判「补的」= 8：E2 E4 E5…」—— **名单**
+  //     · 「承重行里的不合格 = 12 处 / 6 个 id（E2×2 …）」—— **计数**
+  //     · 五行**存在目的就是论证 E2 不是承重引用** —— **元讨论**
+  //     这三种行和真正的承重引用**长得一样** ⇒ 我报的 18 条里大部分是元讨论。
+  //   ★★ 它(P238)给的两条可核排除，我原样实现：
+  //     ① 该行的**处置列**以 `⛔` 开头（那一行本身就是在说「不算证据」）
+  //     ② 该行位于标题含「为什么不是」「不是承重」「元讨论」的小节下
+  //   ★★★ 判死（它写的，也是我该守的）：按这两条排除后，
+  //     若仍有**一条**行在正文里声称「这条 claim 有跑前冻结的证据」而只引补的 E ⇒ 排除规则不成立。
+  let metaSection = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    // 小节标题会改变"这一段的表格是不是元讨论"
+    if (line.startsWith("#")) {
+      metaSection = /为什么不是|不是承重|元讨论|口径|统计|名单/.test(line);
+      continue;
+    }
+    if (metaSection) continue;
+    if (!line.startsWith("|")) continue;
+    const cells = line.split("|").map((c) => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
+    if (cells.length < 2) continue;
+    const claimCell = cells[0]!;
+    const evCell = cells[1]!;
+    // ★ 排除 ①：处置/判决列以 ⛔ 开头（那一行自己已经撤了）
+    if (cells.some((c) => c.startsWith("⛔"))) continue;
+    // ★ 排除：表头/分隔行
+    if (/^-+$/.test(evCell) || /^证据|evidence/.test(evCell) || /^claim/i.test(claimCell)) continue;
     const ids = [...new Set(evCell.match(/E[0-9]+/g) ?? [])];
     if (ids.length === 0) continue;
+    // ★ 排除 ③：名单行 / 计数行 —— claim 格里是"判「补的」""共 N 条""x 处"这类
+    if (/^(判|共|计|合计|名单|统计)/.test(claimCell) && !/[。？?]/.test(claimCell)) continue;
     const fake = ids.filter((i) => byId.get(i)?.phenomenonVerdict === "补的");
-    // ★ 只在"引的全是补的"时算「只靠它撑着」—— 有一条站得住就不是
     if (fake.length === ids.length) {
       out.push({ claim: claimCell.slice(0, 70), cited: ids, fake });
     }
@@ -257,7 +286,12 @@ export function unsupportedClaims(convergedText: string, rows: readonly Experime
 export function renderUnsupported(u: readonly UnsupportedClaim[]): string {
   if (u.length === 0) return "★ 被判「补的」的证据没有单独撑着任何 claim（或状态表里没有 E 引用）";
   return (
-    `★★★★ 只有"被判补的"证据撑着的 claim：**${u.length} 条**` +
+    // ★★★ 2026-10-26 · **这个数只当指针，不当结论**（第 18 次量具错之后）
+    //   我修掉了元讨论行，但剩下 7 条里人工核过仍有 4 条是「行号 / 正则片段 / 单个 id」这类非 claim 行。
+    //   ⇒ claim 粒度我**判不准**（那是内容判断，纪律①）。它的价值在于**逼集群去处置**，
+    //     而它确实逼出了 `P238`（一份可核的逐行核对 + 一条判死断言）。
+    `★★★★ 粗口径候选：${u.length} 条行**看起来**只引了被判"补的"证据` +
+    `（★ 这个数会混进行号/正则/名单行，**别当结论用**——它是给集群的指针）` +
     `（${u.slice(0, 4).map((x) => x.fake.join("·")).join(" / ")}）` +
     `　← ★ 门给了判决但**没人撤回**：要么撤回引用、要么重做一次带真 PREREG 的实验、要么说明它其实成立`
   );

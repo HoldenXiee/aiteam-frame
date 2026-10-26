@@ -1069,8 +1069,10 @@ export function makeRules(ctx: TriggerCtx) {
     const peers = ctx.peerKeys?.() ?? [];
     const who = peers[(state.externalAsked ?? 0) % Math.max(peers.length, 1)];
     if (!who) return;
+    // ★ 一次派**多条**（与 onPhenomenon 同形）：欠账 13 条而一次只催 1 条 ⇒ 永远追不上
+    const k = Math.max(1, Math.min(3, Math.ceil(debt.length / 4)));
+    ctx.trace("onDebt", `欠账 ${debt.length} 条（已审的）⇒ 本轮派 ${k} 条`);
     const item = debt[0]!;
-    ctx.trace("onDebt", `欠账 ${debt.length} 条（已审的）⇒ 派 ${who} 处置 ${item.id}`);
     ctx.challenge(
       who,
       [
@@ -1088,6 +1090,28 @@ export function makeRules(ctx: TriggerCtx) {
         "★★ 判据（我机械可查）：处置后 `收敛欠账` 里应该少一条。",
       ].join(String.fromCharCode(10)),
     );
+    // ★ 剩下的 k-1 条：派给别人（同一人一次只处理一条，避免他挑顺手的）
+    for (let i = 1; i < k; i++) {
+      const it = debt[i];
+      const w = peers[(i + (state.externalAsked ?? 0)) % Math.max(peers.length, 1)];
+      if (!it || !w || w === who) continue;
+      ctx.challenge(
+        w,
+        [
+          `## ★★★★ 收敛欠账：处置 \`${it.id}\`（一条已审过的实验）`,
+          "",
+          "**它的 claim**：" + it.claim,
+          "",
+          "### 三选一，必须落到 `outbox/CONVERGED.md` 的状态表里",
+          "1. **引它进状态表**（证据 id 列写 `" + it.id + "`，并写清支持哪条 claim）",
+          "2. **说明它不算证据**（为什么不能承重：边界？样本？载体？）",
+          "3. **说明还缺什么**（缺对照臂 / 缺第二个载体 / 缺审查）",
+          "",
+          "★ 允许处置为「不算」，但不许不处置。",
+        ].join(String.fromCharCode(10)),
+      );
+      ctx.trace("onDebt", `→ ${w} 处置 ${it.id}`);
+    }
   }
 
 
