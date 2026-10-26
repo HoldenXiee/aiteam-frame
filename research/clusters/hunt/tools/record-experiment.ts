@@ -74,6 +74,17 @@ export interface CarrierRun {
 export interface ExperimentRow {
   at: string;
   /**
+   * ★★★★★ **落账时刻**（2026-10-26 新增）
+   *
+   * ★ 为什么必须单独一格：`at` 是**实验发生**的时刻（常常是 PREREG/载体那会儿），
+   *   而我要回答的问题经常是"这一轮新增了几条" —— 那要用落账时刻。
+   * ★★ 我因为这个混用算错过两次（先按字符串窗口比 `at`，把**昨天 19–23 点**也算进"今天 09:29 之后"，
+   *   又把 `at` 当落账时间，得出「39 条实验只记了 6 次调用」的假警报）。
+   * ★★★ 纪律㉔：量具记的字段必须能回答你想问的问题 —— 一个 `at` 回答不了两个问题。
+   * ★ 旧行没有这一格 ⇒ **未声明**，不是 0（纪律㉜）。
+   */
+  recordedAt?: string;
+  /**
    * ★★★★ 行号（`E1`/`E2`…）—— 让**另一位**能指着它说"这个现象是真的/补的"。
    * ★ 没有 id 就没有可挑战的对象；`challenge` 只能挑战产物，不能挑战一格。
    */
@@ -523,6 +534,7 @@ export function makeRecordExperiment(deps: {
       }
       const row: ExperimentRow = {
         at: new Date().toISOString(),
+        recordedAt: new Date().toISOString(),
         id: nextId(deps.lab),
         phenomenonVerdict: "未审",
         reviewedBy: "",
