@@ -1138,6 +1138,42 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     } catch (e) {
       L.push(`实验账读不出来：${(e as Error).message}`);
     }
+    // ★★★★★ 2026-10-26 · **设计者投放的材料，得让它知道有这么个东西**
+    //
+    //   ★ 实测：`research/docs/研究员提供的网上文章/` 里放了 1 篇（10-25 13:41），
+    //     之后产出 **133 份**，引用 **0 份**。
+    //     ★ 我先怀疑是"读不到" —— 查过 `READ_ONLY_ROOTS` 里有 `research/docs`，**读得到**。
+    //   ★★ 真因：处境表里只有一行聚合计数「外部材料 43」，
+    //     **从来没出现过那个路径** ⇒ 它不知道有这个东西。
+    //   ★★★ 设计者原话是「**只数不催**」⇒ 这里只给事实：有什么、在哪、被引了几次。
+    //     不写"你应该读"，也不写"这一轮必须引"。
+    try {
+      const dir = join(REPO, "research/docs/研究员提供的网上文章");
+      if (existsSync(dir)) {
+        const files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+        if (files.length > 0) {
+          const cited = (() => {
+            try {
+              return providedUsage(readArtifacts(join(LAB, "outbox")), files);
+            } catch {
+              return undefined;
+            }
+          })();
+          L.push("");
+          L.push("## ★ 设计者投放到这里的东西（**只数不催**）");
+          L.push("```");
+          for (const f of files.slice(0, 6)) {
+            L.push(`· \`${join(dir, f).replace(REPO + "/", "").replace(REPO + "\\", "")}\``);
+          }
+          if (files.length > 6) L.push(`· …还有 ${files.length - 6} 篇`);
+          if (cited) L.push(renderProvided(cited));
+          L.push("★ 这是**灵感通道**之一，不是任务：读了不用引用，不读也没人扣分。");
+          L.push("```");
+        }
+      }
+    } catch (e) {
+      L.push(`投放目录读不出来：${(e as Error).message}`);
+    }
     // ★★★★★ 集群自己的库测试有没有红灯 —— 必须在**处境**里，不能只在读数里
     //
     //   ★ 实测（2026-10-26）：`labfirst/hunt/lib` 与 `src` 已漂 57 处（改过 13 · 新增 44 个文件），
