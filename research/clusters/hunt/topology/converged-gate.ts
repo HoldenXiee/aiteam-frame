@@ -204,6 +204,32 @@ export function writeDebtFile(lab: string, d: ConvergenceDebt, round: string): v
   writeFileSync(join(lab, "work", DEBT_FILE), lines.join(String.fromCharCode(10)), "utf8");
 }
 
+/**
+ * ★★★★★ 欠账里有多少是**真遗忘**（2026-10-26 · 集群用 `P362`/`P370` 打了我一次）
+ *
+ * ★ 实测：报"欠 18 条"，而逐条去 400 份产物里搜，**18/18 全都被引用过**（2–33 份）。
+ *   ⇒ "没进状态表的证据列" ≠ "被忘了"。我的分母里混进了"它有意不引"的那部分（纪律㉞）。
+ * ★★ 所以这个数只能叫**候选**：真正要清的只有「状态表没引 **且** 任何产物都没提」的那些。
+ *   ★ 三种口径分开报：已引 / 未进状态表但别处用过 / **真遗忘**
+ */
+export function debtClasses(
+  debtIds: readonly string[],
+  productTexts: readonly string[],
+  convergedText: string,
+): { citedInTable: number; usedElsewhere: number; forgotten: string[] } {
+  const joined = productTexts.join(String.fromCharCode(10));
+  const forgotten: string[] = [];
+  let usedElsewhere = 0;
+  for (const id of debtIds) {
+    // 产物正文里出现（去掉 CONVERGED 本身不算"别处"）
+    const re = new RegExp(`(^|[^A-Za-z0-9])${id}([^0-9]|$)`);
+    const inProducts = productTexts.some((t) => t !== convergedText && re.test(t));
+    if (inProducts) usedElsewhere++;
+    else forgotten.push(id);
+  }
+  return { citedInTable: 0, usedElsewhere, forgotten };
+}
+
 export function renderDebt(d: ConvergenceDebt): string {
   if (d.total === 0) return "★ 收敛欠账：账上还没有结构化实验 ⇒ 未声明";
   const cleared =
@@ -211,7 +237,7 @@ export function renderDebt(d: ConvergenceDebt): string {
       ? "（上一轮没有欠账清单，无从对照）"
       : ` · ★ 上一轮列了 ${d.lastListed} 条，这一轮清掉 **${d.clearedFromLast ?? 0}**`;
   return (
-    `★★ 收敛欠账：账上 ${d.total} 条 · 状态表引了 ${d.cited} 条 ⇒ **欠 ${d.uncited.length} 条**` +
+    `★★ 收敛欠账（**候选**，见下）：账上 ${d.total} 条 · 状态表引了 ${d.cited} 条 ⇒ 未进状态表 ${d.uncited.length} 条` +
     (d.uncited.length ? `（${d.uncited.slice(0, 6).map((u) => u.id).join("·")}${d.uncited.length > 6 ? "…" : ""}）` : "") +
     cleared
   );

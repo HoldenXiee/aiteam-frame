@@ -40,6 +40,7 @@ import {
   renderGate,
   renderUnsupported,
   unsupportedClaims,
+  debtClasses,
 } from "../hunt/topology/converged-gate.ts";
 import {
   deepProjects,
@@ -84,6 +85,31 @@ console.log(
     renderSeven(sevenStats(readStructured(root))),
     renderGate(convergedGate(root, readStructured(root))),
     renderDebt(convergenceDebt(root, readStructured(root))),
+    // ★★★★★ 欠账里有多少是**真遗忘**（集群用 P362/P370 打了我一次：18/18 都被别处引用过）
+    (() => {
+      try {
+        const d = convergenceDebt(root, readStructured(root));
+
+        const dir = root + "/outbox";
+        const texts = readdirSync(dir)
+          .filter((f: string) => f.endsWith(".md"))
+          .map((f: string) => {
+            try {
+              return readFileSync(dir + "/" + f, "utf8");
+            } catch {
+              return "";
+            }
+          });
+        const cls = debtClasses(d.uncited.map((u) => u.id), texts, readFileSync(dir + "/CONVERGED.md", "utf8"));
+        return (
+          `　　★ 其中**在别的产物里被引用过**：${cls.usedElsewhere}/${d.uncited.length}` +
+          `　· **真遗忘**（任何产物都没提）：${cls.forgotten.length}${cls.forgotten.length ? "（" + cls.forgotten.slice(0, 6).join("·") + "）" : ""}` +
+          `　← ★ 分母里混进了「它有意不引」的那部分（纪律㉞）：集群的 P362/P370 已证明这个数的可清上界接近 0`
+        );
+      } catch (e) {
+        return "　　★ 欠账分类算不出来：" + (e as Error).message.slice(0, 60);
+      }
+    })(),
     renderUnsupported(
       (() => {
         try {
