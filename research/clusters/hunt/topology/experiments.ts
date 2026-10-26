@@ -17,6 +17,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { ExperimentRow } from "../tools/record-experiment.ts";
 
 // ───────────────────────────── 类型 ─────────────────────────────
 
@@ -1037,4 +1038,53 @@ export function readExperiments(
   ].slice(0, 6);
 
   return { stats, att: deliveryDriven(arts), mix: sourceMix(arts), rows, outcomeSamples, ledgerConflicts };
+}
+
+/**
+ * ★★★★★ 「死」的实验有没有被**用**（2026-10-26 新增）
+ *
+ * ★ 为什么这条重要：DESIGN 要的是「以结果来生产」。死掉的结果如果只是躺在账上，
+ *   那这个环就没闭合 —— 它只是在**记录**失败，不是在**用**失败。
+ * ★★ 判据只看形式：后续任何一条实验的 claim/model/conjecture/phenomenon/killCondition
+ *   里**明文出现**那个 `E<n>` 编号。不判它引对没引对（那是内容判断）。
+ */
+export interface DeadUse {
+  total: number;
+  /** 被后续实验明文引用的条数 */
+  used: number;
+  /** 死了之后同项目还有新实验的（说明项目没被一次失败终结）*/
+  continued: number;
+  /** 死了之后被引用**且**同项目继续的明细 */
+  rows: { id: string; project: string; citedBy: string[] }[];
+}
+
+export function deadUse(rows: readonly ExperimentRow[]): DeadUse {
+  const out: DeadUse = { total: 0, used: 0, continued: 0, rows: [] };
+  const idx = new Map(rows.map((r, i) => [r.id, i]));
+  for (const d of rows) {
+    if (d.outcome !== "死") continue;
+    out.total++;
+    const i = idx.get(d.id) ?? 0;
+    const citedBy: string[] = [];
+    for (let j = i + 1; j < rows.length; j++) {
+      const r = rows[j]!;
+      const txt = [r.claim, r.model, r.conjecture, r.phenomenon, r.killCondition].join(" ");
+      if (txt.includes(d.id)) citedBy.push(r.id);
+    }
+    const continued = rows.slice(i + 1).some((r) => r.project === d.project);
+    if (citedBy.length > 0) out.used++;
+    if (continued) out.continued++;
+    out.rows.push({ id: d.id, project: d.project, citedBy });
+  }
+  return out;
+}
+
+export function renderDeadUse(d: DeadUse): string {
+  if (d.total === 0) return "★ 「死」的实验：0 条（★ 一条都没判死过 ⇒ 要么全是容易的题，要么判死条件写得太软）";
+  const pct = Math.round((d.used / d.total) * 100);
+  return (
+    `★★★★ 死实验被后续**明文引用**：**${d.used}/${d.total}（${pct}%）**` +
+    `　← ★ 这条量的是"环闭没闭"：死掉的结果如果只是躺着，那它在记录失败，不是在用失败` +
+    `　· 死了之后同项目还继续：${d.continued}/${d.total}`
+  );
 }

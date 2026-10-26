@@ -25,6 +25,7 @@ import {
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
 import { runLibTests, renderLibTests } from "./libtest.ts";
+import { deadUse, renderDeadUse } from "../hunt/topology/experiments.ts";
 import {
   convergenceDebt,
   convergedGate,
@@ -107,6 +108,7 @@ console.log(
           : [],
       ),
     ),
+    renderDeadUse(deadUse(readStructured(root))),
     // ★ 集群自己的库测试有没有红灯（装置失败 ≠ 能力失败，纪律⑧）
     renderLibTests(await runLibTests(root)),
   ].join(String.fromCharCode(10)) +
