@@ -1484,7 +1484,13 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
             const snap = readFileSync(join(srcDir, "..", "_SNAPSHOT.md"), "utf8");
             const i = snap.indexOf("## ★ 第一集群自己的质量门");
             if (i >= 0) {
-              const body = snap.slice(i).split("## ")[0]!.trim();
+              // ★★★ 2026-10-26 · 这里第一版**又错了**（同一个病：写作了不等于接上了）
+              //   `snap.slice(i).split("## ")[0]` —— 而我是从 `"## "` **本身**开始切的
+              //   ⇒ 第 0 段永远是空串 ⇒ 推进处境表的是一个**空代码块**。
+              //   ★ 这就是纪律㉙ 为什么要求"证明它在该有内容时真有内容"。
+              const after = snap.slice(i);
+              const end = after.indexOf(String.fromCharCode(10) + "## ", 1);
+              const body = (end > 0 ? after.slice(0, end) : after).trim();
               L.push("");
               L.push("## ★ 这批原料的上游门（第一集群写的，逐字照抄）");
               L.push("```");
