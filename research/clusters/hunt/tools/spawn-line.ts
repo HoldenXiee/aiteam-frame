@@ -8,6 +8,7 @@ import { Type } from "typebox";
 import type { Agent, Lab } from "../../../../src/index.ts";
 import { attachGate } from "../guard.ts";
 import { MODEL, READONLY_TOOLS, REPO } from "../paths.ts";
+import { logToolCall } from "./usage-log.ts";
 
 const LINE_ROLE =
   "你是一条**探索支线**上的子研究员。★ 你只看到这条任务，没有别的上下文。\n" +
@@ -25,6 +26,7 @@ export function makeSpawnLine(deps: { lab: Lab; onSpawn: (a: Agent) => void }) {
       read: Type.Optional(Type.Array(Type.String(), { description: "允许它读的路径（默认整个仓库）" })),
     }),
     execute: async (_id, p) => {
+      logToolCall("spawn_line", (p as { task?: string }).task);
       const child = await deps.lab.createAgent({
         id: `line-${Date.now().toString(36)}`,
         model: MODEL,

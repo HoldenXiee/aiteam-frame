@@ -23,6 +23,7 @@ import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { logToolCall } from "./usage-log.ts";
 
 /**
  * ★★★★★ 异步执行（2026-10-25 · 修一个会**冻住整个集群**的坑）
@@ -194,6 +195,7 @@ export function makePortRun(deps: { lab: string; selfKey: string }) {
       cmd: Type.String({ description: "要跑的命令（例如 `npx tsx probe.ts --n=8`）" }),
     }),
     execute: async (_id, p) => {
+      logToolCall("port_run");
       const dir = p.carrier.startsWith("/") || /^[A-Za-z]:/.test(p.carrier)
         ? p.carrier
         : join(deps.lab, p.carrier);

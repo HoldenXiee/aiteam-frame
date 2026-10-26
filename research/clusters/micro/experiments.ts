@@ -25,7 +25,7 @@ import {
 } from "../hunt/topology/experiments.ts";
 import { dialecticStats, readChallenges, renderDialectic } from "../hunt/topology/dialectic.ts";
 import { runLibTests, renderLibTests } from "./libtest.ts";
-import { deadUse, renderDeadUse } from "../hunt/topology/experiments.ts";
+import { deadUse, renderDeadUse, toolUsageFromLog, renderToolUsage } from "../hunt/topology/experiments.ts";
 import {
   convergenceDebt,
   convergedGate,
@@ -109,6 +109,13 @@ console.log(
       ),
     ),
     renderDeadUse(deadUse(readStructured(root))),
+    (() => {
+      try {
+        return renderToolUsage(toolUsageFromLog(readFileSync(root + "/work/_topology.log", "utf8")));
+      } catch {
+        return "★ 工具调用账：读不到 _topology.log";
+      }
+    })(),
     // ★ 集群自己的库测试有没有红灯（装置失败 ≠ 能力失败，纪律⑧）
     renderLibTests(await runLibTests(root)),
   ].join(String.fromCharCode(10)) +

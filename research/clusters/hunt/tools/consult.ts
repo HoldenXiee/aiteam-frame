@@ -7,6 +7,7 @@
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { logToolCall } from "./usage-log.ts";
 
 /** 能通过 consult 请的专家（★ 不含 libsmith —— 改库由拓扑触发，不是它随手能叫的） */
 const CONSULTABLE = ["inspector", "archivist", "inspirer", "watchdog"] as const;
@@ -28,6 +29,7 @@ export function makeConsult(fire: (role: Consultable, why: string, focus?: strin
       focus: Type.Optional(Type.String({ description: "要它特别看什么（路径 / 具体问题）" })),
     }),
     execute: async (_id, p) => {
+      logToolCall("consult");
       const text = await fire(p.role as Consultable, `[研究员主动求助] ${p.why}`, p.focus ?? "");
       // ★★ execute 的返回值**自动进它的上下文** —— 这就是"意见回流"
       return { content: [{ type: "text" as const, text }], details: {} };

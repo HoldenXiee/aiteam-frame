@@ -1088,3 +1088,58 @@ export function renderDeadUse(d: DeadUse): string {
     `　· 死了之后同项目还继续：${d.continued}/${d.total}`
   );
 }
+
+/**
+ * ★★★★★ 工具使用账（2026-10-26）—— 「这个工具是死的，还是用了没写进产物」
+ *
+ * ★ 起因：我量 `spawn_line` 有没有被用，只能去产物正文里 grep 关键词（4/366），
+ *   而 `_topology.log` **根本没有工具调用行** ⇒ 两种解释分不开（纪律㉔）。
+ * ★★ 现在每个自定义工具执行时记一行 `tool:<名字>`。
+ * ★★★ 判据写在打印里：**连续两轮 0 次** ⇒ 要么没用，要么没接上 ⇒ 必须去查（纪律㉖）。
+ */
+export interface ToolUsage {
+  /** ★ 日志里**有没有** `tool:` 这个字段（没有 = 未声明，不是 0 —— 纪律㉜）*/
+  declared: boolean;
+  counts: Record<string, number>;
+  /** 本轮日志里出现过但一次都没被调用的自定义工具 */
+  dead: string[];
+}
+
+const CUSTOM_TOOLS = [
+  "record_experiment",
+  "review_experiment",
+  "port_run",
+  "spawn_line",
+  "consult",
+  "challenge",
+] as const;
+
+export function toolUsageFromLog(logText: string): ToolUsage {
+  const counts: Record<string, number> = {};
+  for (const t of CUSTOM_TOOLS) counts[t] = 0;
+  let declared = false;
+  for (const line of logText.split(String.fromCharCode(10))) {
+    const m = /  tool:([a-z_]+)/.exec(line);
+    if (m) {
+      declared = true;
+      counts[m[1]!] = (counts[m[1]!] ?? 0) + 1;
+    }
+  }
+  const dead = declared ? CUSTOM_TOOLS.filter((t) => (counts[t] ?? 0) === 0) : [];
+  return { declared, counts, dead };
+}
+
+export function renderToolUsage(u: ToolUsage): string {
+  // ★★★ 纪律㉜：这份日志里**没有** `tool:` 字段 ⇒ 是「未声明」，不是「0 次调用」
+  if (!u.declared) return "★★ 自定义工具调用账：**未声明**（这份日志里没有 `tool:` 字段 —— 使用账是这一轮才加的）";
+  const parts = Object.entries(u.counts)
+    .map(([k, v]) => `${k} ${v}`)
+    .join(" · ");
+  const head = `★★★★ 自定义工具调用账：${parts}`;
+  if (u.dead.length === 0) return head;
+  return (
+    head +
+    `　← ★★ **${u.dead.join("·")} 0 次**：要么它没用，要么它没接上 —— 这两种必须分清（纪律㉖）` +
+    "（★ 只数 `_topology.log` 的 `tool:` 行；这之前的历史没有这个字段，属「未声明」，不是 0 —— 纪律㉜）"
+  );
+}

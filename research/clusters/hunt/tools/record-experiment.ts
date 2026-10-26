@@ -27,6 +27,7 @@ import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { logToolCall } from "./usage-log.ts";
 
 /**
  * ★★★★★ 异步执行（2026-10-25 · 修一个会**冻住整个集群**的坑）
@@ -219,6 +220,7 @@ export function makeReviewExperiment(deps: { lab: string; selfKey: string }) {
       note: Type.String({ description: "★ 凭什么（指到 PREREG/读数/时间线），不许写「看起来像」" }),
     }),
     execute: async (_id, p) => {
+      logToolCall("review_experiment", String(p.id));
       const r = applyReview(deps.lab, p.id, { by: deps.selfKey, verdict: p.verdict, note: p.note });
       if (!r.ok) return { content: [{ type: "text" as const, text: `⛔ ${r.reason}` }], details: {} };
       const s = sevenStats(readStructured(deps.lab));
@@ -441,6 +443,7 @@ export function makeRecordExperiment(deps: {
       }),
     }),
     execute: async (_id, p) => {
+      logToolCall("record_experiment", String((p as { project?: string }).project ?? ""));
       const errs = validateExperiment({ ...p, projectIds: deps.projectIds() });
       if (errs.length > 0) {
         return {
