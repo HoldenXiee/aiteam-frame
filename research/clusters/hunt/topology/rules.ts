@@ -570,6 +570,7 @@ import { canOpenNewAudit, readClosure } from "./closure.ts";
 import { readProjects } from "./projects.ts";
 import { externalUsage, readArtifacts } from "./experiments.ts";
 import { readStructured } from "../tools/record-experiment.ts";
+import type { ExperimentRow } from "../tools/record-experiment.ts";
 import { convergenceDebt, unsupportedClaims } from "./converged-gate.ts";
 
 export function makeRules(ctx: TriggerCtx) {
@@ -1089,6 +1090,32 @@ export function makeRules(ctx: TriggerCtx) {
     );
   }
 
+
+/** ★ 审现象的投递文本（抽成纯函数：一次可以派多条，内容必须一致）*/
+function phenomenonPrompt(target: ExperimentRow): string {
+  return [
+    `## ★★★★★ 审一格「现象」：\`${target.id}\`（作者 **${target.by}**，不是你写的）`,
+    "",
+    "**它自报的现象**：",
+    "> " + target.phenomenon.replace(String.fromCharCode(10), " ").slice(0, 500),
+    "",
+    "**它的机制（model）**：",
+    "> " + (target.model || "(空)").replace(String.fromCharCode(10), " ").slice(0, 300),
+    "",
+    "### 你要判的只有一件事",
+    "**这是「真意外」还是「先看读数再补的预期」？**",
+    "",
+    "★ 判「补的」的证据只有三类（别用语气判断）：",
+    "  ① `PREREG` / 跑前写死的东西里**没有**这条预期（事后才出现）",
+    "  ② 预期写得**比读数还笼统**（例如「可能不一样」，而读数是 3/8 vs 0/8）",
+    "  ③ 现象与 `outcome` 自相矛盾（说意外，但结局写「活」且没解释为什么能活）",
+    "",
+    `用 \`review_experiment({ id: "${target.id}", verdict: "真意外"|"补的", note: "<凭什么>" })\`。`,
+    "★★ 自签会被拒 —— 你不是作者，所以你能审。",
+    "★★★ 这个判定直接决定它算不算「发现型」：**没被人认过的现象只算填了**。",
+  ].join(String.fromCharCode(10));
+}
+
   // ══════════════════════════════════════════════════════════════
   // ★★★★★ onPhenomenon —— 让**另一位**去审「这格现象是真意外还是补的」
   //
@@ -1118,35 +1145,31 @@ export function makeRules(ctx: TriggerCtx) {
     const reviewer = peers.find((k) => !authors.has(k)) ?? peers[0];
     if (!reviewer) return;
 
-    const target = rows[0]!;
-    ctx.trace(
-      "onPhenomenon",
-      `未审现象 ${rows.length} 条 ⇒ 派 ${reviewer} 审 ${target.id}（作者 ${target.by}）`,
-    );
-    const prompt = [
-      `## ★★★★★ 审一格「现象」：\`${target.id}\`（作者 **${target.by}**，不是你写的）`,
-      "",
-      "**它自报的现象**：",
-      "> " + target.phenomenon.replace(String.fromCharCode(10), " ").slice(0, 500),
-      "",
-      "**它的机制（model）**：",
-      "> " + (target.model || "(空)").replace(String.fromCharCode(10), " ").slice(0, 300),
-      "",
-      "### 你要判的只有一件事",
-      "**这是「真意外」还是「先看读数再补的预期」？**",
-      "",
-      "★ 判「补的」的证据只有三类（别用语气判断）：",
-      "  ① `PREREG` / 跑前写死的东西里**没有**这条预期（事后才出现）",
-      "  ② 预期写得**比读数还笼统**（例如「可能不一样」，而读数是 3/8 vs 0/8）",
-      "  ③ 现象与 `outcome` 自相矛盾（说意外，但结局写「活」且没解释为什么能活）",
-      "",
-      `用 \`review_experiment({ id: "${target.id}", verdict: "真意外"|"补的", note: "<凭什么>" })\`。`,
-      "★★ 自签会被拒 —— 你不是作者，所以你能审。",
-      "★★★ 这个判定直接决定它算不算「发现型」：**没被人认过的现象只算填了**。",
-    ].join(String.fromCharCode(10));
+    // ★★★★★ 一次派**多条**（2026-10-25）：审查速率曾经被 tick 频率卡住
+    //
+    //   ★ 实测：既然一次只派 1 条、tick 5 分钟一次，审查上限就是 ~12 条/小时，
+    //     而生产是它的两倍 ⇒ 未审积压从 2 涨到 **10**（越攒越多）。
+    //   ★★ 派活器本来就支持并发（默认 3），所以卡点不在机器，在"我一次只给一条"。
+    //   ★★★ 派几条：按积压算（欠得多就多派），封顶 3（= 并发上限），至少 1。
+    //     这正是纪律㊵：开环系统里要**清欠账**，不是限开工。
+    const k = Math.max(1, Math.min(3, Math.ceil(rows.length / 2)));
+    const authors2 = new Set(rows.map((r) => r.by));
+    const pool = peers.filter((p) => !authors2.has(p));
+    const reviewerPool = pool.length > 0 ? pool : peers;
 
-    ctx.challenge(reviewer, prompt);
-    ctx.trace("onPhenomenon", `→ ${reviewer}（steer，带行号）`);
+    const targets = rows.slice(0, k);
+    let sent = 0;
+    targets.forEach((target, i) => {
+      const reviewer = reviewerPool[i % Math.max(reviewerPool.length, 1)];
+      if (!reviewer) return;
+      // ★ 不让一个人审自己刚写的那条（作者已排除；这里再防一次多目标时的重合）
+      if (reviewer === target.by) return;
+      ctx.challenge!(reviewer, phenomenonPrompt(target));
+      sent++;
+      ctx.trace("onPhenomenon", `→ ${reviewer} 审 ${target.id}（作者 ${target.by}）`);
+    });
+    if (sent === 0) return;
+    ctx.trace("onPhenomenon", `未审 ${rows.length} 条 ⇒ 本轮派 ${sent} 条（k=${k}）`);
   }
 
   // ══════════════════════════════════════════════════════════════
