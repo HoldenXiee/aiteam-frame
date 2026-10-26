@@ -1472,7 +1472,29 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
             return undefined;
           }
         })();
+        // ★★★★★ 2026-10-26 · **第一集群的质量门判决必须真的被读到**
+        //
+        //   ★ 第 21 次「写好了没接上」：我把判决写进了 `source/batch-NNN/_SNAPSHOT.md`，
+        //     但**这个文件没有任何人读** ⇒ 下游看不见 = 等于没写。
+        //   ★★ 为什么这条对 forge 重要：forge 拿这批原料写书。
+        //     第一集群说"我收敛了"，而它自己的门判「未通过、14 条证据被判"补的"」——
+        //     那么"用这批原料写成教科书"这句话就得打折。**看原料的人必须看到这一行。**
         if (srcDir) {
+          try {
+            const snap = readFileSync(join(srcDir, "..", "_SNAPSHOT.md"), "utf8");
+            const i = snap.indexOf("## ★ 第一集群自己的质量门");
+            if (i >= 0) {
+              const body = snap.slice(i).split("## ")[0]!.trim();
+              L.push("");
+              L.push("## ★ 这批原料的上游门（第一集群写的，逐字照抄）");
+              L.push("```");
+              L.push(...body.split(/\r?\n/).slice(0, 10));
+              L.push("```");
+              L.push("★★ 它自己的门没过 ⇒ **你在用有争议的证据写书**：要么标边界，要么别把那条当承重。");
+            }
+          } catch {
+            /* 没有 _SNAPSHOT.md 就跳过（不静默失败：下面 stale 检查会照常跑）*/
+          }
           const stale = staleBySource({
             bookSrc: join(REPO, "research/book/src"),
             subdir: "05-集群产出",
