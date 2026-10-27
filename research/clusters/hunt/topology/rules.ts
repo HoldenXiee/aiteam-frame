@@ -583,7 +583,7 @@ import { externalUsage, readArtifacts } from "./experiments.ts";
 import { readStructured } from "../tools/record-experiment.ts";
 import type { ExperimentRow } from "../tools/record-experiment.ts";
 import { convergenceDebt, unsupportedClaims } from "./converged-gate.ts";
-import { applyTidy, candidates, purgeTrash, TIDY } from "./tidy.ts";
+import { applyTidy, candidates, looseScratch, purgeTrash, TIDY } from "./tidy.ts";
 
 /** ★ tidy 的节拍（可用 HUNT_TIDY_MS 覆盖，只为短窗口探针）*/
 const TIDY_EVERY_MS = Number(process.env.HUNT_TIDY_MS) || 20 * 60_000;
@@ -1195,6 +1195,23 @@ export function makeRules(ctx: TriggerCtx) {
         for (const m of res.moved) delete state.tidyStrikes[m.rel];
       }
     }
+    // ★★★ 顶层散文件（2026-10-27 补：3028 个散文件才是"看起来乱"的主体）
+    //   判据：没被任何产物/账本引用 且 1 小时没动过。清进 `_trash`，可回退。
+    const loose = looseScratch(LAB).filter((f) => now - f.newestMs > 3600_000);
+    if (loose.length > 0) {
+      const res = applyTidy(LAB, {
+        paths: loose.slice(0, TIDY.maxFilesPerCall).map((f) => f.rel),
+        why: "顶层散文件（未被任何产物引用，>1h 未动）",
+        kind: "loose-scratch",
+      });
+      if (res.moved.length > 0) {
+        ctx.trace(
+          "onTidy",
+          `★★ 顶层散文件 ${loose.length} 个 ⇒ 清 ${res.moved.length} 个（${(res.moved.reduce((a, m) => a + m.bytes, 0) / 1048576).toFixed(1)}MB）`,
+        );
+      }
+    }
+
     // 其余的记一次提醒
     for (const c of cands.slice(0, 8)) state.tidyStrikes[c.rel] = (state.tidyStrikes[c.rel] ?? 0) + 1;
 
@@ -1219,6 +1236,9 @@ export function makeRules(ctx: TriggerCtx) {
         "### 三选一（必须有后果，别放着）",
         "1. **清掉** —— 用 `tidy_space`（一次最多 3 个；移进 `work/_trash/`，两小时后真删）",
         "2. **说明为什么留** —— 写进 `work/` 一句话：它下次会被谁用、什么时候用",
+        "2b. **只清 bulk（`mode:prune-inside`）** —— 目录被引用、但里面**绝大多数文件没被引用**时用这条：",
+        "   实测 `P800-lostupd` 412 个文件 / 358MB，**只有 12 个（约 0MB）被引用** ⇒ 其余是 bulk。",
+        "   ★ 风险：某个脚本靠 glob 读同目录数据 ⇒ 先看它是不是用通配符读的。",
         "3. **换成归档**（★ 大多数情况走这条）—— 若产物只是引了这个目录里的**一个文件**：",
         "   把那个文件的关键读数抄进产物（或 `outbox` 附录），**改掉引用**，目录就能清了。",
         "   ★ 实测：`work/` 里 16/18 个大目录都是**被产物引用**的 ⇒ 不清它们不是护栏坏，而是",

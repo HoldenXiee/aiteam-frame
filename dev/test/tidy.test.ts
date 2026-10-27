@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyTidy, candidates, dirStat, guard, purgeTrash, referencedIn, report, TIDY } from "../../research/clusters/hunt/topology/tidy.ts";
+import { applyTidy, candidates, dirStat, guard, looseScratch, shapeJunk, pruneUnreferenced, purgeTrash, referencedIn, report, TIDY } from "../../research/clusters/hunt/topology/tidy.ts";
 
 function mkLab(): string {
   const lab = mkdtempSync(join(tmpdir(), "tidy-"));
@@ -50,7 +50,7 @@ test("guard：单文件不許清（一份产物就是一个结论）", () => {
   try {
     assert.match(String(guard(lab, "outbox/P1.md")), /受保护/);
     writeFileSync(join(lab, "work/loose.md"), "x");
-    assert.match(String(guard(lab, "work/loose.md")), /只许清目录/);
+    assert.match(String(guard(lab, "work/loose.md")), /单文件/);
   } finally {
     rmSync(lab, { recursive: true, force: true });
   }
@@ -86,6 +86,62 @@ test("referencedIn：产物正文提过的目录也不许清（不只查账本�
   }
 });
 
+test("referencedIn：通用词光秃秃出现不算引用（曾把 node_modules 误判成被引用）", () => {
+  const lab = mkLab();
+  try {
+    mkdirSync(join(lab, "work/brief/env/node_modules"), { recursive: true });
+    writeFileSync(join(lab, "work/brief/env/node_modules/a.js"), "x");
+    // 产物在讨论"拷进来的环境" —— 光秃秃提到这个词
+    writeFileSync(join(lab, "outbox/P2.md"), "实验里我们拷了一份 node_modules，代价很大");
+    assert.equal(referencedIn(lab, "work/brief/env/node_modules", { requirePathish: true }), null, "光秃秃的词不算");
+    // 带路径的才算
+    writeFileSync(join(lab, "outbox/P3.md"), "读数见 work/brief/env/node_modules/a.js");
+    assert.ok(referencedIn(lab, "work/brief/env/node_modules", { requirePathish: true }) !== null, "带路径要算引用");
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});
+
+test("pruneUnreferenced：目录留着，只清里面没被引用的 bulk", () => {
+  const lab = mkLab();
+  try {
+    const d = join(lab, "work/P800");
+    mkdirSync(join(d, "devB"), { recursive: true });
+    writeFileSync(join(d, "keep-me.jsonl"), '{"cited":1}');
+    for (let i = 0; i < 6; i++) writeFileSync(join(d, "devB", `dump-${i}.jsonl`), "x".repeat(50));
+    writeFileSync(join(lab, "work/experiments.jsonl"), JSON.stringify({ carriers: ["work/P800/keep-me.jsonl"] }) + String.fromCharCode(10));
+    const r = pruneUnreferenced(lab, "work/P800", { cap: 100, olderThanMs: 0 });
+    assert.equal(r.refused, null);
+    assert.equal(r.moved.length, 6, "6 个没被引用的都该清");
+    assert.equal(r.kept, 1, "被引用的那个要留");
+    assert.ok(existsSync(join(d, "keep-me.jsonl")), "被引用的文件必须原地不动");
+    // 名单留在 _trash 里（内容 2h 后没了，名字还在）
+    const trash = join(lab, "work/_trash");
+    const stamp = readdirSync(trash, { withFileTypes: true }).filter((e) => e.isDirectory())[0]!.name;
+    assert.match(readFileSync(join(trash, stamp, "MANIFEST.txt"), "utf8"), /dump-0\.jsonl/);
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});
+
+test("looseScratch：只扫顶层、排除账本与指示、排除被引用的", () => {
+  const lab = mkLab();
+  try {
+    writeFileSync(join(lab, "work/_probe-x.md"), "dump");
+    writeFileSync(join(lab, "work/experiments.jsonl"), '{"a":1}' + String.fromCharCode(10));
+    writeFileSync(join(lab, "work/JOURNAL.md"), "日志");
+    writeFileSync(join(lab, "outbox/P5.md"), "见 work/_cited.md");
+    writeFileSync(join(lab, "work/_cited.md"), "被引用过");
+    const rels = looseScratch(lab).map((f) => f.rel);
+    assert.ok(rels.includes("work/_probe-x.md"), "没人引用的 dump 算垃圾");
+    assert.ok(!rels.includes("work/experiments.jsonl"), "账本不许动");
+    assert.ok(!rels.includes("work/JOURNAL.md"), "指示/日志不许动");
+    assert.ok(!rels.includes("work/_cited.md"), "被产物引用过的要留");
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});
+
 test("applyTidy：放行的目录移进 _trash，并落一行账", () => {
   const lab = mkLab();
   try {
@@ -108,7 +164,7 @@ test("applyTidy：一次超过配额 ⇒ 整批拒（不许一口气清掉证据
     const many = Array.from({ length: TIDY.maxPathsPerCall + 1 }, (_, i) => `work/d${i}`);
     const res = applyTidy(lab, { paths: many, why: "测配额" });
     assert.equal(res.ok, false);
-    assert.match(res.refused[0]!.reason, /最多清/);
+    assert.match(res.refused[0]!.reason, /配额/);
   } finally {
     rmSync(lab, { recursive: true, force: true });
   }
@@ -190,3 +246,19 @@ function readTrashDirs(lab: string): number {
   if (!existsSync(p)) return 0;
   return readdirSync(p, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
 }
+
+test("shapeJunk：拷进来的依赖按形状算垃圾（引用也锁不住它）", () => {
+  const lab = mkLab();
+  try {
+    mkdirSync(join(lab, "work/p/env/node_modules/x"), { recursive: true });
+    writeFileSync(join(lab, "work/p/env/node_modules/x/a.js"), "x");
+    // 产物在**描述代价**时提到这个路径 —— 不算"它是证据"
+    writeFileSync(join(lab, "outbox/P7.md"), "我们拷了 work/p/env/node_modules（144MB），代价很大");
+    assert.equal(referencedIn(lab, "work/p/env/node_modules", { requirePathish: true }) === null, false, "字面上是被引用的");
+    const res = applyTidy(lab, { paths: ["work/p/env/node_modules"], why: "拷进来的依赖", kind: "copied-env" });
+    assert.equal(res.moved.length, 1, "形状即垃圾 ⇒ 引用也不拦");
+    assert.ok(!existsSync(join(lab, "work/p/env/node_modules")));
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});

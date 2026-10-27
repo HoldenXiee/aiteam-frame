@@ -61,6 +61,50 @@ export const PROTECTED = [
   ".git",
 ] as const;
 
+/**
+ * ★★★★ `work/` 顶层**必须留**的文件（2026-10-27 补：散文件才是"看起来乱"的主体）
+ *
+ * ★ 实测：`work/` 顶层 **3028 个散文件 / 15MB**，其中 **2276 个没有任何产物引用**
+ *   （`.cb18-rowgate.bak.ts`、`_probe-*.md`、`.outbox-coverage-files.txt` …）。
+ *   ★★ 而第一版护栏写着「只许清目录」⇒ **它想清也清不了**（这是设计缺口，不是它懒）。
+ *
+ * ★ 留下的这些是**账本与指示**，不是 scratch：
+ */
+export const WORK_KEEP = new Set([
+  "experiments.jsonl",
+  "challenges.jsonl",
+  "port.json",
+  "port.jsonl",
+  "JOURNAL.md",
+  "_topology.log",
+  "_tidy.jsonl",
+  "_cluster.lock",
+  "_lib-rev.jsonl",
+  "_处境.md",
+  "_SNAPSHOT.md",
+  "_focus.txt",
+  "_stop-request",
+  "_brk.txt",
+  "_tidy.md",
+]);
+
+/**
+ * ★★★★ 形状本身就是垃圾的目录（2026-10-27）
+ *
+ * ★ `work/` 里任意一层的 `node_modules` **永远不是研究证据** —— 它是"把整个环境拷了一份"的产物。
+ *   ★★ 实测代价：`work/brief2/env-list/node_modules` **144MB / 19456 个文件**，
+ *     而产物正文里提到过这个路径 ⇒ 我的"被引用就不许清"判据把它锁死了。
+ *   ★★★ 判据分层（这一条很重要）：**"被引用"不等于"是证据"**。
+ *     产物写「我们拷了整份 node_modules（144MB）」是在**描述代价**，不是"这些文件是我的读数"。
+ *   ⇒ 这一类**不看引用**，按形状直接算垃圾（`.venv` / `__pycache__` 同理）。
+ */
+export const ALWAYS_JUNK = new Set(["node_modules", ".venv", "__pycache__", ".cache", ".pnpm-store"]);
+
+/** 路径里有没有一段是"形状即垃圾" */
+export function shapeJunk(rel: string): boolean {
+  return rel.split("/").some((seg) => ALWAYS_JUNK.has(seg));
+}
+
 /** 判定常量 —— 写死在这里，测试与运行时**同一份**（纪律⑪：判据与指令同源） */
 export const TIDY = {
   /** 单个目录大于这个字节数 ⇒ 算"大 scratch"候选 */
@@ -71,6 +115,8 @@ export const TIDY = {
   trashTtlMs: 2 * 3600_000,
   /** 一次调用最多清几个目录（配额：防止一口气把证据全清了） */
   maxPathsPerCall: 3,
+  /** 一次调用最多清几个顶层散文件（它们小而碎，配额放大） */
+  maxFilesPerCall: 200,
 } as const;
 
 /**
@@ -82,7 +128,7 @@ export const TIDY = {
 export function guard(
   lab: string,
   rel: string,
-  opts: { exists?: (abs: string) => boolean } = {},
+  opts: { exists?: (abs: string) => boolean; allowFiles?: boolean } = {},
 ): string | null {
   const exists = opts.exists ?? ((p: string) => existsSync(p));
   if (!rel || typeof rel !== "string") return "空路径";
@@ -99,13 +145,18 @@ export function guard(
   }
   // ③ 不许清空间根、不许清 work 根
   if (norm === "" || norm === "." || norm === "work") return "不许清整个空间或整个 work/";
-  // ④ 只许清目录（清单个文件的风险不对等：一份产物就是一个结论）
+  // ④ 目录随便清；**文件要显式打开**（默认不许：一份产物就是一个结论）
   const a = join(lab, norm);
   if (!exists(a)) return "不存在";
+  let isDir = false;
   try {
-    if (!statSync(a).isDirectory()) return "只许清目录（单文件可能是成果）";
+    isDir = statSync(a).isDirectory();
   } catch {
     return "读不到（权限/链接？）";
+  }
+  if (!isDir) {
+    if (!opts.allowFiles) return "单文件默认不许清（可能是成果）；清散文件请用 tidy_space 的 files 入口";
+    if (WORK_KEEP.has(basename(norm))) return `受保护：${basename(norm)} 是账本/指示`;
   }
   return null;
 }
@@ -199,9 +250,13 @@ export function candidates(lab: string, opts: { cap?: number } = {}): (DirStat &
  * ★★ 判据故意粗：宁可**拒收**也不误删 —— 一次误删的代价是"证据链断了"，
  *   而拒收的代价只是"少清一个目录"。
  */
-export function referencedIn(lab: string, rel: string): string | null {
+export function referencedIn(
+  lab: string,
+  rel: string,
+  opts: { requirePathish?: boolean } = {},
+): string | null {
   const name = basename(rel);
-  const outboxRef = outboxMentions(lab, rel);
+  const outboxRef = outboxMentions(lab, rel, opts);
   if (outboxRef) return outboxRef;
   const files = ["work/experiments.jsonl", "outbox/PROJECTS.md", "outbox/CONVERGED.md", "work/_SNAPSHOT.md"];
   for (const f of files) {
@@ -228,7 +283,41 @@ export function referencedIn(lab: string, rel: string): string | null {
  */
 let OB_CACHE: { key: string; text: string } | null = null;
 
-function outboxMentions(lab: string, rel: string): string | null {
+/** ★ 全部"账本 + 产物"的正文（缓存）—— 判"有没有被引用"只看它 */
+export function refText(lab: string): string {
+  const dir = join(lab, "outbox");
+  const ledgers = ["work/experiments.jsonl", "outbox/PROJECTS.md", "outbox/CONVERGED.md", "work/_SNAPSHOT.md"];
+  let key = "";
+  let text = "";
+  try {
+    const ents = existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.name.endsWith(".md")) : [];
+    key = String(ents.length) + ":" + ents.reduce((a, e) => Math.max(a, statSync(join(dir, e.name)).mtimeMs), 0);
+    if (OB_CACHE && OB_CACHE.key === key) return OB_CACHE.text;
+    for (const e of ents) {
+      try {
+        text += readFileSync(join(dir, e.name), "utf8");
+      } catch {
+        /* skip */
+      }
+    }
+    for (const f of ledgers) {
+      const q = join(lab, f);
+      if (existsSync(q)) {
+        try {
+          text += readFileSync(q, "utf8");
+        } catch {
+          /* skip */
+        }
+      }
+    }
+    OB_CACHE = { key, text };
+  } catch {
+    return "";
+  }
+  return text;
+}
+
+function outboxMentions(lab: string, rel: string, opts: { requirePathish?: boolean } = {}): string | null {
   const dir = join(lab, "outbox");
   if (!existsSync(dir)) return null;
   let key = "";
@@ -250,9 +339,147 @@ function outboxMentions(lab: string, rel: string): string | null {
     return null;
   }
   const name = basename(rel);
-  if (OB_CACHE.text.includes(rel)) return "outbox（某份产物引了这个路径）";
-  if (name.length >= 6 && OB_CACHE.text.includes(name)) return "outbox（某份产物提了这个目录名）";
-  return null;
+  const text = OB_CACHE.text;
+  if (text.includes(rel)) return "outbox（某份产物引了这个路径）";
+  if (name.length < 6) return null;
+  // ★★★ 2026-10-27 · 修一个**假阳性**（它让我连 node_modules 都清不掉）
+  //   ★ 现象：产物正文里出现 `node_modules` 这个词（它在讨论"拷进来的环境"），
+  //     我的判据就判「被引用」⇒ `work/brief2/env-list/node_modules`（144MB）清不动。
+  //   ★★ 判据修正：**通用词必须带路径分隔符才算引用**（`.../node_modules`、`env-list/node_modules`），
+  //     光秃秃的一个词不算。★ 目录用这一档（证据要求严）；单个散文件仍放宽（它们小，宁可留）。
+  if (opts.requirePathish) {
+    return text.includes("/" + name) || text.includes("\\" + name) ? "outbox（某份产物引了这个路径）" : null;
+  }
+  return text.includes(name) ? "outbox（某份产物提了这个目录名）" : null;
+}
+
+/**
+ * ★★★★★ 顶层散文件（2026-10-27 补：这才是"看起来乱"的主体）
+ *
+ * ★ 判据（机械）：`work/` **顶层**的普通文件，排除 `WORK_KEEP`、排除被账本/产物引用的。
+ * ★★ 为什么只扫顶层、不递归：递归会碰到实验结果目录内部，那不是"乱"，那是它的装置。
+ */
+export function looseScratch(lab: string): { rel: string; bytes: number; newestMs: number }[] {
+  const work = join(lab, "work");
+  if (!existsSync(work)) return [];
+  let ents: import("node:fs").Dirent[] = [];
+  try {
+    ents = readdirSync(work, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: { rel: string; bytes: number; newestMs: number }[] = [];
+  for (const e of ents) {
+    if (!e.isFile()) continue;
+    if (WORK_KEEP.has(e.name)) continue;
+    const rel = `work/${e.name}`;
+    if (guard(lab, rel, { allowFiles: true }) !== null) continue;
+    if (referencedIn(lab, rel)) continue;
+    let bytes = 0;
+    let mtimeMs = 0;
+    try {
+      const st = statSync(join(lab, rel));
+      bytes = st.size;
+      mtimeMs = st.mtimeMs;
+    } catch {
+      continue;
+    }
+    out.push({ rel, bytes, newestMs: mtimeMs });
+  }
+  return out.sort((a, b) => b.bytes - a.bytes);
+}
+
+/**
+ * ★★★★★ `prune-inside` —— 目录被引用，但**里面绝大多数文件没被引用**（2026-10-27）
+ *
+ * ★ 实测（这就是"1.1G 清不动"的真相）：
+ *   | 目录 | 文件 | 体积 | 名字被引用的 |
+ *   |---|---|---|---|
+ *   | `P800-lostupd` | 412 | **358MB** | **12 个（约 0MB）** |
+ *   | `brief2` | 19976 | 115MB | 1233（8MB）|
+ *   | `P480-namedzero` | 6516 | **49MB** | **6 个** |
+ *   | `P370-drain` | 66 | 24MB | 66（全被引用 ⇒ 别动）|
+ *
+ * ⇒ 大部分体积是**没有任何东西引用的 bulk**。清它不会断证据链（被引用的留着）。
+ * ★★ 但**有风险**：某个脚本可能靠 glob 读同目录的数据 ⇒ 所以这是**可选动作**（`mode`），
+ *   由集群决定用不用；默认动作仍然是"整目录清"。
+ * ★ 清掉的写一份 `MANIFEST.txt` 进 `_trash/<stamp>/`（2 小时后内容没了，但**名字还在**）。
+ */
+export function pruneUnreferenced(
+  lab: string,
+  dirRel: string,
+  opts: { cap?: number; olderThanMs?: number } = {},
+  now = new Date(),
+): { moved: TidyRow[]; kept: number; refused: string | null } {
+  const reason = guard(lab, dirRel);
+  if (reason) return { moved: [], kept: 0, refused: reason };
+  const text = refText(lab);
+  const cap = opts.cap ?? 500;
+  const older = opts.olderThanMs ?? 3600_000;
+  const stamp = now.toISOString().replace(/[:.]/g, "-");
+  const trashRoot = join(lab, "work/_trash", stamp);
+  const moved: TidyRow[] = [];
+  let kept = 0;
+  const walk = (dir: string, depth: number): void => {
+    if (moved.length >= cap) return;
+    let ents: import("node:fs").Dirent[] = [];
+    try {
+      ents = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of ents) {
+      if (moved.length >= cap) return;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (depth < 6 && e.name !== ".git") walk(p, depth + 1);
+        continue;
+      }
+      if (text.includes(e.name)) {
+        kept++;
+        continue;
+      }
+      let st: import("node:fs").Stats;
+      try {
+        st = statSync(p);
+      } catch {
+        continue;
+      }
+      if (now.getTime() - st.mtimeMs < older) {
+        kept++;
+        continue;
+      }
+      const rel = relative(lab, p).split(sep).join("/");
+      try {
+        mkdirSync(join(trashRoot, rel, ".."), { recursive: true });
+        renameSync(p, join(trashRoot, rel));
+      } catch {
+        continue;
+      }
+      const row: TidyRow = {
+        at: now.toISOString(),
+        action: "moved",
+        rel,
+        files: 1,
+        bytes: st.size,
+        why: `prune-inside：${dirRel} 里没被任何账本/产物引用的 bulk`,
+      };
+      moved.push(row);
+      appendTidyLog(lab, row);
+    }
+  };
+  walk(join(lab, dirRel), 0);
+  if (moved.length > 0) {
+    try {
+      const NL = String.fromCharCode(10);
+      const man = moved.map((m) => `${m.rel}` + "	" + `${m.bytes}`).join(NL);
+      mkdirSync(trashRoot, { recursive: true });
+      appendFileSync(join(trashRoot, "MANIFEST.txt"), `${now.toISOString()}` + NL + dirRel + NL + man + NL, "utf8");
+    } catch {
+      /* 清单写不上不影响清理 */
+    }
+  }
+  return { moved, kept, refused: null };
 }
 
 /** 真删 / 移走 的落账行 */
@@ -288,11 +515,24 @@ export function applyTidy(
   const refused: { rel: string; reason: string }[] = [];
   const paths = (req.paths ?? []).filter((p) => typeof p === "string");
   if (paths.length === 0) return { ok: false, moved, refused: [{ rel: "(空)", reason: "没给路径" }], purged: [] };
-  if (paths.length > TIDY.maxPathsPerCall) {
+  const fileCount = paths.filter((p) => {
+    try {
+      return !statSync(resolve(lab, p)).isDirectory();
+    } catch {
+      return false;
+    }
+  }).length;
+  const dirCount = paths.length - fileCount;
+  if (dirCount > TIDY.maxPathsPerCall || fileCount > TIDY.maxFilesPerCall) {
     return {
       ok: false,
       moved,
-      refused: [{ rel: "(共 " + paths.length + " 条)", reason: `一次最多清 ${TIDY.maxPathsPerCall} 个目录（配额：防止一口气清掉证据）` }],
+      refused: [
+        {
+          rel: `(共 ${paths.length} 条：${dirCount} 目录 / ${fileCount} 文件)`,
+          reason: `配额：一次最多 ${TIDY.maxPathsPerCall} 个目录、${TIDY.maxFilesPerCall} 个散文件（防止一口气清掉证据）`,
+        },
+      ],
       purged: [],
     };
   }
@@ -301,17 +541,25 @@ export function applyTidy(
 
   for (const rel of paths) {
     const norm = rel.split("\\").join("/").replace(/^\.\//, "").replace(/\/+$/, "");
-    const reason = guard(lab, norm);
+    const reason = guard(lab, norm, { allowFiles: true });
     if (reason) {
       refused.push({ rel: norm, reason });
       continue;
     }
-    const refd = referencedIn(lab, norm);
+    const refd = shapeJunk(norm) ? null : referencedIn(lab, norm, { requirePathish: true });
     if (refd) {
       refused.push({ rel: norm, reason: `被账本引用（${refd}）⇒ 清了会让证据链断掉。要清就先在账本里处置它` });
       continue;
     }
-    const st = dirStat(lab, norm);
+    const st = (() => {
+      try {
+        const a = join(lab, norm);
+        if (!statSync(a).isDirectory()) return { rel: norm, files: 1, bytes: statSync(a).size, newestMs: 0 };
+      } catch {
+        /* 落到 dirStat */
+      }
+      return dirStat(lab, norm);
+    })();
     const dest = join(trashRoot, norm);
     try {
       mkdirSync(join(trashRoot, norm, ".."), { recursive: true });

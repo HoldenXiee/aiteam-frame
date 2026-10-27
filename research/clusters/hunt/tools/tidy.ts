@@ -18,7 +18,7 @@
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { applyTidy, TIDY } from "../topology/tidy.ts";
+import { applyTidy, looseScratch, pruneUnreferenced, TIDY } from "../topology/tidy.ts";
 import { LAB } from "../paths.ts";
 import { logToolCall } from "./usage-log.ts";
 
@@ -30,7 +30,8 @@ export function makeTidySpace(lab: string = LAB) {
       "清掉**你自己空间里**的废物目录（scratch / 拷进来的 node_modules / 被取代的旧稿 / 大语料副本）。" +
       "★ 移进 `work/_trash/`，下一轮才真删（可回退）。" +
       "★★ 不许碰：`outbox/`（成果）· `inbox/` · `lib/` · 账本与日志 · **被账本引用过的目录**。" +
-      `★ 一次最多 ${TIDY.maxPathsPerCall} 个目录。` +
+      `★ 一次最多 ${TIDY.maxPathsPerCall} 个目录 / ${TIDY.maxFilesPerCall} 个顶层散文件。` +
+      "★ 顶层散文件（`work/*.bak.ts`、`_probe-*.md` 那类）也算垃圾：先看 `work/_tidy.md` 的清单。" +
       "★ 为什么该清：垃圾会**进研究员的上下文**（它要读 `work/`），还会拖慢平台期扫描（实测 15.7 万个文件）。",
     parameters: Type.Object({
       paths: Type.Array(Type.String(), {
@@ -40,10 +41,47 @@ export function makeTidySpace(lab: string = LAB) {
       kind: Type.Optional(
         Type.String({ description: "类别：scratch / copied-env / superseded / corpus-copy（默认 scratch）" }),
       ),
+      mode: Type.Optional(
+        Type.String({
+          description:
+            "整目录清（默认）| `prune-inside` = **目录留着，只清掉里面没被任何账本/产物引用的文件**" +
+            "（适合'目录被引用但体积全是 bulk'的情况，如 P800 412 个文件只有 12 个被引用）。" +
+            "★ 有风险：某个脚本可能靠 glob 读同目录的数据 ⇒ 用前先看它是不是靠通配符读。",
+        }),
+      ),
     }),
     execute: async (_id, p) => {
-      const req = p as { paths: string[]; why: string; kind?: string };
+      const req = p as { paths: string[]; why: string; kind?: string; mode?: string };
       logToolCall("tidy_space", `${(req.paths ?? []).join(",")} ${req.why ?? ""}`);
+      // ★ 没给路径时：把候选摆出来（只列不删 —— 删哪个是它的判断）
+      if ((req.paths ?? []).length === 0) {
+        const loose = looseScratch(lab);
+        const lines = [
+          `### 顶层散文件：${loose.length} 个 / ${(loose.reduce((a, f) => a + f.bytes, 0) / 1048576).toFixed(1)}MB（没被任何产物引用）`,
+          ...loose.slice(0, 20).map((f) => `- \`${f.rel}\` ${Math.round(f.bytes / 1024)}KB`),
+          loose.length > 20 ? `- …另有 ${loose.length - 20} 个` : "",
+          "★ 要清就把路径填进 `paths`（一次最多 200 个）。",
+        ].filter(Boolean);
+        return { content: [{ type: "text" as const, text: lines.join(String.fromCharCode(10)) }], details: {} };
+      }
+      // ★ prune-inside：目录留着，清里面的 bulk
+      if (req.mode === "prune-inside") {
+        const out: string[] = [];
+        let files = 0;
+        let bytes = 0;
+        for (const d of (req.paths ?? []).slice(0, TIDY.maxPathsPerCall)) {
+          const r = pruneUnreferenced(lab, d.replace(/^(\.\/)+/, ""));
+          if (r.refused) {
+            out.push(`⛔ ${d}：${r.refused}`);
+            continue;
+          }
+          files += r.moved.length;
+          bytes += r.moved.reduce((a, m) => a + m.bytes, 0);
+          out.push(`· ${d}：清 ${r.moved.length} 个 / 留 ${r.kept} 个被引用的`);
+        }
+        out.unshift(`✔ prune-inside 共清 ${files} 个文件 / ${(bytes / 1048576).toFixed(1)}MB（进 \`work/_trash/\`，2h 后可回退；名单在 MANIFEST.txt）`);
+        return { content: [{ type: "text" as const, text: out.join(String.fromCharCode(10)) }], details: {} };
+      }
       const res = applyTidy(lab, req);
       const mb = (n: number) => `${(n / 1048576).toFixed(1)}MB`;
       const lines: string[] = [];
