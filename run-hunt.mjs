@@ -113,6 +113,7 @@ const banner = [
   `  专家并发 ${env.HUNT_FIRE_CONCURRENCY} · 外网每 ${Math.round(Number(env.EXTERNAL_MS) / 60000)} 分钟一次`,
   `  完整日志  ${LOG}`,
   `  可视化    双击「看时间线.cmd」（跑多久都能看，包含卡住时的空窗）`,
+  `  空间自清  每 20 分钟一次（散文件/拷进来的依赖/没人引用的 bulk）→ ${LAB_REL}/work/_tidy.jsonl`,
   `  ★ 控制台只打心跳；想逐行看：node run-hunt.mjs --verbose`,
   "═".repeat(62),
 ].join("\n");
@@ -208,8 +209,11 @@ const beat = setInterval(() => {
     .slice(0, 4)
     .map(([k, v]) => `${k.replace(/_experiment|_content|_search/g, (s) => s.replace("_", ""))} ${v}`)
     .join(" · ");
-  // ★ "静默" 超过 4 分钟就标红：这就是"卡住了"的可判据信号
-  const flag = quiet > 4 * 60_000 ? ` ⚠ 静默 ${dur(quiet)}（可能卡住了）` : "";
+  // ★★★ 2026-10-28 · 报警阈值必须 **≥ 观察周期**（纪律㉒：采样时机要和被观测的过程匹配）
+  //   ★ 实测假警报：节流是 5 分钟一次 tick，而阈值写 4 分钟 ⇒ 每轮开头必然标红
+  //     「⚠ 静默 4m23s（可能卡住了）」—— 其实只是**第一个 tick 还没到**。
+  //   ★★ 现取 8 分钟 = 5 分钟 tick + 3 分钟余量（真卡住时仍然看得见）。
+  const flag = quiet > 8 * 60_000 ? ` ⚠ 静默 ${dur(quiet)}（超过 tick 周期 5 分钟 + 余量）` : "";
   console.log(
     `  ${hhmmss()} · 已跑 ${dur(Date.now() - startedAt)} · tick ${stat.ticks} · 实验 ${countExps()} · outbox ${countOutbox()} · 专家 ${stat.experts}/完 ${stat.results}${tools ? ` · ${tools}` : ""}${flag}`,
   );
@@ -235,7 +239,11 @@ child.on("exit", (code) => {
       "═".repeat(62),
       `★ 退出码 ${code} · 跑了 ${dur(Date.now() - startedAt)} · tick ${stat.ticks} · 专家 ${stat.experts}`,
       `  outbox ${countOutbox()} 份 · 结构化实验 ${countExps()} 条 · 报错 ${stat.errors}`,
-      tail ? `  ${tail.slice(0, 110)}` : "  ⚠ 没有 `rule:done` ⇒ 不是正常收尾（可能被强杀）",
+      dry
+        ? "  · dry：只搭装置，按设计不投递、不收尾（这条不是异常）"
+        : tail
+          ? `  ${tail.slice(0, 110)}`
+          : "  ⚠ 没有 `rule:done` ⇒ 不是正常收尾（可能被强杀）",
       `  完整日志 ${LOG}`,
       `  ★ 看时间线：双击「看时间线.cmd」`,
       "═".repeat(62),

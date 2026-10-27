@@ -593,6 +593,12 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
 
   if (dry) {
     log("dry", "只搭装置，不投递");
+    // ★★★ 2026-10-28 · `--dry` 曾经**永远不退出**（实测：窗口 1 分钟，跑了 4 分半还在心跳）
+    //   ★ 根因：节流定时器在这行**之前**就挂上了，而 dry 的分支直接 return ⇒
+    //     进程被 interval 吊住；父进程（run-hunt.mjs）等不到子进程退出，就一直打心跳。
+    //   ★★ 判据（这类"退不掉"以后照这个查）：**每一条 early return 都要把已建好的资源收掉**。
+    for (const t of timers) clearInterval(t);
+    for (const a of researchers) a.dispose();
     researcher.dispose();
     return { dry: true };
   }
