@@ -239,7 +239,9 @@ const errors = events.filter((e) => e.kind === "error");
 const tools: Record<string, number> = {};
 for (const e of toolEvs) tools[e.name] = (tools[e.name] ?? 0) + 1;
 const shortRun = span < 20 * 60_000;
-const deadSeats = KNOWN_SEATS.filter((s) => !nodeMap.get(s)?.fired);
+// ★ 只查**专家**：研究员不出现在 `fire` 行里（它们是常驻的），把它算进来是假警报
+const EXPERT_SEATS = ["inspector", "archivist", "inspirer", "watchdog", "libsmith"];
+const deadSeats = EXPERT_SEATS.filter((s) => !nodeMap.get(s)?.fired);
 const deadTools = ["record_experiment", "review_experiment", "port_run", "spawn_line", "consult", "web_search"].filter((t) => !tools[t]);
 const problems = [
   ...gaps.map((g) => `★ tick 空窗 ${g.min} 分钟 —— 集群可能被卡住`),
@@ -323,20 +325,30 @@ function renderHtml(d: typeof data): string {
 <style>
 :root{--bg:#0d1014;--panel:#151a20;--line:#242c36;--fg:#dbe3ec;--dim:#8494a6;--accent:#57c8ff;--warn:#ffb020;--bad:#ff5f56;--ok:#3ddc84}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+/* ★★★★★ 2026-10-27 · **页面无限变高的 bug**
+   ★ 症状：打开后高度一直涨、像卡死。
+   ★ 根因：vis-network 默认 autoResize:true，而它所在的容器是 flex 里 flex:1 的项，
+     没有 min-height:0 ⇒ 容器高度由内容（canvas）撑 ⇒ vis 又把 canvas 设成容器大小
+     ⇒ **容器变高 → resize 事件 → vis 再变高**，死循环。
+   ★★ 修：① 整页固定视口（body 用 grid 行，overflow:hidden）
+          ② 每个可能被内容撑开的格子都写 min-height:0
+          ③ 关掉 vis 的 autoResize，改由我们显式 setSize
+   这一族和"观察者自己成了阻塞源"同类：**量具（画布）和容器互相定义尺寸。** */
+body{display:grid;grid-template-rows:auto 1fr;height:100vh}
 header{display:flex;gap:16px;align-items:baseline;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 h1{margin:0;font-size:13px;font-weight:600;letter-spacing:.02em}
 .dim{color:var(--dim)}
-.wrap{display:grid;grid-template-columns:1fr 340px;height:calc(100% - 39px)}
-.left{display:flex;flex-direction:column;min-width:0}
-#graph{flex:1;min-height:260px;background:radial-gradient(circle at 50% 40%,#131a22,#0d1014 70%)}
+.wrap{display:grid;grid-template-columns:1fr 340px;min-height:0;overflow:hidden}
+.left{display:grid;grid-template-rows:1fr auto auto;min-height:0;min-width:0;overflow:hidden}
+#graph{position:relative;min-height:0;overflow:hidden;background:radial-gradient(circle at 50% 40%,#131a22,#0d1014 70%)}
 .bar{display:flex;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
 button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 10px;cursor:pointer;font:inherit}
 button:hover{border-color:var(--accent)}
 input[type=range]{flex:1;min-width:120px}
 .strip{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 12px 10px}
-.strip canvas{width:100%;height:56px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
-.side{border-left:1px solid var(--line);overflow:auto;padding:10px}
+.strip canvas{display:block;width:100%;height:56px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.side{border-left:1px solid var(--line);overflow:auto;min-height:0;padding:10px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin-bottom:10px}
 .card h2{font-size:11px;margin:0 0 6px;color:var(--dim);letter-spacing:.06em;font-weight:600}
 table{border-collapse:collapse;width:100%}
@@ -411,7 +423,9 @@ const edgesDS = new vis.DataSet(D.edges.map((e,i)=>({
   title: e.kind,
 })));
 const options = {
-  physics:{ stabilization:{ iterations: 260 }, barnesHut:{ gravitationalConstant:-9000, springLength:120, springConstant:0.03, damping:0.4 } },
+  // ★ autoResize 必须关：容器高度一旦由内容决定，它就和画布互相撑（页面无限变高）
+  autoResize:false,
+  physics:{ stabilization:{ iterations: 260, fit:true }, barnesHut:{ gravitationalConstant:-9000, springLength:120, springConstant:0.03, damping:0.4 } },
   interaction:{ hover:true, multiselect:false },
   nodes:{ scaling:{ min:6, max:34 } },
   edges:{ smooth:{ type:"continuous", roundness:0.35 } },
@@ -420,6 +434,18 @@ const network = new vis.Network($('graph'), {nodes:nodesDS, edges:edgesDS}, opti
 
 // 按时间揭示（同时把"最近 5 分钟"的边点亮）
 let ei = 0;
+/** ★ 全量重设（初次、往回拖、以及"跳到某个时刻"都走它）—— 保证可见性和时间严格一致 */
+function applyVisibility(t){
+  edgesDS.update(D.edges.map((e,i)=>({
+    id:i, hidden: e.t > t,
+    color:{color:EDGE_COLOR[e.kind]||"#556", opacity: (t - e.t < 300000 && e.t <= t) ? 1 : 0.45},
+    width: e.kind==="rule-fire" ? 0.7 : 1.5,
+  })));
+  nodesDS.update(D.nodes.map(n=>({id:n.id, hidden: n.born > t})));
+  ei = 0; while (ei < D.edges.length && D.edges[ei].t <= t) ei++;
+  cur = t;
+}
+
 function seek(t){
   if (t < cur) { // 往回拖：全部重设
     ei = 0;
@@ -481,7 +507,10 @@ function esc(s){return (s||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'
 function drawBins(){
   const spec = [['c1','ticks','#57c8ff'],['c2','tools','#c792ea'],['c3','edges','#3ddc84'],['c4','exps','#ffd166']];
   for(const [id,key,color] of spec){
-    const c=$(id), r=c.getBoundingClientRect(); c.width=r.width*devicePixelRatio; c.height=r.height*devicePixelRatio;
+    const c=$(id), r=c.getBoundingClientRect();
+    const W=Math.round(r.width*devicePixelRatio), H=Math.round(r.height*devicePixelRatio);
+    if (c.width !== W) c.width = W;      // ★ 只在尺寸变了才重设（否则每帧清屏）
+    if (c.height !== H) c.height = H;
     const x=c.getContext('2d'); x.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
     const w=r.width,h=r.height; x.clearRect(0,0,w,h);
     const max=Math.max(1,...D.bins.map(b=>b[key]));
@@ -525,12 +554,24 @@ function loop(now){
   }
   requestAnimationFrame(loop);
 }
+function fitGraph(){
+  const el = $('graph');
+  const w = Math.max(200, el.clientWidth), h = Math.max(160, el.clientHeight);
+  network.setSize(w+"px", h+"px");
+  network.redraw();
+}
 network.once('stabilizationIterationsDone', ()=>{
   network.setOptions({physics:{enabled:false}});
-  setCur(0);
+  fitGraph();
+  // ★ 布局用**全量图**算好（这样拖动时点不跳），算完立刻按 t=0 只显示"已经发生的"
+  // ★ 从 URL 定位到某一刻（单位**秒**，人可以敲）：...html#t=900 或 ?t=900 = 第 15 分钟
+  const q = new URLSearchParams(location.search).get("t") ?? (/#t=([0-9]+)/.exec(location.hash) || [])[1];
+  const want = (Number(q ?? 0) || 0) * 1000;
+  applyVisibility(0);
+  setCur(Number.isFinite(want) ? want : 0);
 });
 drawProblems(); drawAll(); requestAnimationFrame(loop);
-window.addEventListener('resize', drawAll);
+window.addEventListener('resize', ()=>{ fitGraph(); drawBins(); });
 </script>
 </body></html>`;
 }
