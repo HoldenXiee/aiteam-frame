@@ -75,3 +75,4 @@ research/labfirst/*/
 
 # mdbook 构建产物
 research/book/book/
+logs/

@@ -6,7 +6,7 @@
 //   · ✗ 不做：在外面盯状态、判断、起 agent
 //   ⇒ 所以这里**没有 while 循环看状态** —— 规则挂在 `agent.on(...)` 上，由事件驱动。
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
@@ -466,6 +466,25 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     //   而且**没有 skip 日志** ⇒ 分不清"定时器没触发"还是"触发了但静默返回"。
     //   ⇒ 每次进来先记一笔（含 tickBusy / closing 两个门的状态）。
     log("tick:beat", `${src} closing=${closing ? 1 : 0} busy=${tickBusy ? 1 : 0}`);
+    // ★★★★★ 2026-10-27 · **外部请求收尾**（`work/_stop-request`）
+    //
+    //   ★ 问题：窗口设成 7 天（≈不限时）以后，"想停"就没有干净的路 ——
+    //     只能杀进程，而杀掉就跑不到收尾段（不落账、不回流、不打 `rule:done`）。
+    //   ★★ 做法：读一个**信号文件**就进收尾态 —— 与"窗口到点"完全同一条路
+    //     （先停研究员、等已 fire 的专家、落账、回流、删锁）。
+    //   ★★★ 为什么是文件不是信号：Windows 上给另一个进程发 SIGINT 不可靠；
+    //     文件在**同一个 lab 空间**里，天然只影响自己这一个集群。
+    if (!closing && existsSync(join(LAB, "work", "_stop-request"))) {
+      closing = true;
+      log("window", "★ 收到 `work/_stop-request` ⇒ 进收尾态（与窗口到点同一条路）");
+      try {
+        // ★ 用掉就删：否则下次启动立刻又收尾
+        unlinkSync(join(LAB, "work", "_stop-request"));
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     if (closing) return;
     if (tickBusy) {
       // ★★★ 记一笔被挡下的（2026-10-19 长跑实测）：
@@ -1260,8 +1279,26 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★ 原代码在这里 `io.prompt` 启动 4 位观众 —— 那一段搬去了 `forge/runner.ts`。
 
   // ★ 只等窗口（不做任何"看状态/判断/起 agent"的事 —— 那都在事件规则里）
-  await new Promise((r) => setTimeout(r, secs * 1000));
-  log("window", `窗口到点（${Math.round((Date.now() - t0) / 1000)}s）`);
+  //
+  // ★★★★★ 2026-10-27 · **这个等待必须可被打断**
+  //
+  //   ★ 实测：把窗口设成 7 天（≈不限时）后，"想停"只能杀进程；
+  //     于是我加了从 tick 里读 `work/_stop-request` 的收尾信号 ——
+  //     日志里确实进了收尾态（`closing=1`），但**进程还是不退**：
+  //     因为主流程卡在 `setTimeout(secs * 1000)` 里，`closing` 只是个标志，
+  //     **没有人去叫醒这个 sleep**。
+  //   ★★ 这是同一族的第 23 次「写好了没接上」：标志设了，没人响应它。
+  //   ★★★ 改成轮询：每 5 秒看一次，`closing` 被打开就往下走（=走同一条收尾段）。
+  const deadline = Date.now() + secs * 1000;
+  while (Date.now() < deadline && !closing) {
+    await new Promise((r) => setTimeout(r, Math.min(5000, Math.max(0, deadline - Date.now()))));
+  }
+  log(
+    "window",
+    closing && Date.now() < deadline
+      ? `★ 窗口未到点，收到收尾请求 ⇒ 进收尾（已跑 ${Math.round((Date.now() - t0) / 1000)}s）`
+      : `窗口到点（${Math.round((Date.now() - t0) / 1000)}s）`,
+  );
   // ★★★ 进入收尾态（多个员工时必需 —— 否则"收尾"会自激，永不收敛）
   closing = true;
   // ★★★ 收尾计时（纪律㉒：量具的采样时机必须与观测过程匹配）
