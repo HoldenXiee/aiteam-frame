@@ -72,6 +72,20 @@ test("referencedIn：账本里提过的目录不许清", () => {
   }
 });
 
+test("referencedIn：产物正文提过的目录也不许清（不只查账本）", () => {
+  const lab = mkLab();
+  try {
+    assert.equal(referencedIn(lab, "work/bigdir"), null);
+    writeFileSync(join(lab, "outbox/P9.md"), "读数见 `work/bigdir/a.txt` 那一行");
+    assert.match(String(referencedIn(lab, "work/bigdir")), /outbox/);
+    const res = applyTidy(lab, { paths: ["work/bigdir"], why: "测" });
+    assert.equal(res.ok, false);
+    assert.ok(existsSync(join(lab, "work/bigdir")));
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});
+
 test("applyTidy：放行的目录移进 _trash，并落一行账", () => {
   const lab = mkLab();
   try {

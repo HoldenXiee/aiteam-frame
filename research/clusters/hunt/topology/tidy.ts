@@ -201,6 +201,8 @@ export function candidates(lab: string, opts: { cap?: number } = {}): (DirStat &
  */
 export function referencedIn(lab: string, rel: string): string | null {
   const name = basename(rel);
+  const outboxRef = outboxMentions(lab, rel);
+  if (outboxRef) return outboxRef;
   const files = ["work/experiments.jsonl", "outbox/PROJECTS.md", "outbox/CONVERGED.md", "work/_SNAPSHOT.md"];
   for (const f of files) {
     const p = join(lab, f);
@@ -213,6 +215,43 @@ export function referencedIn(lab: string, rel: string): string | null {
     }
     if (txt.includes(rel) || (name.length >= 6 && txt.includes(name))) return f;
   }
+  return null;
+}
+
+/**
+ * ★★★★ 485 份产物里有没有提到这个目录（2026-10-27 补）
+ *
+ * ★ 为什么必须补：我第一版只查 4 个**账本**文件 —— 而产物的正文里写着
+ *   「见 `work/exp-xxx` 的读数」这种话，删了它同样会断链。
+ * ★★ 判据故意粗（提到就算）：**宁可少清一个目录，不可误删一条证据**。
+ * ★ 一次 tidy 只读一遍 outbox（按目录 mtime 缓存），不许每候选读 485 次。
+ */
+let OB_CACHE: { key: string; text: string } | null = null;
+
+function outboxMentions(lab: string, rel: string): string | null {
+  const dir = join(lab, "outbox");
+  if (!existsSync(dir)) return null;
+  let key = "";
+  try {
+    const ents = readdirSync(dir, { withFileTypes: true }).filter((e) => e.name.endsWith(".md"));
+    key = String(ents.length) + ":" + ents.reduce((a, e) => Math.max(a, statSync(join(dir, e.name)).mtimeMs), 0);
+    if (!OB_CACHE || OB_CACHE.key !== key) {
+      let text = "";
+      for (const e of ents) {
+        try {
+          text += readFileSync(join(dir, e.name), "utf8");
+        } catch {
+          /* 读不到就跳过 */
+        }
+      }
+      OB_CACHE = { key, text };
+    }
+  } catch {
+    return null;
+  }
+  const name = basename(rel);
+  if (OB_CACHE.text.includes(rel)) return "outbox（某份产物引了这个路径）";
+  if (name.length >= 6 && OB_CACHE.text.includes(name)) return "outbox（某份产物提了这个目录名）";
   return null;
 }
 
