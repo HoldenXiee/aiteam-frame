@@ -21,7 +21,15 @@ import {
 } from "./feedback.ts";
 import { recordLibState, recordLibRevision } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
-import { ALL_TOOLS, LAB, MODEL, READONLY_TOOLS, REPO, WEB_TOOLS } from "./paths.ts";
+import {
+  ALL_TOOLS,
+  DESIGNER_DIRECTIVE_START,
+  LAB,
+  MODEL,
+  READONLY_TOOLS,
+  REPO,
+  WEB_TOOLS,
+} from "./paths.ts";
 import { EXPERTS, type ExpertName } from "./prompts/index.ts";
 import { renderSeatLedger } from "./topology/dispatch.ts";
 import * as researcherPrompt from "./prompts/researcher.ts";
@@ -79,7 +87,7 @@ import {
 } from "./tools/record-experiment.ts";
 import { portStats, readPort, readPortTorn, renderPort } from "./tools/port-run.ts";
 import { BOOK_DIR, readBookState, renderBookState } from "./topology/forge-state.ts";
-import { renderDirective } from "./prompts/researcher.ts";
+import { renderDesignerDirective, renderDirective } from "./prompts/researcher.ts";
 import { makeConsult } from "./tools/consult.ts";
 import { renderLibTests, runLibTests } from "../micro/libtest.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
@@ -1289,10 +1297,32 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     log("error", `处境表写不出来：${(e as Error).message}`);
   }
 
+  // ★★★★★ 2026-10-28 · 设计者的**动态提示词**在开局就位
+  //
+  //   ★ 设计者在问：「跑hunt.cmd的话，我记得集群有动态提示词，这怎么办」
+  //   ★★ 在这之前，"可变的那一半"只有**我在写**（下面那串 renderDirective 是硬编码的），
+  //     设计者自己**下不了手** —— 双击就等于"我什么都不说"。
+  //   ★★★ 现在：仓库根 `指示.md` 存在就作为**第一条上级指示**投给每位研究员，
+  //     并记一行 `directive`（来自谁、多少字）⇒ 产出被什么驱动仍然可数（纪律㊶）。
+  const startDirective = (() => {
+    try {
+      if (!existsSync(DESIGNER_DIRECTIVE_START)) return "";
+      const txt = readFileSync(DESIGNER_DIRECTIVE_START, "utf8").trim();
+      if (!txt) return "";
+      log("directive", `★ 设计者的开局指示：${DESIGNER_DIRECTIVE_START}（${txt.length} 字）`);
+      return renderDesignerDirective(txt, "开局");
+    } catch (e) {
+      log("error", `读开局指示失败：${(e as Error).message}`);
+      return "";
+    }
+  })();
+
   // ── 开工：每个员工各投一次 —— 之后全由事件驱动 ──
   //   ★ 三个员工**同时开跑**（不是串行）—— 这才叫"多员工"。
   const runs = researchers.map((a, i) =>
     a.io.prompt(
+      // ★ 设计者的指示放最前（它是"这一轮要你注意什么"，先于一切）
+      (startDirective ? startDirective + "\n\n---\n\n" : "") + (
       // ★ 告诉他们彼此存在（他们共享 outbox 与 work）——
       //   但**不要求**他们协作：会不会看别人、要不要分工，是**要观察的行为**（`P3`：不要指望模型自己分工）。
       researchers.length > 1
@@ -1319,7 +1349,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
               "最近 24h 的 57 份里 25% 明写「回答上级」，而新实验是 0。这一轮我不点题。",
             body: continueProjectBody + requirementBody + structureBody,
           })
-        : researcherPrompt.KICKOFF,
+        : researcherPrompt.KICKOFF),
     ).catch((e) => ({ error: (e as Error).message, text: "" })),
   );
 

@@ -397,6 +397,8 @@ export type State = {
   lastTidyAt: number;
   /** ★★★ 每个候选被提醒过几次（提醒满 3 次仍无人处置 ⇒ 按形状自动清，见 onTidy）*/
   tidyStrikes: Record<string, number>;
+  /** ★ 设计者的运行中指示：上次读到的是哪个版本（mtime）*/
+  lastDirectiveMtime: number;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -424,6 +426,7 @@ export function newState(): State {
     lastRetractAt: 0,
     lastTidyAt: 0,
     tidyStrikes: {},
+    lastDirectiveMtime: 0,
     lastTickAt: Date.now(),
   };
 }
@@ -497,6 +500,7 @@ export async function tick(
       onDebt: () => Promise<void>;
       onRetract: () => Promise<void>;
       onTidy: () => Promise<void>;
+      onDirective: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -558,6 +562,7 @@ export async function tick(
   await step("onRetract", () => rules.onRetract());
   // ★ 不 fire 任何人（只写一份清单进 work/ + 记日志）⇒ 放在会 fire 的规则之前（纪律㉚）
   await step("onTidy", () => rules.onTidy());
+  await step("onDirective", () => rules.onDirective());
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
@@ -584,6 +589,7 @@ import { readStructured } from "../tools/record-experiment.ts";
 import type { ExperimentRow } from "../tools/record-experiment.ts";
 import { convergenceDebt, unsupportedClaims } from "./converged-gate.ts";
 import { applyTidy, candidates, looseScratch, purgeTrash, TIDY } from "./tidy.ts";
+import { DESIGNER_DIRECTIVE_LIVE } from "../paths.ts";
 
 /** ★ tidy 的节拍（可用 HUNT_TIDY_MS 覆盖，只为短窗口探针）*/
 const TIDY_EVERY_MS = Number(process.env.HUNT_TIDY_MS) || 20 * 60_000;
@@ -1131,6 +1137,52 @@ export function makeRules(ctx: TriggerCtx) {
 
 
   // ══════════════════════════════════════════════════════════════
+  // ★★★★★ onDirective —— 设计者的**动态提示词**（2026-10-28）
+  //
+  //   ★ 设计者的原话：「跑hunt.cmd的话，我记得集群有动态提示词，这怎么办」
+  //   ★★ 集群的提示词分两半：**不变 = 定义**（`role`）、**可变 = 上级指示**（消息）。
+  //     在这条通道之前，"可变"那半只有**研究助手**能写（runner 里硬编码），
+  //     设计者双击启动 = 一句话都没说。
+  //   ★★★ 现在：`research/labfirst/hunt/inbox/指示.md` **改了就算新指示** ——
+  //     比 mtime（纪律㉛：问"那时候是什么样"要读那时的记录），变了就投给每位研究员，
+  //     并记一行 `directive`（★ 纪律㊶：产出被什么驱动必须可数，不许有暗中的点题）。
+  //   ★ 为什么用文件：7 天窗口下"开局说一次"不够用；文件**不用重启**、只影响自己空间。
+  // ══════════════════════════════════════════════════════════════
+  async function onDirective(): Promise<void> {
+    if (ctx.closing?.()) return;
+    if (!ctx.challenge) return;
+    let mtime = 0;
+    let text = "";
+    try {
+      if (!existsSync(DESIGNER_DIRECTIVE_LIVE)) return;
+      mtime = statSync(DESIGNER_DIRECTIVE_LIVE).mtimeMs;
+      if (mtime <= state.lastDirectiveMtime) return; // 没改过 ⇒ 不重复投
+      text = readFileSync(DESIGNER_DIRECTIVE_LIVE, "utf8").trim();
+      if (!text) return;
+    } catch {
+      return;
+    }
+    state.lastDirectiveMtime = mtime;
+    const peers = ctx.peerKeys?.() ?? [];
+    if (peers.length === 0) return;
+    ctx.trace("onDirective", `★ 设计者改了指示（${text.length} 字）⇒ 投给 ${peers.length} 位研究员`);
+    for (const k of peers) {
+      ctx.challenge(
+        k,
+        [
+          "## 📋 来自「设计者」的指示（运行中）",
+          "",
+          text,
+          "",
+          "---",
+          "★ 这是**上级指示**，不是重定义 —— 你仍然是上面那个研究员；它不改判据、不改权限。",
+          "★ 若与你的证据冲突：**说出来**（写进 `work/` 或直接反驳），别默默照做。",
+        ].join(String.fromCharCode(10)),
+      );
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // ★★★★★ onTidy —— 让它**整理自己的空间**（2026-10-27 设计者交办）
   //
   //   ★ 设计者原话：「hunt 集群在工作时不会自己整理文件夹里面的内容吗，
@@ -1480,5 +1532,5 @@ function phenomenonPrompt(target: ExperimentRow): string {
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, onRetract, onTidy, drainer };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, onRetract, onTidy, onDirective, drainer };
 }

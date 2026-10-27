@@ -83,6 +83,17 @@ export const WEB_TOOLS = [
   "source_check",
 ] as const;
 
+/**
+ * ★★★★★ 设计者的**动态提示词**（2026-10-28）
+ *
+ * ★ 入口①：仓库根 `指示.md` —— **开局**读一次（双击 `跑hunt.cmd` 就会带上）。
+ * ★ 入口②：空间里 `inbox/指示.md` —— **运行中**随时改，规则 `onDirective` 每 15 分钟比 mtime。
+ * ★★ 为什么用文件：7 天窗口下"开局说一次"根本不够用；文件还能**不重启**就生效，
+ *   且只影响自己这个空间（`inbox/` 是设计者的地盘，集群只读）。
+ */
+export const DESIGNER_DIRECTIVE_START = join(REPO, "指示.md");
+export const DESIGNER_DIRECTIVE_LIVE = join(LAB, "inbox", "指示.md");
+
 /** ★ 只读 —— 审查者/复审者/启发者/看门狗都用这个（它们不该改东西） */
 export const READONLY_TOOLS = ["bash", "read", "grep", "find", "ls"];
 
