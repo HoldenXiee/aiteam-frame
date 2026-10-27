@@ -11,7 +11,8 @@
     "tsclab": "npx tsc --noEmit -p tsconfig.lab.json",
     "exp": "npx tsx research/clusters/micro/experiments.ts",
     "libdrift": "npx tsx research/clusters/micro/libdrift.ts",
-    "huntlib": "npx tsx research/clusters/micro/libtest.ts research/labfirst/hunt"
+    "huntlib": "npx tsx research/clusters/micro/libtest.ts research/labfirst/hunt",
+    "viz": "npx tsx research/clusters/micro/viz.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "file:dev/pi/packages/ai",

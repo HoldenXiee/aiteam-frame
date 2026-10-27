@@ -11,7 +11,14 @@ import { join } from "node:path";
 import type { Agent } from "../../../src/index.ts";
 import { acquireLock } from "./lock.ts";
 import { AUTH_SOURCE, labAt } from "./env.ts";
-import { deliverToResearcher, NOTE_CONSULT_ALREADY_FLOWS } from "./feedback.ts";
+import {
+  deliverToResearcher,
+  drainFeedback,
+  NOTE_CONSULT_ALREADY_FLOWS,
+  pendingFeedback,
+  sealFeedback,
+  sealedDroppedCount,
+} from "./feedback.ts";
 import { recordLibState, recordLibRevision } from "./lib-state.ts";
 import { attachGate } from "./guard.ts";
 import { ALL_TOOLS, LAB, MODEL, READONLY_TOOLS, REPO, WEB_TOOLS } from "./paths.ts";
@@ -1501,6 +1508,31 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★ 所以收尾只需要一个上限，就是 `CLOSE_CAP_MS`（在"等派活器"那里）。
   const capHit = closeTimedOut;
 
+  // ★★★★★ 2026-10-27 · **先回流，后停人**（纪律㊷ 的第三次复发，这次是实测抓到的）
+  //
+  //   ★ 设计者那轮的收尾日志：
+  //       error  回流 inspector 失败：agent … 已 dispose
+  //       error  回流 libsmith  失败：agent … 已 dispose
+  //     ⇒ 两条专家结论**直接丢了** —— 因为回流是 `void io.queue(...)`，
+  //       而收尾把 agent dispose 了，排在后面的消息全落地失败。
+  //   ★★ 上面「等派活器」等的是**专家跑完**；这里等的是**回流落地**，是两件事。
+  {
+    const left = pendingFeedback();
+    if (left > 0) {
+      const t0 = Date.now();
+      const r = await drainFeedback(Math.min(20_000, CLOSE_CAP_MS));
+      log(
+        "flow",
+        `等回流落地：在飞 ${left} 条 · 落了 ${r.settled} 条 · 还剩 ${r.left}（等了 ${Math.round(
+          (Date.now() - t0) / 1000,
+        )}s）`,
+      );
+    }
+  }
+
+  // ★ 拆除段开始：之后不再往研究员投递（否则每条都会报"已 dispose"，看着像故障）
+  sealFeedback(true);
+
   // ★★★ 2026-10-21 补（我自己删漏的）：**已 fire 的专家也要 dispose**。
   //   上一版删「重复等待」时，连带把 `for (const a of spawned) a.dispose()` 一起删了
   //   ⇒ 收尾打出了 `rule:done`，但进程**不退出**（会话还活着），只能被 timeout 杀。
@@ -1629,6 +1661,9 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     log("error", `收敛欠账落盘失败：${(e as Error).message}`);
   }
 
+  if (sealedDroppedCount() > 0) {
+    log("flow", `收尾中丢掉 ${sealedDroppedCount()} 条回流（★ 人已停，信没送到 —— 这不是故障，是收尾顺序的代价）`);
+  }
   log("rule:done", closingLine);
   console.log(`\n${closingLine}`);
   console.log(`★ 日志：${join(LAB, "work", "_topology.log")}`);

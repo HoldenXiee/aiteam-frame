@@ -190,7 +190,31 @@ export function takeSnapshot(opts: { force?: boolean } = {}): SnapshotResult {
   }
 
   const prev = readBatches();
-  const batch = prev.length + 1;
+  // ★★★★★ 2026-10-27 · **批号不能只按账本行数算**
+  //
+  //   ★ 实测（设计者那轮收尾）：
+  //       error  快照失败：快照目录已存在 …\sourceatch-010
+  //     原因：账本 `batches.jsonl` 里 9 行，而目录已经到 batch-010
+  //     （我自己回退过一次账本行但**没删目录**）⇒ 行数+1 撞上了已有目录 ⇒ 这一轮**没拍成**。
+  //   ★★ 修：取「账本行数」与「已有目录最大号」的**较大者** +1。
+  //     这样不管账本和磁盘怎么错位，都不会撞。
+  const maxDir = (() => {
+    try {
+      return readdirSync(join(FORGE_LAB, SNAPSHOT_DIR))
+        .map((d) => Number(/^batch-(\d+)$/.exec(d)?.[1] ?? 0))
+        .reduce((a, b) => Math.max(a, b), 0);
+    } catch {
+      return 0;
+    }
+  })();
+  const maxLedger = (() => {
+    try {
+      return prev.reduce((a, b) => Math.max(a, Number((b as { batch?: number }).batch ?? 0)), 0);
+    } catch {
+      return 0;
+    }
+  })();
+  const batch = Math.max(maxDir, maxLedger, prev.length) + 1;
   const rel = `${SNAPSHOT_DIR}/batch-${String(batch).padStart(3, "0")}`;
   const dst = join(FORGE_LAB, rel);
 
