@@ -15,6 +15,7 @@
 //   ★★ ⇒ **等于没审。**
 
 import type { Agent } from "../../../src/index.ts";
+import { logEdge } from "./tools/usage-log.ts";
 
 /** 回流时给研究员的信头 —— 让它一眼知道这是谁说的、为什么说 */
 function letterhead(role: string, why: string): string {
@@ -101,6 +102,12 @@ export function deliverToResearcher(
     return;
   }
   const msg = letterhead(role, why) + text;
+  // ★ 时间线上的"回流"边：专家 → 研究员
+  try {
+    logEdge(role, String((researcher as unknown as { id?: string }).id ?? "researcher"), "feedback");
+  } catch {
+    /* 观测不影响投递 */
+  }
   const p = researcher.io
     .queue(msg)
     .catch((e) => onError(`回流 ${role} 失败：${(e as Error).message}`))

@@ -1,26 +1,30 @@
 /**
- * ★★★★★ hunt 时间线可视化（2026-10-27）
+ * ★★★★★ hunt 时间线 · 拓扑可视化（2026-10-27 第二版）
  *
- * 为什么要它：设计者要"便于分析集群有什么问题"。
- * 而 `_topology.log` 是**一万多行文本**，人眼在里面找"哪里卡住了、谁一次没跑、外网调用多不多"
- * 基本做不到。这份脚本把它变成**一条能拖的时间线**：
+ * 设计者的要求（逐条对应）：
+ *   ① 「agent 拓扑要**逐步长出来**」⇒ 图是**累积**的：节点诞生才出现、边发生才连上，
+ *      拖动时间轴就是重放"这张网怎么长起来的"。
+ *   ② 「很多 agent、关系成为一张网」⇒ 节点 = 研究员 / 专家 / 长出来的支线；
+ *      边 = 挑战 / 请教 / 回流 / 规则派活（后者让"规则 → 席位"也可见）。
+ *   ③ 「数据太少、无法分析」⇒ 除了图，还出：
+ *        · 每 5 分钟的条带（tick 频次 / 工具调用 / 新增边 / 新实验）
+ *        · 每个节点的入度出度（谁被挑战最多、谁从没被找过）
+ *        · 工具直方图、报错原文、可疑处
+ *   ④ 「用前端库」⇒ **vis-network**（力导向，撑得住几百节点/边），构建时把它内联进 HTML。
  *
- *   · 时间轴：可拖动 / 可播放（拖到任意时刻，看那一时刻的集群长什么样）
- *   · 席位泳道：3 个研究员 + 每位专家（fire ▶ … result · N 字）= 谁在什么时候在跑
- *   · 工具点：`record_experiment` / `review_experiment` / `web_search` … 各自一个小点
- *   · 拓扑边：challenge / consult / 回流 在那一刻发生在谁和谁之间
- *   · 计数：到那一刻为止的实验数、各类工具次数、专家次数
- *   · **自动找病**：tick 空窗（冻结）、0 次派活的席位、收尾后仍失败的投递、报错行
- *
- * ★ 全部离线：读落盘，生成**一个自包含 HTML**（无外部依赖、无网络），双击即看。
- * ★★ 纪律⑦：数据是纯函数算的，同一份日志任何时候重算结果一致。
+ * ★ 数据来源（全部落盘，纯函数，纪律⑦）：
+ *   `work/_topology.log`（或 `work/runs/topology-*.log` 的某一轮）
+ *   `work/experiments.jsonl`
+ *   `outbox/`（份数）
  *
  * 用法：
- *   npm run viz                        # 生成 logs/hunt-timeline.html
- *   npx tsx research/clusters/micro/viz.ts <lab> [--open]
+ *   npm run viz                       # 当前这一轮
+ *   npm run viz -- --list             # 列出归档的轮次
+ *   npm run viz -- --log=work/runs/topology-2026-10-27T10-35-14.log
+ *   npm run viz -- --open             # 生成后打开浏览器
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const REPO = process.cwd();
 const LAB = (() => {
@@ -28,29 +32,14 @@ const LAB = (() => {
   if (a && !a.startsWith("--")) return a.startsWith("/") || /^[A-Za-z]:/.test(a) ? a : join(REPO, a);
   return join(REPO, process.env.HUNT_LAB || "research/labfirst/hunt");
 })();
-
-type Ev = {
-  /** 毫秒时间戳 */
-  t: number;
-  kind: string;
-  /** 席位（专家名 / 研究员 key）——能解析出来才有 */
-  seat?: string;
-  /** 工具名 */
-  tool?: string;
-  /** 原文（截断）*/
-  text: string;
-};
-
-// ★ 可以指定某一轮：`viz.ts <lab> --log=work/runs/topology-2026-10-27T06-11-14.log`
-//   ★★ 想看历史轮：`viz.ts <lab> --list`
-const wantLog = process.argv.find((a) => a.startsWith("--log="))?.split("=")[1];
 const runsDir = join(LAB, "work", "runs");
+
+// ── --list ─────────────────────────────────────────────────────
 if (process.argv.includes("--list")) {
   const files = existsSync(runsDir) ? readdirSync(runsDir).filter((f) => f.startsWith("topology-") && f.endsWith(".log")).sort() : [];
   console.log(`★ ${LAB.replace(REPO, "")} 的历史轮次（${files.length} 个）：`);
   for (const f of files) {
-    const p = join(runsDir, f);
-    const txt = readFileSync(p, "utf8");
+    const txt = readFileSync(join(runsDir, f), "utf8");
     const n = txt.split(String.fromCharCode(10)).filter(Boolean).length;
     const head = (txt.split(String.fromCharCode(10))[0] ?? "").slice(0, 19);
     console.log(`  · work/runs/${f}　${head}　${n} 行`);
@@ -59,18 +48,25 @@ if (process.argv.includes("--list")) {
   console.log(`用法：npx tsx research/clusters/micro/viz.ts ${LAB.replace(REPO, "")} --log=work/runs/<文件名>`);
   process.exit(0);
 }
+
+const wantLog = process.argv.find((a) => a.startsWith("--log="))?.split("=")[1];
 const topoPath = wantLog
   ? wantLog.startsWith("/") || /^[A-Za-z]:/.test(wantLog)
     ? wantLog
     : join(LAB, wantLog)
   : join(LAB, "work", "_topology.log");
 if (!existsSync(topoPath)) {
-  console.error(`⛔ 找不到日志：${topoPath}`);
+  console.error(`⛔ 找不到日志：${topoPath}\n  ★ 用 --list 看有哪些归档轮次`);
   process.exit(1);
 }
-const raw = readFileSync(topoPath, "utf8").split("\n").filter((l) => l.trim());
 
-/** ★ 专家席位名（按出现频率排序，不用写死）*/
+// ══════════════════════════════════════════════════════════════
+// 解析
+// ══════════════════════════════════════════════════════════════
+const raw = readFileSync(topoPath, "utf8").split(String.fromCharCode(10)).filter((l) => l.trim());
+
+type Ev = { t: number; kind: string; seat?: string; tool?: string; from?: string; to?: string; text: string };
+const events: Ev[] = [];
 const KNOWN_SEATS = [
   "inspector",
   "archivist",
@@ -82,7 +78,6 @@ const KNOWN_SEATS = [
   "instrument-skeptic",
 ];
 
-const events: Ev[] = [];
 for (const line of raw) {
   const m = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s+(\S+)\s*(.*)$/.exec(line);
   if (!m) continue;
@@ -90,65 +85,119 @@ for (const line of raw) {
   if (!Number.isFinite(t)) continue;
   const kind = m[2]!;
   const rest = m[3] ?? "";
-  let seat: string | undefined;
-  let tool: string | undefined;
-  if (kind === "tool:" || kind.startsWith("tool:")) {
-    tool = kind.slice(5);
-  } else if (kind === "fire" || kind === "result" || kind === "rule:fire") {
-    seat = KNOWN_SEATS.find((s) =>
-      kind === "fire" ? rest.startsWith(s) : new RegExp(`(^|[^a-z-])${s}([^a-z-]|$)`).test(rest),
-    );
+  const e: Ev = { t, kind, text: line.slice(0, 300) };
+
+  if (kind.startsWith("edge:")) {
+    // `edge:challenge  hands-on→falsifier`
+    const mm = /^\s*(\S+?)→(\S+)\s*$/.exec(rest);
+    e.kind = kind;
+    e.from = mm?.[1];
+    e.to = mm?.[2];
+  } else if (kind.startsWith("tool:")) {
+    e.tool = kind.slice(5);
+    e.to = rest.trim().split(/\s+/)[0]?.slice(0, 40);
+  } else if (kind === "fire" || kind === "result") {
+    e.seat = KNOWN_SEATS.find((s) => new RegExp(`(^|[^a-z-])${s}([^a-z-]|$)`).test(rest));
+  } else if (kind === "seat") {
+    e.seat = rest.trim();
   }
-  events.push({ t, kind, seat, tool, text: line.slice(0, 220) });
+  events.push(e);
 }
 
 const t0 = events[0]?.t ?? Date.now();
 const t1 = events[events.length - 1]?.t ?? t0;
 const span = Math.max(1, t1 - t0);
+const at = (ev: Ev) => ev.t - t0;
 
-// ── 席位泳道：fire ▶ … result 配对（按席位，先到先配）────────────────
-type Span = { seat: string; from: number; to: number; chars?: number };
-const spans: Span[] = [];
-const openFire = new Map<string, number>();
+// ── 节点：谁在这个世界里出现过 ─────────────────────────────────
+type Node = { id: string; role: string; born: number; died: number | null; fired: number; results: number };
+const nodeMap = new Map<string, Node>();
+/**
+ * ★ 名字归一：`L3-researcher-hands-on-mvqlwvwd` → `hands-on`
+ *   ★ 不归一会得到**同一件事两个节点**（一回流就多一个"新 agent"），图会骗人。
+ */
+const norm = (id: string): string => {
+  const m = /researcher-(hands-on|falsifier|instrument-skeptic)/.exec(id);
+  if (m) return m[1]!;
+  // ★ 只剥"随机 id 后缀"（8 位且含数字）—— 别把 `instrument-skeptic` 剥成 `instrument`
+  //   （我第一版就是 `-[a-z0-9]{6,}$` ⇒ 席位名被切掉一半，图上出现两个同名不同色的点）
+  if (/[a-z0-9]{8}$/i.test(id) && /[0-9]/.test(id.slice(-8))) return id.slice(0, -9);
+  return id;
+};
+const addNode = (rawId: string, role: string, born: number) => {
+  const id = norm(rawId);
+  const cur = nodeMap.get(id);
+  if (cur) return cur;
+  const n: Node = { id, role, born, died: null, fired: 0, results: 0 };
+  nodeMap.set(id, n);
+  return n;
+};
+
+// 研究员（setup 行里点名）
 for (const e of events) {
-  if (e.kind === "fire" && e.seat) {
-    if (!openFire.has(e.seat)) openFire.set(e.seat, e.t);
-  } else if (e.kind === "result" && e.seat) {
-    const from = openFire.get(e.seat);
-    const chars = Number(/(\d+)\s*字/.exec(e.text)?.[1] ?? 0);
-    if (from !== undefined) {
-      spans.push({ seat: e.seat, from, to: e.t, chars });
-      openFire.delete(e.seat);
-    } else {
-      spans.push({ seat: e.seat, from: e.t, to: e.t, chars });
-    }
+  if (e.kind === "setup" && /研究席位/.test(e.text)) {
+    for (const s of KNOWN_SEATS) if (e.text.includes(s)) addNode(s, "researcher", at(e));
   }
 }
-// 没等到 result 的（收尾时被丢的）—— 用日志末尾封口，并标记
-for (const [seat, from] of openFire) spans.push({ seat, from, to: t1, chars: -1 });
-
-// ── tick 心跳（找空窗 = 冻结）────────────────────────────────────
-const ticks = events.filter((e) => e.kind === "tick:beat" || e.kind === "rule:tick").map((e) => e.t);
-const gaps: { from: number; to: number; min: number }[] = [];
-for (let i = 1; i < ticks.length; i++) {
-  const d = ticks[i]! - ticks[i - 1]!;
-  if (d > 8 * 60_000) gaps.push({ from: ticks[i - 1]!, to: ticks[i]!, min: Math.round(d / 60000) });
+for (const e of events) {
+  if (e.kind === "fire" && e.seat) {
+    const n = addNode(e.seat, "researcher".includes(e.seat) ? "expert" : "expert", at(e));
+    n.fired++;
+  } else if (e.kind === "result" && e.seat) {
+    const n = addNode(e.seat, "expert", at(e));
+    n.results++;
+  } else if (e.kind === "seat" && e.seat) {
+    // `spawn 支线 line-xxx（spawn_line）`
+    const mm = /line-[a-z0-9]+/i.exec(e.text);
+    if (mm) addNode(mm[0], "line", at(e));
+  }
 }
+// 规则节点（"规则派活"这条边的 from —— 让"规则如何在里面长出拓扑"看得见）
+addNode("拓扑规则", "rules", 0);
 
-// ── 工具账 ──────────────────────────────────────────────────────
-const tools: Record<string, number> = {};
-for (const e of events) if (e.tool) tools[e.tool] = (tools[e.tool] ?? 0) + 1;
+// ── 边：累积的网 ───────────────────────────────────────────────
+//
+// ★ 两遍扫：先建**结构化边**（`edge:<kind> a→b`），再给**老日志**兜底。
+//   ★ 我第一版一遍扫完 ⇒ `tool:challenge` 那一行比 `edge:challenge` 早几毫秒，
+//     兜底逻辑以为"没有结构化边" ⇒ 凭空多出一个 `研究员→某人` 的伪边（27 条里 13 条是假的）。
+type Edge = { from: string; to: string; kind: string; t: number };
+const edges: Edge[] = [];
+for (const e of events) {
+  if (e.kind.startsWith("edge:") && e.from && e.to) {
+    const kind = e.kind.slice(5);
+    const from = norm(e.from);
+    const to = norm(e.to);
+    addNode(from, nodeMap.get(from)?.role ?? "researcher", at(e));
+    addNode(to, nodeMap.get(to)?.role ?? "expert", at(e));
+    edges.push({ from, to, kind, t: at(e) });
+  } else if (e.kind === "fire" && e.seat) {
+    edges.push({ from: "拓扑规则", to: norm(e.seat), kind: "rule-fire", t: at(e) });
+  }
+}
+// 兜底：老日志（没有 edge: 行）用 tool:challenge 的 to 补一条，且**只在真的没有结构化边时**
+for (const e of events) {
+  if (e.kind !== "tool:challenge" || !e.to) continue;
+  const near = edges.some((x) => x.kind === "challenge" && Math.abs(x.t - at(e)) < 2000);
+  if (near) continue;
+  addNode("研究员", "researcher", at(e));
+  edges.push({ from: "研究员", to: norm(e.to), kind: "challenge", t: at(e) });
+}
+edges.sort((a, b) => a.t - b.t);
 
-// ── 结构化实验（时间点上加标记）─────────────────────────────────
+// ── 工具调用点 ─────────────────────────────────────────────────
+type ToolEv = { t: number; name: string; to: string };
+const toolEvs: ToolEv[] = events.filter((e) => e.tool).map((e) => ({ t: at(e), name: e.tool!, to: e.to ?? "" }));
+
+// ── 实验 ───────────────────────────────────────────────────────
 type Exp = { id: string; t: number; project: string; by: string; outcome: string; verdict: string };
 const exps: Exp[] = [];
 try {
-  for (const l of readFileSync(join(LAB, "work", "experiments.jsonl"), "utf8").split("\n")) {
+  for (const l of readFileSync(join(LAB, "work", "experiments.jsonl"), "utf8").split(String.fromCharCode(10))) {
     if (!l.trim()) continue;
     const r = JSON.parse(l) as Record<string, string>;
     exps.push({
       id: r.id ?? "?",
-      t: Date.parse(r.recordedAt || r.at || "") || 0,
+      t: (Date.parse(r.recordedAt || r.at || "") || 0) - t0,
       project: r.project ?? "?",
       by: r.by ?? "?",
       outcome: r.outcome ?? "?",
@@ -156,27 +205,50 @@ try {
     });
   }
 } catch {
-  /* 没有实验账也能看时间线 */
+  /* 没有实验账也能看 */
 }
 
-// ── 自动找病（这些都是"有名字的"判据，不是感觉）──────────────────
+// ── 5 分钟条带（频次）──────────────────────────────────────────
+const BIN = 5 * 60_000;
+const nbins = Math.max(1, Math.ceil(span / BIN));
+const bins = Array.from({ length: nbins }, (_, i) => ({
+  i,
+  t: i * BIN,
+  ticks: 0,
+  tools: 0,
+  edges: 0,
+  exps: 0,
+}));
+const binOf = (t: number) => Math.min(nbins - 1, Math.max(0, Math.floor(t / BIN)));
+for (const e of events) {
+  const b = bins[binOf(at(e))]!;
+  if (e.kind === "tick:beat" || e.kind === "rule:tick") b.ticks++;
+}
+for (const e of toolEvs) bins[binOf(e.t)]!.tools++;
+for (const e of edges) bins[binOf(e.t)]!.edges++;
+for (const e of exps) if (e.t >= 0) bins[binOf(e.t)]!.exps++;
+
+// ── 自动找病 ───────────────────────────────────────────────────
+const tickTimes = events.filter((e) => e.kind === "tick:beat" || e.kind === "rule:tick").map(at);
+const gaps: { from: number; to: number; min: number }[] = [];
+for (let i = 1; i < tickTimes.length; i++) {
+  const d = tickTimes[i]! - tickTimes[i - 1]!;
+  if (d > 8 * 60_000) gaps.push({ from: tickTimes[i - 1]!, to: tickTimes[i]!, min: Math.round(d / 60000) });
+}
 const errors = events.filter((e) => e.kind === "error");
-const seatFired: Record<string, number> = {};
-for (const e of events) if (e.kind === "fire" && e.seat) seatFired[e.seat] = (seatFired[e.seat] ?? 0) + 1;
-const deadSeats = KNOWN_SEATS.filter((s) => !seatFired[s]);
-const deadTools = ["record_experiment", "review_experiment", "port_run", "spawn_line", "consult", "web_search"].filter(
-  (t) => !tools[t],
-);
-// ★ 太短的一轮里"某席位 0 次"是正常的（还没轮到它），别当成问题报
+const tools: Record<string, number> = {};
+for (const e of toolEvs) tools[e.name] = (tools[e.name] ?? 0) + 1;
 const shortRun = span < 20 * 60_000;
+const deadSeats = KNOWN_SEATS.filter((s) => !nodeMap.get(s)?.fired);
+const deadTools = ["record_experiment", "review_experiment", "port_run", "spawn_line", "consult", "web_search"].filter((t) => !tools[t]);
 const problems = [
-  ...gaps.map((g) => `★ tick 空窗 ${g.min} 分钟（${new Date(g.from).toLocaleTimeString()} → ${new Date(g.to).toLocaleTimeString()}）—— 这一段时间集群可能被卡住`),
-  ...errors.map((e) => `⛔ 报错：${e.text.replace(/^\S+\s+error\s*/, "").slice(0, 120)}`),
+  ...gaps.map((g) => `★ tick 空窗 ${g.min} 分钟 —— 集群可能被卡住`),
+  ...errors.map((e) => `⛔ ${e.text.replace(/^\S+\s+error\s*/, "").slice(0, 160)}`),
   ...(shortRun
     ? []
     : [
-        ...deadSeats.map((s) => `★ 席位「${s}」整轮 **0 次**派活 —— 要么不需要它，要么它没接上`),
-        ...deadTools.map((t) => `★ 工具「${t}」整轮 **0 次**调用`),
+        ...deadSeats.map((s) => `★ 席位「${s}」整轮 0 次派活`),
+        ...deadTools.map((t) => `★ 工具「${t}」整轮 0 次调用`),
       ]),
 ];
 
@@ -190,271 +262,275 @@ const outboxCount = (() => {
 
 const data = {
   lab: LAB.replace(REPO, "").replace(/\\/g, "/"),
+  log: topoPath.replace(REPO, "").replace(/\\/g, "/"),
   t0,
   t1,
   span,
-  events: events.map((e) => ({ t: e.t - t0, kind: e.kind, seat: e.seat, tool: e.tool, text: e.text })),
-  spans: spans.map((s) => ({ seat: s.seat, from: s.from - t0, to: s.to - t0, chars: s.chars })),
-  ticks: ticks.map((t) => t - t0),
-  exps: exps.map((e) => ({ ...e, t: e.t - t0 })),
+  nodes: [...nodeMap.values()],
+  edges,
+  toolEvs,
+  exps,
+  bins,
   problems,
+  gaps,
+  events: events.map((e) => ({ t: at(e), kind: e.kind, seat: e.seat, tool: e.tool, text: e.text })),
   summary: {
     durationMin: Math.round(span / 60000),
     lines: raw.length,
-    ticks: ticks.length,
-    experts: spans.length,
-    errors: errors.length,
+    ticks: tickTimes.length,
+    experts: [...nodeMap.values()].filter((n) => n.role === "expert").length,
+    nodes: nodeMap.size,
+    edges: edges.length,
     tools,
-    seats: [...new Set(spans.map((s) => s.seat))],
+    errors: errors.length,
     outbox: outboxCount,
-    gaps: gaps.length,
+    exps: exps.length,
   },
 };
 
-const html = renderHtml(data);
+// ══════════════════════════════════════════════════════════════
+// 生成 HTML（vis-network 内联）
+// ══════════════════════════════════════════════════════════════
+const VIS = (() => {
+  const p = join(REPO, "node_modules", "vis-network", "standalone", "umd", "vis-network.min.js");
+  if (!existsSync(p)) return "";
+  return readFileSync(p, "utf8");
+})();
+
+const html = renderHtml(data).replace("/*__VIS_NETWORK__*/", () => VIS);
 mkdirSync(join(REPO, "logs"), { recursive: true });
 const out = join(REPO, "logs", "hunt-timeline.html");
 writeFileSync(out, html, "utf8");
 console.log(
   [
     `★ 时间线已生成：${out}`,
-    `  · ${data.summary.durationMin} 分钟 · ${data.summary.lines} 行日志 · ${data.summary.ticks} 次 tick · ${data.summary.experts} 次专家`,
+    `  · ${data.summary.durationMin} 分钟 · ${data.summary.lines} 行日志 · ${data.summary.ticks} tick · ${data.summary.nodes} 个 agent 节点 · ${data.summary.edges} 条关系边`,
     `  · 实验 ${exps.length} 条 · outbox ${outboxCount} 份 · 报错 ${errors.length} 条 · 空窗 ${gaps.length} 处`,
-    problems.length ? `  · ★ 自动找到 ${problems.length} 处可疑（页面左侧「它自己找出的问题」）` : "  · ★ 没找到可疑处",
+    VIS ? "  · vis-network 已内联（离线可看）" : "  ⚠ 没找到 vis-network ⇒ 图退化成静态列表（先 `npm i -D vis-network`）",
+    problems.length ? `  · ★ 自动找到 ${problems.length} 处可疑` : "  · ★ 没找到可疑处",
   ].join("\n"),
 );
 if (process.argv.includes("--open")) {
   const { execFile } = await import("node:child_process");
-  execFile(process.platform === "win32" ? "cmd" : "open", process.platform === "win32" ? ["/c", "start", "", out] : [out]);
+  const args = process.platform === "win32" ? ["/c", "start", "", out] : [out];
+  execFile(process.platform === "win32" ? "cmd" : "open", args);
 }
 
-// ══════════════════════════════════════════════════════════════
-// HTML（自包含 · 无依赖 · 深色 · 可拖时间轴）
-// ══════════════════════════════════════════════════════════════
 function renderHtml(d: typeof data): string {
+  const json = JSON.stringify(d).replace(/</g, "\\u003c");
   return `<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>hunt 时间线 · ${d.lab}</title>
+<html lang="zh"><head><meta charset="utf-8"><title>hunt 拓扑时间线 · ${d.lab}</title>
 <style>
-:root{--bg:#0f1216;--panel:#171b21;--line:#2a313a;--fg:#d7dee7;--dim:#8b97a6;--accent:#5ac8fa;--warn:#ffb020;--bad:#ff5f56;--ok:#3ddc84}
+:root{--bg:#0d1014;--panel:#151a20;--line:#242c36;--fg:#dbe3ec;--dim:#8494a6;--accent:#57c8ff;--warn:#ffb020;--bad:#ff5f56;--ok:#3ddc84}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
-header{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
-h1{font-size:14px;margin:0;font-weight:600}
-.tag{color:var(--dim)}
-.wrap{display:grid;grid-template-columns:1fr 320px;gap:0;height:calc(100vh - 46px)}
-.main{overflow:auto;padding:12px 14px}
-.side{border-left:1px solid var(--line);overflow:auto;padding:12px}
-.row{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+header{display:flex;gap:16px;align-items:baseline;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{margin:0;font-size:13px;font-weight:600;letter-spacing:.02em}
+.dim{color:var(--dim)}
+.wrap{display:grid;grid-template-columns:1fr 340px;height:calc(100% - 39px)}
+.left{display:flex;flex-direction:column;min-width:0}
+#graph{flex:1;min-height:260px;background:radial-gradient(circle at 50% 40%,#131a22,#0d1014 70%)}
+.bar{display:flex;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
+button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 10px;cursor:pointer;font:inherit}
 button:hover{border-color:var(--accent)}
-input[type=range]{width:100%}
-canvas{display:block;background:var(--panel);border:1px solid var(--line);border-radius:8px}
-.k{color:var(--dim)}
-.big{font-size:20px;color:var(--accent)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px}
-.card h2{font-size:12px;margin:0 0 8px;color:var(--dim);font-weight:600;letter-spacing:.04em}
-.legend span{display:inline-block;margin-right:10px;color:var(--dim)}
-.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
-.esc{color:var(--bad)} .warn{color:var(--warn)} .ok{color:var(--ok)}
-pre{margin:0;white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:12px}
+input[type=range]{flex:1;min-width:120px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 12px 10px}
+.strip canvas{width:100%;height:56px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.side{border-left:1px solid var(--line);overflow:auto;padding:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin-bottom:10px}
+.card h2{font-size:11px;margin:0 0 6px;color:var(--dim);letter-spacing:.06em;font-weight:600}
 table{border-collapse:collapse;width:100%}
-td{padding:2px 6px 2px 0;vertical-align:top}
-td.n{text-align:right;color:var(--accent)}
-.hl{background:#1d2630}
+td{padding:1px 6px 1px 0;vertical-align:top}
+td.n{text-align:right;color:var(--accent);white-space:nowrap}
+.bar2{height:7px;background:#1d242d;border-radius:3px;overflow:hidden;margin-top:2px}
+.bar2 i{display:block;height:100%;background:var(--accent)}
+.tag{display:inline-block;padding:0 5px;border-radius:3px;background:#1d242d;color:var(--dim);margin-right:4px;font-size:11px}
+.recent div{padding:1px 0;border-bottom:1px dotted #1d242d}
+.esc{color:var(--bad)} .warn{color:var(--warn)} .ok{color:var(--ok)}
+.big{font-size:15px;color:var(--accent)}
 </style></head><body>
 <header>
-  <h1>hunt 时间线</h1>
-  <span class="tag">${d.lab}</span>
-  <span class="tag">${new Date(d.t0).toLocaleString()} → ${new Date(d.t1).toLocaleTimeString()}（${d.summary.durationMin} 分钟）</span>
+  <h1>hunt 拓扑时间线</h1>
+  <span class="dim">${d.lab}</span>
+  <span class="dim">${new Date(d.t0).toLocaleString()} → ${new Date(d.t1).toLocaleTimeString()}（${d.summary.durationMin} 分钟）</span>
+  <span class="dim">${d.summary.nodes} 节点 · ${d.summary.edges} 关系边</span>
+  <span class="big" id="clock">--:--:--</span>
 </header>
 <div class="wrap">
-  <div class="main">
-    <div class="row">
+  <div class="left">
+    <div id="graph"></div>
+    <div class="bar">
       <button id="play">▶ 播放</button>
-      <button id="prev" title="上一个事件">⟨ 上一件</button>
-      <button id="next" title="下一个事件">下一件 ⟩</button>
-      <span class="k">倍速</span>
-      <input id="speed" type="range" min="1" max="120" value="60" style="width:120px">
-      <span id="speedv" class="k">60×</span>
-      <span class="big" id="clock">--:--:--</span>
-      <span class="tag" id="elapsed"></span>
+      <button id="b1">&lt;&lt; 5m</button>
+      <button id="f1">5m &gt;&gt;</button>
+      <button id="next">下一事件</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <span class="dim">倍速</span><input id="speed" type="range" min="1" max="120" value="40" style="width:90px">
+      <span class="dim" id="speedv">40×</span>
     </div>
-    <input id="scrub" type="range" min="0" max="1000" value="0">
-    <canvas id="strip" height="54" style="width:100%;margin-bottom:10px"></canvas>
-    <canvas id="lanes" height="240" style="width:100%;margin-bottom:10px"></canvas>
-    <canvas id="topo" height="260" style="width:100%"></canvas>
-    <div class="legend" style="margin-top:8px">
-      <span><i style="background:var(--ok)"></i>专家在跑</span>
-      <span><i style="background:var(--warn)"></i>跑完但没等到 result（被丢）</span>
-      <span><i style="background:var(--accent)"></i>tick</span>
-      <span><i style="background:var(--bad)"></i>报错</span>
-      <span><i style="background:#c792ea"></i>工具调用</span>
-      <span><i style="background:#ffd166"></i>结构化实验</span>
+    <div class="strip">
+      <canvas id="c1" title="每 5 分钟 tick 数"></canvas>
+      <canvas id="c2" title="每 5 分钟工具调用"></canvas>
+      <canvas id="c3" title="每 5 分钟新增关系边"></canvas>
+      <canvas id="c4" title="每 5 分钟新实验"></canvas>
     </div>
   </div>
   <div class="side">
-    <div class="card"><h2>到这一刻为止</h2>
-      <table id="counters"></table>
-    </div>
-    <div class="card"><h2>它自己找出的问题</h2>
-      <div id="problems"></div>
-    </div>
-    <div class="card"><h2>最近事件</h2>
-      <div id="recent"></div>
-    </div>
+    <div class="card"><h2>到这一刻为止</h2><table id="counters"></table></div>
+    <div class="card"><h2>工具调用</h2><div id="toolbars"></div></div>
+    <div class="card"><h2>agent 关系（入/出）</h2><table id="degrees"></table></div>
+    <div class="card"><h2>它自己找出的问题</h2><div id="problems"></div></div>
+    <div class="card"><h2>最近事件</h2><div class="recent" id="recent"></div></div>
   </div>
 </div>
+<script>/*__VIS_NETWORK__*/</script>
 <script>
-const D = ${JSON.stringify(d).replace(/</g, "\\u003c")};
+const D = ${json};
 const $ = (id) => document.getElementById(id);
-const T0 = 0, T1 = D.span;
-let cur = 0, playing = false, speed = 60, last = 0;
+const T1 = D.span;
+let cur = 0, playing = false, speed = 40, last = 0;
 
-const SEATS = D.summary.seats.slice().sort();
-const COLORS = {};
-const PAL = ['#3ddc84','#5ac8fa','#c792ea','#ffd166','#ff9f43','#f76c6c','#7bd389','#9aa7ff'];
-SEATS.forEach((s,i)=>COLORS[s]=PAL[i%PAL.length]);
+const ROLE_COLOR = { researcher:"#3ddc84", expert:"#57c8ff", line:"#c792ea", rules:"#ffb020" };
+const EDGE_COLOR = { challenge:"#ff7b72", consult:"#d2a8ff", feedback:"#58a6ff", "rule-fire":"#3d4a5a" };
 
-function fmt(ms){const d=new Date(D.t0+ms);return d.toTimeString().slice(0,8)}
-function fmtMin(ms){return Math.round(ms/60000)+' 分'}
+// ── vis-network：先用**全量图**算一次布局，再按时间揭示（拖动时布局不跳）──
+const nodesDS = new vis.DataSet(D.nodes.map(n=>({
+  id:n.id, label:n.id,
+  group:n.role,
+  value: 1 + (n.fired||0) + (n.results||0),
+  color:{background:ROLE_COLOR[n.role]||"#888", border:"#0d1014"},
+  font:{color:"#dbe3ec", size:13},
+  shape: n.role==="rules" ? "box" : "dot",
+})));
+const edgesDS = new vis.DataSet(D.edges.map((e,i)=>({
+  id:i, from:e.from, to:e.to,
+  color:{color:EDGE_COLOR[e.kind]||"#556", opacity:0.55},
+  width: e.kind==="rule-fire" ? 0.7 : 1.4,
+  dashes: e.kind==="rule-fire",
+  arrows:{to:{enabled:true, scaleFactor:0.5}},
+  title: e.kind,
+})));
+const options = {
+  physics:{ stabilization:{ iterations: 260 }, barnesHut:{ gravitationalConstant:-9000, springLength:120, springConstant:0.03, damping:0.4 } },
+  interaction:{ hover:true, multiselect:false },
+  nodes:{ scaling:{ min:6, max:34 } },
+  edges:{ smooth:{ type:"continuous", roundness:0.35 } },
+};
+const network = new vis.Network($('graph'), {nodes:nodesDS, edges:edgesDS}, options);
 
-// ── 计数器：二分找 <= cur ───────────────────────────────────────
-function upto(arr, key){let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m][key]<=cur)lo=m+1;else hi=m}return lo}
-const toolNames = Object.keys(D.summary.tools).sort();
+// 按时间揭示（同时把"最近 5 分钟"的边点亮）
+let ei = 0;
+function seek(t){
+  if (t < cur) { // 往回拖：全部重设
+    ei = 0;
+    const upd = D.edges.map((e,i)=>({id:i, hidden: e.t > t, color:{color:EDGE_COLOR[e.kind]||"#556", opacity: e.t>t-300000?1:0.45}, width: e.kind==="rule-fire"?0.7:1.4 }));
+    edgesDS.update(upd);
+    nodesDS.update(D.nodes.map(n=>({id:n.id, hidden: n.born > t})));
+    while (ei < D.edges.length && D.edges[ei].t <= t) ei++;
+  } else {
+    const fresh = [];
+    while (ei < D.edges.length && D.edges[ei].t <= t) { fresh.push(ei); ei++; }
+    if (fresh.length) {
+      edgesDS.update(fresh.map(i=>({id:i, hidden:false, color:{color:(EDGE_COLOR[D.edges[i].kind]||"#556"), opacity:1}, width: D.edges[i].kind==="rule-fire"?0.7:2.2})));
+    }
+    nodesDS.update(D.nodes.filter(n=>n.born>cur && n.born<=t).map(n=>({id:n.id, hidden:false})));
+  }
+  cur = t;
+}
+
+function upto(arr, key){ let lo=0,hi=arr.length; while(lo<hi){const m=(lo+hi)>>1; if(arr[m][key]<=cur) lo=m+1; else hi=m;} return lo; }
 
 function drawCounters(){
-  const eN = upto(D.exps,'t');
-  const tN = toolNames.map(n=>({n,c:D.events.filter(e=>e.tool===n && e.t<=cur).length}));
-  const expIn = D.spans.filter(s=>s.from<=cur&&cur<=s.to).length;
+  const toolN = D.toolEvs.filter(e=>e.t<=cur);
+  const expN = D.exps.filter(e=>e.t<=cur);
+  const inRun = D.nodes.filter(n=>n.born<=cur);
   const rows = [
-    ['时间', fmt(cur)],
-    ['tick 累计', upto(D.ticks.map(t=>({t})),'t')],
-    ['专家在跑', expIn],
-    ['专家累计', D.spans.filter(s=>s.from<=cur).length],
-    ['结构化实验', eN+' / '+D.exps.length],
-    ...tN.map(x=>['tool · '+x.n, x.c]),
+    ["时间", new Date(D.t0+cur).toTimeString().slice(0,8)],
+    ["节点（已出现）", inRun.length+" / "+D.nodes.length],
+    ["关系边", upto(D.edges,'t')+" / "+D.edges.length],
+    ["tick 累计", D.events.filter(e=>(e.kind==='tick:beat'||e.kind==='rule:tick')&&e.t<=cur).length],
+    ["工具调用", toolN.length],
+    ["结构化实验", expN.length+" / "+D.exps.length],
   ];
-  $('counters').innerHTML = rows.map(([k,v])=>'<tr><td class=k>'+k+'</td><td class=n>'+v+'</td></tr>').join('');
+  $('counters').innerHTML = rows.map(([k,v])=>'<tr><td class=dim>'+k+'</td><td class=n>'+v+'</td></tr>').join('');
+  // 工具直方图
+  const byName = {};
+  for(const e of toolN) byName[e.name]=(byName[e.name]||0)+1;
+  const max = Math.max(1,...Object.values(byName));
+  $('toolbars').innerHTML = Object.entries(byName).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+    '<div><span class=dim>'+k+'</span> <span class=n style="float:right">'+v+'</span><div class="bar2"><i style="width:'+(100*v/max)+'%"></i></div></div>').join('') || '<span class=dim>还没有</span>';
+  // 入/出度
+  const out={}, inc={};
+  for(const e of D.edges) if(e.t<=cur){ out[e.from]=(out[e.from]||0)+1; inc[e.to]=(inc[e.to]||0)+1; }
+  const ids = [...new Set([...Object.keys(out),...Object.keys(inc)])];
+  $('degrees').innerHTML = ids.sort((a,b)=>((inc[b]||0)+(out[b]||0))-((inc[a]||0)+(out[a]||0)))
+    .map(id=>'<tr><td>'+id+'</td><td class=n>'+(inc[id]||0)+'</td><td class=n>'+(out[id]||0)+'</td></tr>').join('')
+    || '<tr><td class=dim>还没有关系</td></tr>';
 }
 
 function drawRecent(){
-  const ev = D.events.filter(e=>e.t<=cur).slice(-14).reverse();
-  $('recent').innerHTML = ev.map(e=>{
-    const c = e.kind==='error'?'esc':(e.tool?'':(e.kind.startsWith('tick')?'':''));
-    return '<div class="'+c+'"><span class=k>'+fmt(e.t)+'</span> <b>'+e.kind+'</b> '+
-      (e.seat?'<span style="color:'+(COLORS[e.seat]||'#fff')+'">'+e.seat+'</span> ':'')+
-      esc(e.text.replace(/^\S+\s+\S+\s*/,'')).slice(0,110)+'</div>';
-  }).join('');
+  const ev = D.events.filter(e=>e.t<=cur).slice(-16).reverse();
+  $('recent').innerHTML = ev.map(e=>
+    '<div><span class=dim>'+new Date(D.t0+e.t).toTimeString().slice(0,8)+'</span> <b>'+(e.kind||'')+'</b> '+
+    esc((e.text||'').replace(/^\\S+\\s+\\S+\\s*/,'')).slice(0,120)+'</div>'
+  ).join('');
 }
 function esc(s){return (s||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))}
 
-function canvasW(c){const r=c.getBoundingClientRect();c.width=r.width*devicePixelRatio;c.height=c.height||c.clientHeight;const x=c.getContext('2d');x.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);return {x,w:r.width,h:c.clientHeight}}
-
-// ── ① 顶部条：tick 密度 + 空窗 + 报错 + 工具点 ──────────────────
-function drawStrip(){
-  const {x,w,h}=canvasW($('strip'));
-  x.clearRect(0,0,w,h);
-  const px=(t)=>t/T1*w;
-  // 空窗（红带）
-  const gaps=[]; for(let i=1;i<D.ticks.length;i++){const d=D.ticks[i]-D.ticks[i-1]; if(d>8*60000) gaps.push([D.ticks[i-1],D.ticks[i]])}
-  x.fillStyle='rgba(255,95,86,.18)';for(const [a,b] of gaps) x.fillRect(px(a),0,Math.max(2,px(b)-px(a)),h);
-  // tick 小竖线
-  x.strokeStyle='#5ac8fa99';x.beginPath();for(const t of D.ticks){const X=px(t);x.moveTo(X,4);x.lineTo(X,h-4)}x.stroke();
-  // 工具点（紫色，画在上半）
-  x.fillStyle='#c792ea';for(const e of D.events) if(e.tool){x.fillRect(px(e.t)-1,6,2,6)}
-  // 实验点（黄色，下半）
-  x.fillStyle='#ffd166';for(const e of D.exps){x.fillRect(px(e.t)-1,h-14,2,8)}
-  // 报错（红）
-  x.fillStyle='#ff5f56';for(const e of D.events) if(e.kind==='error'){x.fillRect(px(e.t)-1,10,3,h-20)}
-  // 光标
-  x.fillStyle='#fff';x.fillRect(px(cur)-1,0,2,h);
-}
-
-// ── ② 席位泳道 ──────────────────────────────────────────────────
-function drawLanes(){
-  const {x,w,h}=canvasW($('lanes'));
-  x.clearRect(0,0,w,h);
-  const laneH=Math.max(14,Math.floor((h-8)/Math.max(1,SEATS.length)));
-  const px=(t)=>t/T1*w;
-  x.font='11px ui-monospace,monospace';
-  SEATS.forEach((s,i)=>{
-    const y=4+i*laneH;
-    x.fillStyle='#8b97a6';x.fillText(s,2,y+laneH-4);
-    // 泳道底
-    x.fillStyle='#1b2027';x.fillRect(96,y,laneH-6>0?w-96:0,laneH-4);
-    for(const sp of D.spans.filter(v=>v.seat===s)){
-      const a=px(sp.from), b=Math.max(a+2,px(sp.to));
-      x.fillStyle = sp.chars===(-1) ? '#ffb020' : (COLORS[s]||'#3ddc84');
-      x.globalAlpha=.85;x.fillRect(96+a,y-0,b,laneH-5);x.globalAlpha=1;
+// ── 4 个条带（纯 canvas，5 分钟一格）──
+function drawBins(){
+  const spec = [['c1','ticks','#57c8ff'],['c2','tools','#c792ea'],['c3','edges','#3ddc84'],['c4','exps','#ffd166']];
+  for(const [id,key,color] of spec){
+    const c=$(id), r=c.getBoundingClientRect(); c.width=r.width*devicePixelRatio; c.height=r.height*devicePixelRatio;
+    const x=c.getContext('2d'); x.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+    const w=r.width,h=r.height; x.clearRect(0,0,w,h);
+    const max=Math.max(1,...D.bins.map(b=>b[key]));
+    const bw=w/D.bins.length;
+    for(const b of D.bins){
+      const bh=(b[key]/max)*(h-14);
+      x.fillStyle = (D.t0+b.t>D.t0+cur) ? '#2a323c' : color;
+      x.fillRect(b.i*bw+1, h-bh-4, Math.max(1,bw-2), bh);
     }
-    // 现在在跑的高亮
-    for(const sp of D.spans.filter(v=>v.seat===s&&v.from<=cur&&cur<=v.to)){
-      x.strokeStyle='#fff';x.strokeRect(96+px(sp.from),y-0,Math.max(2,px(sp.to)-px(sp.from)),laneH-5);
-    }
-  });
-  x.fillStyle='#fff';x.fillRect(96+px(cur),0,1,h);
-}
-
-// ── ③ 拓扑：谁和谁在说话（近 15 分钟内的 challenge/consult/回流）──
-function drawTopo(){
-  const {x,w,h}=canvasW($('topo'));
-  x.clearRect(0,0,w,h);
-  const cx=w/2, cy=h/2, R=Math.min(w,h)*0.34;
-  const nodes = ['3 位研究员','hands-on','falsifier','instrument-skeptic',...SEATS];
-  const uniq=[...new Set(nodes)];
-  const pos={};
-  uniq.forEach((s,i)=>{const a=-Math.PI/2+i*2*Math.PI/uniq.length;pos[s]={x:cx+R*Math.cos(a),y:cy+R*Math.sin(a)}});
-  // 边：challenge / consult / 回流 在最近窗口内
-  const W=15*60000;
-  const rel = D.events.filter(e=>e.t<=cur&&e.t>cur-W&&(e.kind==='tool:challenge'||e.kind==='tool:consult'||e.kind==='flow'));
-  x.font='11px ui-monospace,monospace';
-  for(const [s,p] of Object.entries(pos)){
-    const active = rel.some(e=>(e.text||'').includes(s));
-    x.beginPath();x.arc(p.x,p.y,active?9:6,0,7);
-    x.fillStyle = active ? '#5ac8fa' : '#2a313a';x.fill();
-    x.fillStyle='#d7dee7';x.fillText(s,p.x+12,p.y+4);
+    // 光标
+    x.fillStyle='#fff'; x.fillRect((cur/T1)*w, 0, 1, h);
+    // 标题
+    x.fillStyle='#8494a6'; x.font='10px ui-monospace'; x.fillText(key+' / 5min  max '+max, 6, 11);
   }
-  // 画几条"发言"线（从中心往说话的人）
-  rel.slice(-24).forEach((e,i)=>{
-    const target=Object.keys(pos).find(k=>(e.text||'').includes(k));
-    if(!target)return;
-    const p=pos[target];
-    x.strokeStyle='rgba(90,200,250,'+(0.15+0.5*(i/Math.max(1,rel.length))).toFixed(2)+')';
-    x.beginPath();x.moveTo(cx,cy);x.lineTo(p.x,p.y);x.stroke();
-  });
-  x.fillStyle='#8b97a6';x.fillText('近 15 分钟：挑战 / 请教 / 回流（线越亮越新）',10,16);
 }
 
 function drawProblems(){
   $('problems').innerHTML = D.problems.length
-    ? D.problems.map(p=>'<div style="margin-bottom:6px" class="'+((p.startsWith('⛔'))?'esc':'warn')+'">'+esc(p)+'</div>').join('')
+    ? D.problems.map(p=>'<div class="'+(p.startsWith('⛔')?'esc':'warn')+'" style="margin-bottom:5px">'+esc(p)+'</div>').join('')
     : '<div class="ok">★ 没找到可疑处</div>';
 }
 
-function drawAll(){drawCounters();drawRecent();drawStrip();drawLanes();drawTopo();$('clock').textContent=fmt(cur);$('elapsed').textContent='已过 '+fmtMin(cur)+' / '+fmtMin(T1)}
+function drawAll(){ drawCounters(); drawRecent(); drawBins(); $('clock').textContent=new Date(D.t0+cur).toTimeString().slice(0,8); }
 
-function setCur(t){cur=Math.max(0,Math.min(T1,t));$('scrub').value=String(Math.round(cur/T1*1000));drawAll()}
+function setCur(t){ t=Math.max(0,Math.min(T1,t)); seek(t); $('scrub').value=String(Math.round(t/T1*1000)); drawAll(); }
 
-$('scrub').addEventListener('input',e=>{playing=false;$('play').textContent='▶ 播放';setCur(Number(e.target.value)/1000*T1)});
-$('play').addEventListener('click',()=>{playing=!playing;$('play').textContent=playing?'⏸ 暂停':'▶ 播放';last=performance.now()});
-$('speed').addEventListener('input',e=>{speed=Number(e.target.value);$('speedv').textContent=speed+'×'});
-$('next').addEventListener('click',()=>{const n=D.events.find(e=>e.t>cur);if(n)setCur(n.t)});
-$('prev').addEventListener('click',()=>{const p=[...D.events].reverse().find(e=>e.t<cur-1);if(p)setCur(p.t)});
-$('problems').addEventListener('click',()=>{});
+$('scrub').addEventListener('input', e=>{ playing=false; $('play').textContent='▶ 播放'; setCur(Number(e.target.value)/1000*T1); });
+$('play').addEventListener('click', ()=>{ playing=!playing; $('play').textContent=playing?'⏸ 暂停':'▶ 播放'; last=performance.now(); });
+$('speed').addEventListener('input', e=>{ speed=Number(e.target.value); $('speedv').textContent=speed+'×'; });
+$('b1').addEventListener('click', ()=>setCur(cur-300000));
+$('f1').addEventListener('click', ()=>setCur(cur+300000));
+$('next').addEventListener('click', ()=>{ const n=D.events.find(e=>e.t>cur); if(n) setCur(n.t); });
 
 function loop(now){
   if(playing){
-    const dt=(now-last)||16;last=now;
-    // 倍速的含义：**整段时间线用 (600/倍速) 秒放完**（60× ⇒ 10 秒走完全程）
-    const rate=T1 * speed / 600;
+    const dt=(now-last)||16; last=now;
+    const rate=T1*speed/600;              // 倍速 N ⇒ 整段用 600/N 秒放完
     let n=cur+rate*(dt/1000);
-    if(n>=T1){n=T1;playing=false;$('play').textContent='▶ 播放'}
+    if(n>=T1){ n=T1; playing=false; $('play').textContent='▶ 播放'; }
     setCur(n);
   }
   requestAnimationFrame(loop);
 }
-drawProblems();drawAll();requestAnimationFrame(loop);
-window.addEventListener('resize',drawAll);
+network.once('stabilizationIterationsDone', ()=>{
+  network.setOptions({physics:{enabled:false}});
+  setCur(0);
+});
+drawProblems(); drawAll(); requestAnimationFrame(loop);
+window.addEventListener('resize', drawAll);
 </script>
 </body></html>`;
 }

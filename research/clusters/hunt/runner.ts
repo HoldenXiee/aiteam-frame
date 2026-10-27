@@ -211,7 +211,14 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     deliveries.push({ at: new Date().toISOString(), role: r, why: why.slice(0, 80), chars: 0, via: "consult" });
     return fire(r as ExpertName, why, focus, { echoed: true });
   });
-  const spawnLine = makeSpawnLine({ lab, onSpawn: (a) => spawned.push(a) });
+  const spawnLine = makeSpawnLine({
+    lab,
+    onSpawn: (a) => {
+      spawned.push(a);
+      // ★ 长出来的席位要能被时间线看到（"逐步长出来的拓扑"靠这条边）
+      log("seat", `spawn 支线 ${(a as unknown as { id?: string }).id ?? "line"}（spawn_line）`);
+    },
+  });
 
   // ── researcher ──
   //
@@ -344,6 +351,11 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
     const myKey = ang.key; // ★ hunt 的座位 key = 角度名
     // ★ 每位员工都拿 `challenge`，但**只能挑战别人**（自己那条在工具里拦）
     const portRun = makePortRun({ lab: LAB, selfKey: myKey });
+    // ★ 每位员工**自己的** consult 实例 —— 只有它知道"是谁在请教"（时间线上那条边的 from）
+    const myConsult = makeConsult((r, why, focus) => {
+      deliveries.push({ at: new Date().toISOString(), role: r, why: why.slice(0, 80), chars: 0, via: "consult" });
+      return fire(r as ExpertName, why, focus, { echoed: true });
+    }, () => myKey);
     const reviewExperiment = makeReviewExperiment({ lab: LAB, selfKey: myKey });
     const recordExperiment = makeRecordExperiment({
       lab: LAB,
@@ -373,7 +385,7 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       role: role + renderSeat(ang),
       // ★★ 白名单必须显式带上 web 工具 —— 否则扩展装了也进不来（P108 实测）
       permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
-      tools: { custom: [consult, spawnLine, challenge, portRun, recordExperiment, reviewExperiment] },
+      tools: { custom: [myConsult, spawnLine, challenge, portRun, recordExperiment, reviewExperiment] },
     });
     // ★ 研究员**不能**写 `lib/`（它的路是「写成缺口报告」，见 `LIB_BLOCK_REASON`）—— 保持默认 policy。
     //   ★ 为什么显式写出来而不省略：省略会让下一个人以为「忘了传」，改错方向。

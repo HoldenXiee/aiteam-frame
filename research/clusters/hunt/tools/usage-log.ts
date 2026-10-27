@@ -25,3 +25,23 @@ export function logToolCall(name: string, extra?: string): void {
     // ★ 记不上账**不许**影响工具本身（使用账是观测，不是功能）
   }
 }
+
+/**
+ * ★★★★★ 谁和谁之间发生了一件事（2026-10-27）
+ *
+ * ★ 为什么要单独记：时间线上那张"网"要有**边**。
+ *   之前日志里只有 `tool:challenge`（不知道挑战的是谁）和 `flow 辩证：共 9 次（hands-on←2…）`
+ *   （只有收尾时的一次汇总）⇒ 画不出"逐步长出来的关系网"。
+ * ★★ 记法：`edge <kind> <from>→<to>`，一行一条边，带时间戳。
+ *   kind：challenge / consult / feedback（专家回流给研究员）/ steer（规则注入）
+ */
+export function logEdge(from: string, to: string, kind: string): void {
+  try {
+    const dir = join(LAB, "work");
+    mkdirSync(dir, { recursive: true });
+    const line = `${new Date().toISOString()}  edge:${kind}  ${from}→${to}\n`;
+    appendFileSync(join(dir, "_topology.log"), line, "utf8");
+  } catch {
+    /* 观测不影响功能 */
+  }
+}

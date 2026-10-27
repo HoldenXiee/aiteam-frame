@@ -24,7 +24,7 @@
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { logToolCall } from "./usage-log.ts";
+import { logEdge, logToolCall } from "./usage-log.ts";
 
 export function makeChallenge(deps: {
   /** ★ 把挑战投给指定员工的 id（由 runner 提供；找不到就报错，不静默） */
@@ -77,7 +77,8 @@ export function makeChallenge(deps: {
       }),
     }),
     execute: async (_id, p) => {
-      logToolCall("challenge");
+      logToolCall("challenge", String((p as { to?: string }).to ?? ""));
+      logEdge(String(deps.selfKey ?? "?"), String((p as { to?: string }).to ?? "?"), "challenge");
       if (p.to === deps.selfKey) {
         return {
           content: [{ type: "text" as const, text: `★ 不能挑战自己（${deps.selfKey}）。可挑战：${deps.peers().map((x) => x.key).join("、")}` }],
