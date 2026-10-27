@@ -465,10 +465,21 @@ export function pruneUnreferenced(
         why: `prune-inside：${dirRel} 里没被任何账本/产物引用的 bulk`,
       };
       moved.push(row);
-      appendTidyLog(lab, row);
+      // ★★ 不逐文件落账（2026-10-27 实测：一次 prune 制造 8 万行，账本身变成垃圾）
+      //    明细在 `_trash/<stamp>/MANIFEST.txt`；这里只记**一行汇总**
     }
   };
   walk(join(lab, dirRel), 0);
+  if (moved.length > 0) {
+    appendTidyLog(lab, {
+      at: now.toISOString(),
+      action: "moved",
+      rel: dirRel,
+      files: moved.length,
+      bytes: moved.reduce((a, m) => a + m.bytes, 0),
+      why: `prune-inside：清掉 ${moved.length} 个没被引用的 bulk（明细在 MANIFEST）`,
+    });
+  }
   if (moved.length > 0) {
     try {
       const NL = String.fromCharCode(10);
