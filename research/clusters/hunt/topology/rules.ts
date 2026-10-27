@@ -60,7 +60,9 @@ export const THROTTLE_N = 15;
  *   工具调用次数**不会因为等待而增加**；**时间会流走**。
  *   （同族：`P11`「用什么当判据，就等于让它服从什么」）
  */
-export const THROTTLE_MS = 5 * 60_000;
+// ★ 可用 `HUNT_THROTTLE_MS` 覆盖 —— 只为**短窗口探针**（默认 5 分钟不动）
+//   ★ 它改变的是"多久观察一次"，是**框架旋钮**：改它要当成实验做（纪律②）
+export const THROTTLE_MS = Number(process.env.HUNT_THROTTLE_MS) || 5 * 60_000;
 /** 平台期阈值：连续几"看"没有进展。★ 取值理由：一审一换视角的节奏 */
 export const PLATEAU_ROUNDS = 3;
 /**
@@ -391,6 +393,10 @@ export type State = {
   lastDebtAt: number;
   /** ★ 上一次催「撤回被判补的证据」的时刻（2026-10-25）*/
   lastRetractAt: number;
+  /** ★ 上一次叫它整理空间的时刻（2026-10-27）*/
+  lastTidyAt: number;
+  /** ★★★ 每个候选被提醒过几次（提醒满 3 次仍无人处置 ⇒ 按形状自动清，见 onTidy）*/
+  tidyStrikes: Record<string, number>;
   // ★★★ 2026-10-20 拆分：`audienceAsked` / `signedAsked` / `disputeAsked`
   //   三本账随三条 forge 规则一起搬走了。★ hunt 只有两本账：审的（auditedOutputs）、辩的（challengedOutputs）。
 };
@@ -416,6 +422,8 @@ export function newState(): State {
     lastPhenomenonAt: 0,
     lastDebtAt: 0,
     lastRetractAt: 0,
+    lastTidyAt: 0,
+    tidyStrikes: {},
     lastTickAt: Date.now(),
   };
 }
@@ -488,6 +496,7 @@ export async function tick(
       onPhenomenon: () => Promise<void>;
       onDebt: () => Promise<void>;
       onRetract: () => Promise<void>;
+      onTidy: () => Promise<void>;
     };
   },
 ): Promise<void> {
@@ -547,6 +556,8 @@ export async function tick(
   await step("onPhenomenon", () => rules.onPhenomenon());
   await step("onDebt", () => rules.onDebt());
   await step("onRetract", () => rules.onRetract());
+  // ★ 不 fire 任何人（只写一份清单进 work/ + 记日志）⇒ 放在会 fire 的规则之前（纪律㉚）
+  await step("onTidy", () => rules.onTidy());
   // ★★★★★ 2026-10-21 · **顺序按"会不会阻塞 tick"排，不按重要性排**
   //
   //   ★★★ 实测（这一条规则的第一次真跑）：420 秒里 tick 只跑了 **1 次**，
@@ -572,6 +583,10 @@ import { externalUsage, readArtifacts } from "./experiments.ts";
 import { readStructured } from "../tools/record-experiment.ts";
 import type { ExperimentRow } from "../tools/record-experiment.ts";
 import { convergenceDebt, unsupportedClaims } from "./converged-gate.ts";
+import { applyTidy, candidates, purgeTrash, TIDY } from "./tidy.ts";
+
+/** ★ tidy 的节拍（可用 HUNT_TIDY_MS 覆盖，只为短窗口探针）*/
+const TIDY_EVERY_MS = Number(process.env.HUNT_TIDY_MS) || 20 * 60_000;
 
 export function makeRules(ctx: TriggerCtx) {
   const { state } = ctx;
@@ -1115,6 +1130,105 @@ export function makeRules(ctx: TriggerCtx) {
   }
 
 
+  // ══════════════════════════════════════════════════════════════
+  // ★★★★★ onTidy —— 让它**整理自己的空间**（2026-10-27 设计者交办）
+  //
+  //   ★ 设计者原话：「hunt 集群在工作时不会自己整理文件夹里面的内容吗，
+  //     一定要**定时把废物文件删了**（尤其废弃文档），**留痕都是对上下文的污染**」
+  //
+  //   ★★ 为什么不是一句提示：提示里写过的东西它不动（同一规律第 5 次实证）。
+  //     ⇒ 工具（`tidy_space`）+ **带候选清单的规则** + 配额。
+  //   ★★★ 为什么这是研究质量问题，不是整洁癖：实测 `work/` **157519 文件 / 1.1GB**
+  //     而成果 `outbox/` 只有 **6MB**（垃圾是产物 180 倍）。两个可数后果：
+  //     ① 角色提示里写着「研究路径在 `work/`」⇒ 垃圾**直接进上下文**；
+  //     ② `onPlateau` 扫 `work/` 把事件循环冻住 ⇒ tick 1 次/45 分钟（exit=124）。
+  //
+  //   ★ 我**不替它决定删哪个**（硬规则①）：只给机械候选（拷进来的 node_modules /
+  //     >2000 文件 / >50MB）+ 三选一（清 / 说明为什么留 / 换成归档）。判断权在它。
+  // ══════════════════════════════════════════════════════════════
+  async function onTidy(): Promise<void> {
+    // ★ 留痕的真删**任何时候都能做**（它只是把过期批次清掉，不需要谁同意）
+    const now = Date.now();
+    try {
+      purgeTrash(LAB);
+    } catch {
+      /* 真删失败不影响后面 */
+    }
+    if (ctx.closing?.()) return;
+    // ★ 注意：**不**依赖 `ctx.challenge`（单员工时它是 undefined）——
+    //   清理是"空间的卫生"，不该因为"没人可派"就不做（纪律⑳：拦的同时必须给路，
+    //   反过来也成立：**没路可给的时候，护栏内的动作照做**）。
+    if (now - state.lastTidyAt < TIDY_EVERY_MS) return;
+    const cands = candidates(LAB);
+    if (cands.length === 0) return;
+    const bytes = cands.reduce((a, c) => a + c.bytes, 0);
+    const files = cands.reduce((a, c) => a + c.files, 0);
+    // ★ 只有真的"大到影响读数"才叫它（几百 K 的 scratch 不值得占用一个人的上下文）
+    if (files < TIDY.manyFiles && bytes < TIDY.bigDirBytes) return;
+    const peers = ctx.peerKeys?.() ?? [];
+    state.lastTidyAt = now;
+
+    // ★★★ 升级梯（2026-10-27）：**提醒 3 次仍无人处置 ⇒ 按形状清掉**
+    //
+    //   ★ 为什么需要它：「提醒」在别的场合已经被证明不可靠（`spawn_line` 三轮 0 次、
+    //     欠账列了 3 条清 0）。用户的要求是**定时删**，不是"记得就删"。
+    //   ★★ 但也不许"第一次就删"：给 3 次（≈1 小时）人判断的机会，
+    //     且**被账本引用过的一律不清**（那条护栏在 `applyTidy` 里，删不掉）。
+    //   ★ 清掉的**不是真删**：进 `work/_trash/`，2 小时内可回退。
+    const stale = cands.filter((c) => {
+      const s0 = state.tidyStrikes[c.rel] ?? 0;
+      return s0 >= 3 && now - (c.newestMs || 0) > 6 * 3600_000;
+    });
+    if (stale.length > 0) {
+      const res = applyTidy(LAB, {
+        paths: stale.slice(0, TIDY.maxPathsPerCall).map((c) => c.rel),
+        why: "提醒 3 次无人处置 ⇒ 按形状清（可回退 2 小时）",
+        kind: "auto-escalated",
+      });
+      if (res.moved.length > 0) {
+        ctx.trace(
+          "onTidy",
+          `★★ 升级：提醒 3 次没人动 ⇒ 自动清 ${res.moved.length} 个（${res.moved.reduce((a, m) => a + m.files, 0)} 文件）`,
+        );
+        for (const r of res.refused) ctx.trace("onTidy", `  ⛔ ${r.rel}：${r.reason.slice(0, 60)}`);
+        // 清掉的不再计提醒
+        for (const m of res.moved) delete state.tidyStrikes[m.rel];
+      }
+    }
+    // 其余的记一次提醒
+    for (const c of cands.slice(0, 8)) state.tidyStrikes[c.rel] = (state.tidyStrikes[c.rel] ?? 0) + 1;
+
+    if (!ctx.challenge || peers.length === 0) return;
+    const who = peers[(state.challengeOffset ?? 0) % peers.length] ?? peers[0]!;
+    const top = cands.slice(0, TIDY.maxPathsPerCall);
+    const mb = (n: number) => `${Math.round(n / 1048576)}MB`;
+    ctx.trace("onTidy", `垃圾候选 ${cands.length} 个 / ${files} 文件 / ${mb(bytes)} ⇒ 派 ${who} 处置前 ${top.length} 个`);
+    ctx.challenge(
+      who,
+      [
+        `## ★★★★★ 你的空间脏了：${files} 个垃圾文件 / ${mb(bytes)}（成果只有 6MB）`,
+        "",
+        "这不是洁癖问题，是**研究质量问题**，两条都可数：",
+        "1. 角色提示里写着「研究路径在 `work/`」⇒ 这些垃圾**会进你和同事的上下文**",
+        `2. 平台期扫描要遍历 \`work/\`（${files} 个文件）⇒ 实测把 tick 冻到 45 分钟 1 次`,
+        "",
+        "### 机械候选（只看形状，不看内容 —— 该不该留你判断）",
+        ...top.map((c) => `- \`${c.rel}\` — ${c.files} 文件 / ${mb(c.bytes)}：${c.why.join("；")}`),
+        cands.length > top.length ? `- （另有 ${cands.length - top.length} 个，见 \`tidy_space\` 拒收理由或下轮）` : "",
+        "",
+        "### 三选一（必须有后果，别放着）",
+        "1. **清掉** —— 用 `tidy_space`（一次最多 3 个；移进 `work/_trash/`，两小时后真删）",
+        "2. **说明为什么留** —— 写进 `work/` 一句话：它下次会被谁用、什么时候用",
+        "3. **换成归档** —— 把结论/读数抽成一行进账本，原始 scratch 再清",
+        "",
+        "★ 护栏（代码执行，不是提示）：不许碰 `outbox/` `inbox/` `lib/` 账本与日志、**被账本引用过的目录**。",
+        "★★ 判据（我机械可查）：`work/_tidy.jsonl` 里出现 `tidy:moved` 行 ⇒ 真清了；只有说明没有动作 ⇒ 下轮还是这张清单。",
+      ]
+        .filter(Boolean)
+        .join(String.fromCharCode(10)),
+    );
+  }
+
 /** ★ 审现象的投递文本（抽成纯函数：一次可以派多条，内容必须一致）*/
 function phenomenonPrompt(target: ExperimentRow): string {
   return [
@@ -1343,5 +1457,5 @@ function phenomenonPrompt(target: ExperimentRow): string {
     ctx.trace("onGeneralize", "→ inspirer（没有 hands-on 座位）");
   }
 
-  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, onRetract, drainer };
+  return { onSettled, onCapabilityGap, onPlateau, onNewFinding, onInstrumentReview, onGeneralize, onExternal, onPhenomenon, onDebt, onRetract, onTidy, drainer };
 }

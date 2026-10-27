@@ -85,6 +85,8 @@ import { renderLibTests, runLibTests } from "../micro/libtest.ts";
 // ★★★ 辩证机制：一个员工挑战另一个员工的产物（设计者提示 2026-10-19）
 import { makeChallenge } from "./tools/challenge.ts";
 import { makeSpawnLine } from "./tools/spawn-line.ts";
+import { makeTidySpace } from "./tools/tidy.ts";
+import { renderTidyFacts } from "./topology/tidy.ts";
 
 /** 拓扑日志（★ 它会不会用 consult，看这个） */
 function log(kind: string, detail: string): void {
@@ -219,6 +221,9 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       log("seat", `spawn 支线 ${(a as unknown as { id?: string }).id ?? "line"}（spawn_line）`);
     },
   });
+
+  // ★ 清自己的空间（护栏在 topology/tidy.ts：不许碰成果/证据/账本）
+  const tidySpace = makeTidySpace(LAB);
 
   // ── researcher ──
   //
@@ -385,7 +390,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       role: role + renderSeat(ang),
       // ★★ 白名单必须显式带上 web 工具 —— 否则扩展装了也进不来（P108 实测）
       permissions: { only: [...ALL_TOOLS, ...WEB_TOOLS] },
-      tools: { custom: [myConsult, spawnLine, challenge, portRun, recordExperiment, reviewExperiment] },
+      // ★ tidy_space（2026-10-27）：空间脏了清自己的 scratch —— 设计者交办
+      tools: { custom: [myConsult, spawnLine, challenge, portRun, recordExperiment, reviewExperiment, tidySpace] },
     });
     // ★ 研究员**不能**写 `lib/`（它的路是「写成缺口报告」，见 `LIB_BLOCK_REASON`）—— 保持默认 policy。
     //   ★ 为什么显式写出来而不省略：省略会让下一个人以为「忘了传」，改错方向。
@@ -433,6 +439,23 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
   //   ★★ 它**不违反「运行时不能干涉」** —— 它是**集群的收尾形态**（配置的一部分），
   //      不是"我在外面判断该不该停"。
   let closing = false;
+  // ★★★★ 2026-10-27 · **陈旧的收尾请求会当场杀掉下一轮**（实测踩到）
+  //
+  //   ★ 现象：点过「停hunt」之后，下一次启动跑到 165s 就进收尾态、打出 rule:done，
+  //     而窗口是 420s ⇒ 我以为是"提前收尾"，其实是**上一轮的信号文件还在**。
+  //   ★★ 判据：收尾请求只对**写下它那一刻正在跑的那一轮**有意义 ——
+  //     启动时它一律过期（和"陈旧锁必须先确认进程死了"是同一类，只是这个更简单：
+  //     锁有 PID 可查，信号文件没有 ⇒ 只能按"出生时刻"判）。
+  //   ★ 只在**启动时**清一次，运行中被写进来的照常生效（那是有人真要停）。
+  try {
+    const stale = join(LAB, "work", "_stop-request");
+    if (existsSync(stale)) {
+      unlinkSync(stale);
+      log("window", "清理陈旧收尾请求 `work/_stop-request`（上次留下的，只对上一轮有效）");
+    }
+  } catch {
+    /* ignore */
+  }
 
   const rules = makeRules({
     fireNow: fire,
@@ -1439,6 +1462,8 @@ export async function runCluster(secs: number, dry = false, employees = 1) {
       renderSeven(sevenStats(readStructured(LAB))),
       renderGate(convergedGate(LAB, readStructured(LAB))),
       renderDebt(convergenceDebt(LAB, readStructured(LAB))),
+      // ★ 空间卫生（2026-10-27）：垃圾会进上下文、会拖慢平台期扫描
+      renderTidyFacts(LAB),
       renderUnsupported(
         (() => {
           try {

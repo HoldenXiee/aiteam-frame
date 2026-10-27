@@ -48,6 +48,7 @@
 //       源 = hunt（第一集群）· 目标 = forge（第二集群）
 // ══════════════════════════════════════════════════════════════════
 
+import { candidates } from "./hunt/topology/tidy.ts";
 import { cpSync, existsSync, mkdirSync, readdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,13 +108,40 @@ const WORK_SKIP = new Set([
  * ★ 真正的研究路径只有 **4,972 个文件**（runs/、脚本、日志）—— 拷这些就够了。
  * ★ 若 forge 需要具体语料，它自己造一份就是（它有一模一样的实验能力）。
  */
-const DIR_SKIP = new Set(["corpus", "node_modules", ".git"]);
+const DIR_SKIP = new Set(["corpus", "node_modules", ".git", "_trash"]);
+
+/**
+ * ★★★★★ 2026-10-27 · **垃圾会被快照复制进 forge 的空间**（实测）
+ *
+ * ★ 现象：`batch-011` 有 **726MB**，其中 **720MB 是 hunt 的 `work/`**：
+ *   `P800-lostupd/` 360MB、`runs/` 33MB、`P370-drain/` 25MB …… 全是探针 scratch。
+ * ⇒ 第一集群的垃圾**每拍一批就复制一份**（11 批共 2.6GB），
+ *   而且 **forge 也要读 `work/`**（研究路径）⇒ 垃圾同时污染**它的上下文**。
+ *
+ * ★★ 修法：用**与 tidy 完全同一把尺子**（`topology/tidy.ts` 的 `candidates`）——
+ *   「超大 scratch / 拷进来的 node_modules / 碎文件洪水」不进快照。
+ * ★ 为什么这是对的而不是"偷懒"：forge 要的是**研究路径**（怎么做的、量了什么）；
+ *   超大 scratch 不是路径，是**中间垃圾**。它真要复算，自己造一份就是。
+ * ★★★ 判据：下一批 `batches.jsonl` 的 `bytes` 应大幅下降（改前 662MB）。
+ */
+let SNAPSHOT_SKIP_DIRS: Set<string> | null = null;
+
+/** 拍快照前算一次（纯形状判定，不读内容）；算不出来就不跳（宁可大，不要乱跳）*/
+function refreshJunk(src: string): void {
+  try {
+    SNAPSHOT_SKIP_DIRS = new Set(candidates(src).map((c) => c.rel.split("/").pop() ?? ""));
+  } catch {
+    SNAPSHOT_SKIP_DIRS = null;
+  }
+}
 
 /** ★ 一个路径要不要跳过（任何一层目录名命中就跳） */
 function shouldSkip(p: string): boolean {
   const parts = p.split(/[/\\]/);
   const name = parts[parts.length - 1] ?? "";
   if (DIR_SKIP.has(name) || WORK_SKIP.has(name) || name.endsWith(".lock")) return true;
+  // ★ 垃圾候选（同一把尺子：>50MB 或 >2000 文件 或 拷了 node_modules）
+  if (SNAPSHOT_SKIP_DIRS?.has(name)) return true;
   return parts.some((x) => DIR_SKIP.has(x));
 }
 
@@ -182,6 +210,7 @@ function measure(dir: string): { files: number; bytes: number } {
  */
 export function takeSnapshot(opts: { force?: boolean } = {}): SnapshotResult {
   const src = SOURCE_LAB;
+  refreshJunk(src);   // ★ 垃圾候选（同一把尺子，见上面的长注释）
   if (!existsSync(src)) {
     throw new Error(
       `快照失败：找不到第一集群 \`${SOURCE_CLUSTER}\` 的空间：${src}\n` +
