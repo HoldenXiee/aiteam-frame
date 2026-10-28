@@ -82,3 +82,5 @@ logs/*.html
 viz-ui/node_modules/
 viz-ui/dist/
 viz-ui/data/
+
+viz-ui/tsconfig.tsbuildinfo
