@@ -637,6 +637,11 @@ git -c http.proxy=http://127.0.0.1:10809 -c http.postBuffer=524288000 push origi
 
 ★ 只加在这一次命令上，**不写进 git 配置**（那会影响你所有仓库）。
 
+★★★ **提交身份不许自己编**：一律用仓库已配的 `user.name` / `user.email`，
+**不要** `git -c user.name=... -c user.email=... commit`。
+（2026-10-28 实测：我连续 74 笔写成 `assistant <a@local>`，已推到远端后才被设计者发现 ⇒
+重写历史 + 强推才修回来。判据：`git log --format='%an <%ae>' | sort | uniq -c` —— 出现的每个名字都要能对上。）
+
 ```bash
 npx tsc --noEmit          # 必须干净
 npm test                  # 必须全绿（2026-10-20 基线：213/213）
