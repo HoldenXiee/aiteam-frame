@@ -23,7 +23,7 @@
  *   npm run viz -- --log=work/runs/topology-2026-10-27T10-35-14.log
  *   npm run viz -- --open             # 生成后打开浏览器
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const REPO = process.cwd();
@@ -254,6 +254,135 @@ const problems = [
       ]),
 ];
 
+// ═══════════════════════════════════════
+// ★★★★★ 研究内容（用户 2026-10-28：「时间线可以细化，可以多一个界面来展示研究内容及过程，这样我才能分析」）
+//
+//   ★ 之前的图只有**拓扑**（谁跟谁说话、工具调用多少次）—— 那看得出"有没有在动"，
+//     **看不出它在研究什么**。要分析"研究过程"，必须把**实验本身**画进来：
+//       · 每一条结构化实验（claim / killCondition / expected / 现象 / 判决 / 对照 exit）
+//       · 每条产物（outbox 的 485 份）
+//       · 每次争辩（谁挑战谁、挑战的是什么、判成什么）
+//   ★★ 全部按**时间**排，和拓扑共用同一个时间游标 ⇒ 拖着看"这一刻它在研究什么"。
+// ═══════════════════════════════════════
+const clip = (v: unknown, n = 700): string => {
+  const s = typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
+  return s.length > n ? s.slice(0, n) + "…" : s;
+};
+
+type RU = {
+  id: string; t: number; at: string; project: string; by: string; outcome: string;
+  claim: string; kill: string; expected: string; phenomenon: string; verdict: string;
+  state: string; control: string; carriers: number; reviewed: string; preregOk: boolean;
+};
+const researchExps: RU[] = [];
+try {
+  for (const l of readFileSync(join(LAB, "work", "experiments.jsonl"), "utf8").split(String.fromCharCode(10))) {
+    if (!l.trim()) continue;
+    const r = JSON.parse(l) as Record<string, unknown>;
+    const when = String(r.at ?? r.recordedAt ?? "");
+    const t = (Date.parse(when) || 0) - t0;
+    const ctl = r.control as { exit?: number; cmd?: string } | undefined;
+    researchExps.push({
+      id: String(r.id ?? "?"),
+      t: Number.isFinite(t) ? t : 0,
+      at: when.slice(11, 19),
+      project: String(r.project ?? "?"),
+      by: String(r.by ?? "?"),
+      outcome: String(r.outcome ?? "?"),
+      claim: clip(r.claim),
+      kill: clip(r.killCondition, 400),
+      expected: clip(r.expected, 400),
+      phenomenon: clip(r.phenomenon, 600),
+      verdict: String(r.phenomenonVerdict ?? "未审"),
+      state: String(r.conjectureState ?? "未声明"),
+      control: ctl ? `exit=${ctl.exit} · ${clip(ctl.cmd, 90)}` : r.controlAbsent ? "无对照（已声明）" : "未声明",
+      carriers: Array.isArray(r.carriers) ? r.carriers.length : 0,
+      reviewed: String(r.reviewedBy ?? ""),
+      preregOk: Boolean(r.preregBeforeRun),
+    });
+  }
+} catch {
+  /* 没有实验账也能看 */
+}
+
+const products = (() => {
+  const dir = join(LAB, "outbox");
+  const out: { name: string; t: number; kb: number; head: string }[] = [];
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".md")) continue;
+      const p = join(dir, f);
+      const st = statSync(p);
+      let head = "";
+      try {
+        head = readFileSync(p, "utf8").replace(/^#+\s*/gm, "").replace(/\s+/g, " ").slice(0, 260);
+      } catch {
+        /* skip */
+      }
+      out.push({ name: f.replace(/\.md$/, ""), t: st.mtimeMs - t0, kb: Math.round(st.size / 1024), head });
+    }
+  } catch {
+    /* skip */
+  }
+  return out.sort((a, b) => a.t - b.t);
+})();
+
+const debates = (() => {
+  const out: { t: number; by: string; to: string; verdict: string; claim: string; artifact: string }[] = [];
+  try {
+    for (const l of readFileSync(join(LAB, "work", "challenges.jsonl"), "utf8").split(String.fromCharCode(10))) {
+      if (!l.trim()) continue;
+      const r = JSON.parse(l) as Record<string, string>;
+      out.push({
+        t: (Date.parse(r.at ?? "") || 0) - t0,
+        by: r.by ?? "?",
+        to: r.to ?? "?",
+        verdict: r.verdict ?? "",
+        claim: clip(r.claim, 400),
+        artifact: r.artifact ?? "",
+      });
+    }
+  } catch {
+    /* skip */
+  }
+  return out.sort((a, b) => a.t - b.t);
+})();
+
+// ★★★ 研究数据的时间轴必须**自己算**（2026-10-28 实测）
+//   ★ 现象：泳道图里 134 条实验全挤在 x=0 —— 因为日志窗口只有 8 分钟，
+//     而实验跨好几天，`t`（相对日志起点）全是负值 ⇒ 全被 clamp 到左边。
+//   ★★ 判据：一个视图的时间轴必须覆盖**它要显示的数据**，不能借用别人的窗口。
+const researchAxis: [number, number] = (() => {
+  const ts = [
+    ...researchExps.map((r) => t0 + r.t),
+    ...products.map((p) => t0 + p.t),
+    ...debates.map((d) => t0 + d.t),
+  ].filter((x) => Number.isFinite(x) && x > 0);
+  if (ts.length === 0) return [t0, t1];
+  const lo = Math.min(...ts);
+  const hi = Math.max(...ts);
+  // 两端各留 1% 余量，避免点压在边框上
+  const pad = Math.max(60_000, Math.round((hi - lo) * 0.01));
+  return [lo - pad, hi + pad];
+})();
+
+const researchStats = (() => {
+  const by = (k: (r: RU) => string) => {
+    const m: Record<string, number> = {};
+    for (const r of researchExps) m[k(r)] = (m[k(r)] ?? 0) + 1;
+    return m;
+  };
+  return {
+    exps: researchExps.length,
+    products: products.length,
+    debates: debates.length,
+    outcomes: by((r) => r.outcome),
+    verdicts: by((r) => r.verdict),
+    states: by((r) => r.state),
+    projects: by((r) => r.project),
+  };
+})();
+
 const outboxCount = (() => {
   try {
     return readdirSync(join(LAB, "outbox")).filter((f) => f.endsWith(".md")).length;
@@ -276,6 +405,7 @@ const data = {
   problems,
   gaps,
   events: events.map((e) => ({ t: at(e), kind: e.kind, seat: e.seat, tool: e.tool, text: e.text })),
+  research: { exps: researchExps, products, debates, stats: researchStats, axis: researchAxis },
   summary: {
     durationMin: Math.round(span / 60000),
     lines: raw.length,
@@ -300,6 +430,29 @@ const VIS = (() => {
 })();
 
 const html = renderHtml(data).replace("/*__VIS_NETWORK__*/", () => VIS);
+
+// ★★★★★ 2026-10-28 · 生成器自检：页面里的 JS 必须能被解析
+//
+//   ★ 我刚踩的坑：往模板字符串里插了一段 JS，里面的换行转义被当成真换行 ⇒
+//     生成的 HTML 整段脚本语法坏了。浏览器不会提示，表现是：
+//     图画不出来、计数全空、时钟停在占位符上 —— 看起来像"数据没有"，其实是**页面死了**。
+//   ★★ 这和纪律㉙ 是同一条（量具必须证明"该失败时会失败"）：一个"生成成功"的读数
+//     必须先能被判成"生成了但坏了"。`new Function(js)` 就是那个判据（解析失败就抛）。
+//   ★★★ 后果可数：坏页面会让我把"引擎没产出"误读成"集群没干活"。
+{
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+  const main = scripts[scripts.length - 1] ?? "";
+  try {
+    // 只解析、不执行（new Function 会在构造期做完整语法检查）
+    if (!process.env.VIZ_SKIPCHECK) new Function(main);
+  } catch (e) {
+    throw new Error(
+      `生成的时间线**脚本语法坏了**（浏览器会静默失败：图空白、时钟不动、计数全空）：${(e as Error).message}\n` +
+        "  ★ 多半是往模板字符串里插 JS 时，转义写成了真换行 —— 模板里必须双写反斜杠。",
+    );
+  }
+}
+
 mkdirSync(join(REPO, "logs"), { recursive: true });
 const out = join(REPO, "logs", "hunt-timeline.html");
 writeFileSync(out, html, "utf8");
@@ -360,6 +513,42 @@ td.n{text-align:right;color:var(--accent);white-space:nowrap}
 .recent div{padding:1px 0;border-bottom:1px dotted #1d242d}
 .esc{color:var(--bad)} .warn{color:var(--warn)} .ok{color:var(--ok)}
 .big{font-size:15px;color:var(--accent)}
+/* ── 页签（2026-10-28：一个文件里放四个视图，共用同一个时间游标）── */
+.tabs{display:flex;gap:6px;margin-left:auto}
+.tab{background:transparent;color:var(--dim);border:1px solid transparent;border-radius:6px;padding:3px 10px}
+.tab.on{background:var(--panel);color:var(--fg);border-color:var(--accent)}
+.view{display:none;min-height:0;overflow:hidden}
+.view.on{display:grid}
+/* 研究过程：泳道 */
+#v-flow{grid-template-columns:1fr 330px;grid-template-rows:1fr}
+#flowWrap{position:relative;overflow:auto;min-height:0;padding:6px 0}
+#flowSvg{display:block}
+.detail{border-left:1px solid var(--line);overflow:auto;min-height:0;padding:10px;background:#101519}
+.detail h3{margin:0 0 6px;font-size:12px;color:var(--accent)}
+.detail .k{color:var(--dim);font-size:11px;letter-spacing:.05em;margin-top:8px}
+.detail .v{white-space:pre-wrap;word-break:break-word}
+/* 研究内容：卡片 + 过滤 */
+#v-cards{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+.filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line);align-items:center}
+.filters input[type=text]{background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:3px 8px;font:inherit;min-width:200px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 9px;cursor:pointer;color:var(--dim)}
+.chip.on{border-color:var(--accent);color:var(--fg)}
+#cardList{overflow:auto;min-height:0;padding:10px 12px}
+.ru{background:var(--panel);border:1px solid var(--line);border-left:3px solid #3d4a5a;border-radius:6px;padding:7px 10px;margin-bottom:7px;cursor:pointer}
+.ru:hover{border-color:var(--accent)}
+.ru .h{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.ru .id{color:var(--accent);font-weight:600}
+.ru .cl{margin-top:3px;color:var(--fg);opacity:.92}
+.ru.open{border-left-color:var(--accent)}
+.ru .more{display:none;margin-top:7px;border-top:1px dotted #263040;padding-top:6px}
+.ru.open .more{display:block}
+.ru.dead{border-left-color:var(--bad)}
+.ru.hold{border-left-color:var(--warn)}
+.pill{font-size:11px;padding:0 6px;border-radius:4px;background:#1d242d}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)} .pill.warn{color:var(--warn)} .pill.dim{color:var(--dim)}
+/* 数字 */
+#v-nums{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+#numsWrap{overflow:auto;min-height:0;padding:6px 14px;align-self:start}
 </style></head><body>
 <header>
   <h1>hunt 拓扑时间线</h1>
@@ -367,8 +556,14 @@ td.n{text-align:right;color:var(--accent);white-space:nowrap}
   <span class="dim">${new Date(d.t0).toLocaleString()} → ${new Date(d.t1).toLocaleTimeString()}（${d.summary.durationMin} 分钟）</span>
   <span class="dim">${d.summary.nodes} 节点 · ${d.summary.edges} 关系边</span>
   <span class="big" id="clock">--:--:--</span>
+  <span class="tabs">
+    <button class="tab on" data-view="topo">拓扑</button>
+    <button class="tab" data-view="flow">研究过程</button>
+    <button class="tab" data-view="cards">研究内容</button>
+    <button class="tab" data-view="nums">数字</button>
+  </span>
 </header>
-<div class="wrap">
+<div class="wrap view on" id="v-topo">
   <div class="left">
     <div id="graph"></div>
     <div class="bar">
@@ -394,6 +589,42 @@ td.n{text-align:right;color:var(--accent);white-space:nowrap}
     <div class="card"><h2>它自己找出的问题</h2><div id="problems"></div></div>
     <div class="card"><h2>最近事件</h2><div class="recent" id="recent"></div></div>
   </div>
+</div>
+
+<!-- ★ 研究过程：泳道（每条实验一个点，按项目分行，拖着看它在研究什么） -->
+<div class="view" id="v-flow">
+  <div id="flowWrap"><svg id="flowSvg"></svg></div>
+  <!-- 范围切换在数字页签里，两个视图共用一个状态 -->
+  <div class="detail" id="detail"><div class="dim">点一个点看它的全部字段（claim / killCondition / expected / 现象 / 对照 exit / 载体）。</div></div>
+</div>
+
+<!-- ★ 研究内容：可搜可筛的卡片 -->
+<div class="view" id="v-cards">
+  <div class="filters">
+    <input id="q" type="text" placeholder="搜 claim / id / 项目 / 谁做的…">
+    <span class="chip on" data-f="all">全部</span>
+    <span class="chip" data-f="死">死</span>
+    <span class="chip" data-f="挂起">挂起</span>
+    <span class="chip" data-f="真意外">真意外</span>
+    <span class="chip" data-f="补的">判「补的」</span>
+    <span class="chip" data-f="未审">未审</span>
+    <span class="chip" data-f="已验证">猜想已验证</span>
+    <span class="dim" id="cardCount"></span>
+  </div>
+  <div id="cardList"></div>
+</div>
+
+<!-- ★ 数字：累计曲线（研究有没有在推进，一眼看得出） -->
+<div class="view" id="v-nums">
+  <div class="filters">
+    <span class="chip on" data-norm="0">绝对数（可比较量级）</span>
+    <span class="chip" data-norm="1">归一化（看形状）</span>
+    <span class="chip" data-range="0">全部</span>
+    <span class="chip on" data-range="72">最近 72 小时</span>
+    <span class="chip" data-range="24">最近 24 小时</span>
+    <span class="dim">★ 产物一直在长；实验/争辩是后段才出现的 —— 用归一化看趋势更清楚</span>
+  </div>
+  <div id="numsWrap"><svg id="numsSvg"></svg></div>
 </div>
 <script>/*__VIS_NETWORK__*/</script>
 <script>
@@ -501,6 +732,251 @@ function drawRecent(){
     esc((e.text||'').replace(/^\\S+\\s+\\S+\\s*/,'')).slice(0,120)+'</div>'
   ).join('');
 }
+// ═══════════════════════════════════════
+// ★ 研究过程（泳道）+ 研究内容（卡片）+ 数字（累计曲线）
+//   三者共用 cur —— 拖动时间轴，这三个视图同步只显示「那一刻之前发生的」
+// ═══════════════════════════════════════
+let rangeH = 72;  // 默认最近 72 小时（研究跨度 218h，全看会挤成一团；chip 里的默认高亮也换成 72）；否则只看"最近 N 小时"（研究跨度 218h，全看会挤成一团）
+function axisNow(){
+  const [a0, a1] = D.research.axis;
+  if (!rangeH) return [a0, a1];
+  const cut = a1 - rangeH * 3600000;
+  return [Math.max(a0, cut), a1];
+}
+const OC = { "活":"#3ddc84", "挂起":"#ffb020", "死":"#ff5f6d" };
+const VD = { "真意外":"#57c8ff", "补的":"#ff9f43", "未审":"#6b7a8c" };
+let pickId = null;
+
+function svg(tag, attrs, kids){
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for(const k in attrs) el.setAttribute(k, attrs[k]);
+  for(const c of (kids||[])) el.appendChild(c);
+  return el;
+}
+function txt(x,y,s,color,size=11){
+  const t = svg("text",{x,y,"font-size":size,fill:color||"#8494a6","font-family":"ui-monospace,Consolas,monospace"});
+  t.textContent = s; return t;
+}
+
+/** 泳道：y = 项目（按实验数排序），x = 时间；点大小 = 载体数，颜色 = 结局 */
+function drawFlow(){
+  const wrap = $("flowWrap");
+  if(!wrap) return;
+  const W = Math.max(600, wrap.clientWidth - 8), H = Math.max(260, wrap.clientHeight - 8);
+  const padL = 96, padB = 26, padT = 18;
+  const lanes = Object.entries(D.research.stats.projects).sort((a,b)=>b[1]-a[1]).map(([k])=>k);
+  lanes.push("· 产物", "· 争辩");
+  const laneH = Math.max(28, (H - padT - padB) / Math.max(1,lanes.length));
+  // ★ 研究视图用**自己的**时间轴（R0..R1 = 研究数据的跨度），不借用日志窗口
+  const [R0, R1] = axisNow();
+  const xAbs = (abs) => padL + (Math.max(0,Math.min(1, (abs - R0) / (R1 - R0)))) * (W - padL - 14);
+  const x = (rel) => xAbs(D.t0 + rel);          // 相对日志起点 → 绝对 → 轴上
+  const nowAbs = D.t0 + cur;
+  const y = (lane) => padT + lanes.indexOf(lane) * laneH + laneH/2;
+
+  const root = $("flowSvg");
+  root.innerHTML = "";
+  root.setAttribute("width", W); root.setAttribute("height", padT + lanes.length*laneH + padB);
+
+  lanes.forEach((ln,i)=>{
+    root.appendChild(svg("rect",{x:24,y:padT+i*laneH,width:W-40,height:laneH-3,fill:i%2?"#12171d":"#151b22",rx:4}));
+    const name = ln.startsWith("· ") ? ln.slice(2) : ln;
+    const cnt = ln.startsWith("· ") ? "" : " ("+(D.research.stats.projects[ln]||0)+")";
+    root.appendChild(txt(30, y(ln)+4, name + cnt, "#dbe3ec", 11));
+  });
+  const spanR = R1 - R0, tickMs = Math.max(60000, Math.ceil(spanR/8/60000)*60000);
+  for(let a=R0;a<=R1;a+=tickMs){
+    const gx = xAbs(a);
+    root.appendChild(svg("line",{x1:gx,y1:padT,x2:gx,y2:padT+lanes.length*laneH,stroke:"#1d242d","stroke-width":1}));
+    const d = new Date(a);
+    const lab = spanR > 36*3600_000 ? (d.getMonth()+1)+"-"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":00"
+                                    : String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+    root.appendChild(txt(gx+2, padT+lanes.length*laneH+14, lab, "#6b7a8c", 10));
+  }
+  const jitter = {};
+  for(const r of D.research.exps){
+    if(r.t > cur) continue;
+    // ★ 同一项目在相近时刻会有很多点重叠 ⇒ 按出现顺序上下错开（最远 ±0.34 车道高）
+    const k0 = r.project; const idx = (jitter[k0] = (jitter[k0] ?? -1) + 1);
+    const off = ((idx % 3) - 1) * laneH * 0.3;
+    const cx = x(r.t), cy = y(r.project) + off;
+    const r0 = 3 + Math.min(6, r.carriers * 1.5);
+    const dot = svg("circle",{cx, cy: cy, r: r0, fill: OC[r.outcome]||"#8494a6", stroke: r.id===pickId?"#fff":"#0d1014","stroke-width": r.id===pickId?2:1});
+    dot.style.cursor = "pointer";
+    dot.addEventListener("click", ()=>{ pickId = r.id; showDetail(r); drawFlow(); });
+    const ttl = svg("title",{});
+    ttl.textContent = r.id+" · "+r.project+" · "+r.outcome+" · "+r.verdict+"\\n"+r.claim.slice(0,140);
+    dot.appendChild(ttl);
+    root.appendChild(dot);
+    if(r.verdict === "补的") root.appendChild(svg("circle",{cx, cy, r: r0+2.5, fill:"none", stroke:VD["补的"],"stroke-width":1,opacity:.8}));
+  }
+  for(const p of D.research.products){
+    if(p.t > cur) continue;
+    const px = x(p.t), py = y("· 产物");
+    const line = svg("line",{x1:px,y1:py-7,x2:px,y2:py+7,stroke:"#57c8ff","stroke-width":1.6,opacity:.85});
+    line.style.cursor="pointer";
+    const ttl = svg("title",{}); ttl.textContent = p.name + " · " + p.kb + "KB\\n" + p.head.slice(0,160);
+    line.appendChild(ttl);
+    line.addEventListener("click", ()=>{
+      $("detail").innerHTML = '<h3>'+esc(p.name)+'</h3><div class="k">'+new Date(D.t0+p.t).toLocaleString()+' · '+p.kb+'KB</div><div class="v">'+esc(p.head)+'…</div>';
+    });
+    root.appendChild(line);
+  }
+  for(const dbg of D.research.debates){
+    if(dbg.t > cur) continue;
+    const px = x(dbg.t), py = y("· 争辩");
+    const c = svg("rect",{x:px-2,y:py-2.5,width:4,height:5,fill:"#c792ea"});
+    const ttl = svg("title",{}); ttl.textContent = dbg.by+" → "+dbg.to+" · "+dbg.verdict+"\\n"+dbg.claim.slice(0,160);
+    c.appendChild(ttl); c.style.cursor="pointer";
+    c.addEventListener("click", ()=>{
+      $("detail").innerHTML = '<h3>争辩 '+esc(dbg.by)+' → '+esc(dbg.to)+'</h3><div class="k">'+esc(dbg.verdict)+'</div><div class="v">'+esc(dbg.claim)+'</div><div class="k">对象</div><div class="v">'+esc(dbg.artifact)+'</div>';
+    });
+    root.appendChild(c);
+  }
+  if(nowAbs >= R0 && nowAbs <= R1){
+    root.appendChild(svg("line",{x1:xAbs(nowAbs),y1:padT,x2:xAbs(nowAbs),y2:padT+lanes.length*laneH,stroke:"#fff","stroke-width":1,opacity:.6}));
+  }
+  root.appendChild(txt(30, padT-4, "研究跨度 "+Math.round(spanR/3600000)+" 小时 · 已显示到 "+new Date(nowAbs).toLocaleString(), "#8494a6", 10));
+}
+
+function showDetail(r){
+  const rows = [
+    ["claim", r.claim], ["killCondition", r.kill],
+    ["expected（PREREG 里逐字写过？"+(r.preregOk?"是":"否")+"）", r.expected],
+    ["现象", r.phenomenon], ["同侪判决", r.verdict + (r.reviewed?"（"+r.reviewed+" 审）":"")],
+    ["猜想状态", r.state], ["对照", r.control], ["载体数", String(r.carriers)],
+  ];
+  $("detail").innerHTML =
+    '<h3>'+esc(r.id)+' · '+esc(r.project)+' · '+esc(r.by)+'</h3>'+
+    '<span class="pill '+(r.outcome==="死"?"bad":r.outcome==="挂起"?"warn":"ok")+'">'+esc(r.outcome)+'</span> '+
+    '<span class="pill">'+esc(r.at)+'</span>'+
+    rows.map(([k,v])=>'<div class="k">'+esc(k)+'</div><div class="v">'+esc(v||"—")+'</div>').join("");
+}
+
+// ── 研究内容（卡片）──
+let cardFilter = "all", cardQ = "";
+function cardMatch(r){
+  if(r.t > cur) return false;
+  if(cardFilter === "死" && r.outcome !== "死") return false;
+  if(cardFilter === "挂起" && r.outcome !== "挂起") return false;
+  if(cardFilter === "真意外" && r.verdict !== "真意外") return false;
+  if(cardFilter === "补的" && r.verdict !== "补的") return false;
+  if(cardFilter === "未审" && r.verdict !== "未审") return false;
+  if(cardFilter === "已验证" && r.state !== "已验证") return false;
+  if(cardQ){
+    const hay = (r.id+" "+r.project+" "+r.by+" "+r.claim+" "+r.phenomenon+" "+r.expected).toLowerCase();
+    for(const w of cardQ.split(/\\s+/)) if(w && !hay.includes(w.toLowerCase())) return false;
+  }
+  return true;
+}
+function drawCards(){
+  const list = $("cardList");
+  if(!list) return;
+  if(!$("v-cards").classList.contains("on")) return;
+  const rows = D.research.exps.filter(cardMatch).slice().reverse();
+  $("cardCount").textContent = rows.length+" / "+D.research.exps.length+" 条实验（截止这一刻）";
+  list.innerHTML = rows.map(r=>{
+    const cls = r.outcome==="死"?"dead":r.outcome==="挂起"?"hold":"";
+    return '<div class="ru '+cls+'"><div class="h"><span class="id">'+esc(r.id)+'</span>'+
+      '<span class="pill">'+esc(r.project)+'</span>'+
+      '<span class="pill '+(r.outcome==="死"?"bad":r.outcome==="挂起"?"warn":"ok")+'">'+esc(r.outcome)+'</span>'+
+      '<span class="pill '+(r.verdict==="补的"?"warn":r.verdict==="未审"?"dim":"")+'">'+esc(r.verdict)+'</span>'+
+      '<span class="pill dim">'+esc(r.by)+'</span>'+
+      '<span class="pill dim">载体 '+r.carriers+'</span>'+
+      '<span class="dim">'+esc(r.at)+'</span></div>'+
+      '<div class="cl">'+esc(r.claim.slice(0,220))+'</div>'+
+      '<div class="more"><div class="k">killCondition</div><div class="v">'+esc(r.kill)+'</div>'+
+      '<div class="k">expected（跑前写过？'+(r.preregOk?"是":"否")+'）</div><div class="v">'+esc(r.expected)+'</div>'+
+      '<div class="k">现象</div><div class="v">'+esc(r.phenomenon)+'</div>'+
+      '<div class="k">对照</div><div class="v">'+esc(r.control)+'</div>'+
+      '<div class="k">猜想状态</div><div class="v">'+esc(r.state)+'</div></div></div>';
+  }).join("") || '<div class="dim">这一刻还没有实验</div>';
+  list.querySelectorAll(".ru").forEach(el=>el.addEventListener("click",()=>el.classList.toggle("open")));
+}
+
+// ── 数字：累计曲线 ──
+let numsNorm = false;
+function drawNums(){
+  const root = $("numsSvg");
+  if(!root || !$("v-nums").classList.contains("on")) return;
+  const W = Math.max(700, $("numsWrap").clientWidth - 24), H = 400;
+  root.innerHTML = ""; root.setAttribute("width", W); root.setAttribute("height", H);
+  const padL = 46, padB = 28, padT = 16, padR = 170;
+  const series = [
+    ["实验（累计）", "#57c8ff", D.research.exps.map(r=>r.t)],
+    ["产物（累计）", "#3ddc84", D.research.products.map(p=>p.t)],
+    ["争辩（累计）", "#c792ea", D.research.debates.map(d=>d.t)],
+    ["死的实验（累计）", "#ff5f6d", D.research.exps.filter(r=>r.outcome==="死").map(r=>r.t)],
+    ["判「补的」（累计）", "#ffb020", D.research.exps.filter(r=>r.verdict==="补的").map(r=>r.t)],
+  ].map(s=>({name:s[0],color:s[1],ts:s[2].filter(t=>t<=cur).sort((a,b)=>a-b)}));
+  const maxY = numsNorm ? 1 : Math.max(1, ...series.map(s=>s.ts.length));
+  const valOf = (sv, i) => numsNorm ? (i+1)/Math.max(1, sv.ts.length) : (i+1);
+  const [N0, N1] = axisNow();
+  const x = (rel)=> padL + (Math.max(0,Math.min(1,(D.t0+rel-N0)/(N1-N0))))*(W-padL-padR);
+  const y = (v)=> padT + (1 - v/maxY)*(H-padT-padB);
+  for(let i=0;i<=4;i++){
+    const gy = y(maxY*i/4);
+    root.appendChild(svg("line",{x1:padL,y1:gy,x2:W-padR,y2:gy,stroke:"#1d242d"}));
+    root.appendChild(txt(padL-6, gy+4, String(Math.round(maxY*i/4)), "#6b7a8c", 10));
+  }
+  series.forEach((s,si)=>{
+    if(!s.ts.length) return;
+    // ★★★ 2026-10-28 · 别从原点起笔（那会画出一条**不存在的数据线**）
+    //   ★ 现象：debate 的第一个点在第 72% 处，而我从「M padL,y(0)」起笔 ⇒
+    //     图上多出一条横跨 0→72% 的假曲线 —— 看起来像"争辩从第一天就有"。
+    //   ★★ 正确画法：先垂直落到第一个点，再从那里开始累计。
+    const t0p = s.ts[0];
+    let d = "M"+x(t0p)+","+y(0)+" L"+x(t0p)+","+y(valOf(s,0)*maxY);
+    s.ts.forEach((t,i)=> d += " L"+x(t)+","+y(valOf(s,i)*maxY));
+    root.appendChild(svg("path",{d,fill:"none",stroke:s.color,"stroke-width":1.8}));
+    const lastT = s.ts[s.ts.length-1], lastV = valOf(s, s.ts.length-1)*maxY;
+    root.appendChild(svg("circle",{cx:x(lastT),cy:y(lastV),r:2.6,fill:s.color}));
+    root.appendChild(svg("rect",{x:W-padR+8,y:padT+si*20,width:9,height:9,fill:s.color,rx:2}));
+    root.appendChild(txt(W-padR+22, padT+si*20+9, s.name+" = "+s.ts.length + (numsNorm?"（归一）":""), "#dbe3ec", 11));
+  });
+  // x 刻度（按研究跨度选步长）
+  const spanN = N1 - N0, tickN = Math.max(60000, Math.ceil(spanN/7/3600000)*3600000);
+  for(let a=N0;a<=N1;a+=tickN){
+    const gx = padL + ((a-N0)/spanN)*(W-padL-padR);
+    root.appendChild(svg("line",{x1:gx,y1:padT,x2:gx,y2:H-padB,stroke:"#161c23"}));
+    const d=new Date(a);
+    root.appendChild(txt(gx+2, H-padB+13, (d.getMonth()+1)+"-"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":00", "#6b7a8c", 10));
+  }
+  // 当前时刻竖线
+  const nx = padL + ((D.t0+cur-N0)/spanN)*(W-padL-padR);
+  if(nx >= padL && nx <= W-padR) root.appendChild(svg("line",{x1:nx,y1:padT,x2:nx,y2:H-padB,stroke:"#fff","stroke-width":1,opacity:.45}));
+  root.appendChild(txt(padL, padT-4, "累计曲线（截至光标 "+new Date(D.t0+cur).toLocaleString()+"）", "#8494a6", 11));
+}
+
+// ── 页签 ──
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on", x===b));
+  const v = b.dataset.view;
+  document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on", x.id === "v-"+v));
+  if(v==="topo"){ fitGraph(); }
+  if(v==="flow") drawFlow();
+  if(v==="cards") drawCards();
+  if(v==="nums") drawNums();
+}));
+const qEl = $("q");
+if(qEl) qEl.addEventListener("input", ()=>{ cardQ = qEl.value.trim(); drawCards(); });
+document.querySelectorAll(".chip[data-f]").forEach(c=>c.addEventListener("click",()=>{
+  document.querySelectorAll(".chip[data-f]").forEach(x=>x.classList.toggle("on", x===c));
+  cardFilter = c.dataset.f; drawCards();
+}));
+document.querySelectorAll(".chip[data-range]").forEach(c=>c.addEventListener("click",()=>{
+  document.querySelectorAll(".chip[data-range]").forEach(x=>x.classList.toggle("on", x===c));
+  rangeH = Number(c.dataset.range) || 0; drawNums(); drawFlow();
+}));
+document.querySelectorAll(".chip[data-norm]").forEach(c=>c.addEventListener("click",()=>{
+  document.querySelectorAll(".chip[data-range]").forEach(c=>c.addEventListener("click",()=>{
+  document.querySelectorAll(".chip[data-range]").forEach(x=>x.classList.toggle("on", x===c));
+  rangeH = Number(c.dataset.range) || 0; drawNums(); drawFlow();
+}));
+document.querySelectorAll(".chip[data-norm]").forEach(x=>x.classList.toggle("on", x===c));
+  numsNorm = c.dataset.norm === "1"; drawNums();
+}));
+
 function esc(s){return (s||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))}
 
 // ── 4 个条带（纯 canvas，5 分钟一格）──
@@ -567,6 +1043,12 @@ network.once('stabilizationIterationsDone', ()=>{
   // ★ 从 URL 定位到某一刻（单位**秒**，人可以敲）：...html#t=900 或 ?t=900 = 第 15 分钟
   const q = new URLSearchParams(location.search).get("t") ?? (/#t=([0-9]+)/.exec(location.hash) || [])[1];
   const want = (Number(q ?? 0) || 0) * 1000;
+  // ★ 页签也能从 URL 指定：...html#view=flow&t=900（方便你直接打开"研究过程"）
+  const vw = new URLSearchParams(location.search).get("view") ?? (/#view=([a-z]+)/.exec(location.hash) || [])[1];
+  if (vw) { const b = document.querySelector('.tab[data-view="'+vw+'"]'); if (b) b.click(); }
+  // ★ 也能直接定位到某一条实验：...html?view=flow&pick=E134
+  const pk = new URLSearchParams(location.search).get("pick") ?? (/pick=([A-Za-z0-9_-]+)/.exec(location.hash) || [])[1];
+  if (pk) { const r0 = D.research.exps.find(x=>x.id===pk); if (r0) { pickId = r0.id; showDetail(r0); drawFlow(); } }
   applyVisibility(0);
   setCur(Number.isFinite(want) ? want : 0);
 });

@@ -1,7 +1,9 @@
 @echo off
-rem Double-click: build the hunt topology timeline (offline) and open it.
-rem Optional: 看时间线.cmd --list      list archived rounds
-rem           set HUNT_LAB=research\labfirst\hunt-r2  另一路并行空间
+rem Double-click: build the hunt timeline (offline, one HTML file) and open it.
+rem   4 views: topology / research process (swimlane) / research content (cards) / numbers
+rem   URL params:  #t=SECONDS  #view=flow|cards|nums  #pick=E134
+rem   --list              list archived rounds
+rem   HUNT_LAB=...        another parallel space
 chcp 65001 >nul
 cd /d "%~dp0"
 title hunt timeline
@@ -15,5 +17,6 @@ if errorlevel 1 (
 start "" "logs\hunt-timeline.html"
 echo.
 echo [ok] opened logs\hunt-timeline.html
-echo      tip: add #t=SECONDS to the URL to jump to a moment (e.g. ...html#t=900)
-timeout /t 4 >nul
+echo      4 views: topology / research process / research content / numbers
+echo      jump to a moment:  ...html#t=900     a view: ...html#view=flow
+timeout /t 5 >nul
