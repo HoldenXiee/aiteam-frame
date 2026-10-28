@@ -1115,11 +1115,38 @@ export function makeRules(ctx: TriggerCtx) {
       return; // ★ 一次只推一份
     }
 
-    const target = outs.find((f) => {
-      const signs = ctx.signoffState!(f);
-      return teams.some((t) => !signs?.has(t)) && !state.signedAsked.includes(f);
-    });
-    if (!target) return;
+    // ★★★★★ 2026-10-28 · 从「一次只推一份」改成**按批推**
+    //
+    // ★★★ 改前读数（离线复核，`signoffs.jsonl` + git 出生时间，0 API）：
+    //   按产物**出生日**算「拿到首签的比例」是一条**单调下降**曲线：
+    //     10-19 14/15 93% · 10-20 21/22 95% · 10-21 4/6 67%
+    //     10-22 7/20 35% · 10-23 3/16 19% · **10-24 0/25 0%**
+    //   ⇒ 存量 55 份产物**0 张签字**（`publish.md` 里 68 份被拒，其中 55 份拒因正是
+    //     「未表态：theory、practice、landing」—— 不是被反对，是**从没被请过**）。
+    //
+    // ★★ 根因：`onConsensus` 每个 tick **只推进一份**（`find` + `return`），
+    //   而 tick 节流 `THROTTLE_MS = 5 分钟` ⇒ 理论上限 **12 份/小时**。
+    //   单看这个数似乎够 —— 但真实 tick 还要被 `closing`、`await fire` 阻塞、
+    //   专家跑 3–6 分钟（一个 tick 就吃掉 1–3 个节流窗口）⇒ 实测远低于上限。
+    //   10-24 那天进 25 份、签 6 张（比值 **0.2**，前几日是 5.3）：供给远超门的吞吐。
+    //
+    // ★★★ 这不是「它不愿意签」，是**机制没给机会** —— 与 2026-10-20 那次
+    //   「背书通道根本不存在」是同一个病（纪律④：区分「它不听劝」和「它做不到」）。
+    //
+    // ★ 改法：每 tick 推进一批 `ASK_BATCH` 份，**每份各自成一条消息**（不合并 ——
+    //   合并会让它一份都不细看，等于把门变宽。判据没松，只是**送得更多**）。
+    // ★ 为什么必须有上限：不设上限 = 一 tick 给一位研究员塞几十份 ⇒ 它只会草率点头，
+    //   那是把「沉默不算认同」偷换成「批量盖章算认同」。
+    const ASK_BATCH = 4;
+    const targets = outs
+      .filter((f) => {
+        const signs = ctx.signoffState!(f);
+        return teams.some((t) => !signs?.has(t)) && !state.signedAsked.includes(f);
+      })
+      .slice(0, ASK_BATCH);
+    if (!targets.length) return;
+
+    for (const target of targets) {
     state.signedAsked.push(target);
     const signs = ctx.signoffState(target);
     const missing = teams.filter((t) => !signs?.has(t));
@@ -1153,6 +1180,7 @@ export function makeRules(ctx: TriggerCtx) {
       const r = (ctx.challenge as unknown as (k: string, t: string) => { ok: boolean; reason?: string })(k, text);
       if (r && !r.ok) ctx.trace("onConsensus", `⛔ 投递失败 ${k}：${r.reason ?? "未知"}`);
     }
+    } // ← targets 循环
   }
 
   // ══════════════════════════════════════════════════════════════
