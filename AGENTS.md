@@ -451,6 +451,21 @@ npx tsx research/clusters/forge/index.ts --dry --employees=2
 | `--dry` | 只搭装置不投递 |
 | `--snapshot` | 先做快照（可和 `--secs` 一起用，一条命令跑完）|
 
+### 看数据（★ 新：可视化与集群代码分开）
+
+```bash
+双击 可视化数据生成.cmd
+#   ① npx tsx research/clusters/micro/vizdata.ts  → viz-ui/data/hunt.json（约 3.8MB）
+#   ② cd viz-ui && npm run build                  → viz-ui/dist/index.html（单文件 180KB，零服务）
+#   ③ 打开页面 → 手动选（或拖入）那个 JSON（file:// 不能自动取本地文件）
+```
+
+★ 页面五个页签：**时间轴 / 实验（表格⇄卡片）/ 产物 / 争辩 / 账本**，点任意实验出**抽屉**
+（载体命令、真实输出、退出码、耗时、对照、PREREG 是否早于执行、预期命中第几行、现象、同侪判决）。
+★★ 设计稿与实现在 `viz-ui/DESIGN.md`；数据契约 `viz-ui/src/types.ts` ⇄ `vizdata.ts` **必须同改**（`SCHEMA` +1）。
+★★★ 三个"静默白屏"的坑写在 `viz-ui/scripts/inline.mjs` 注释里（`$&` 替换坑 / 脚本位置坑 / `</script>` 截断坑）——
+它们的表现都是**全白、几乎无提示**，所以每条都配了显式断言。
+
 ### 跑完了吗？怎么知道
 
 ★★★ **以 `_topology.log` 为准**，不要只看自己那份 stdout：

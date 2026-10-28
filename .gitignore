@@ -77,3 +77,8 @@ research/labfirst/*/
 research/book/book/
 logs/
 logs/*.html
+
+# viz-ui（React 前端）—— 依赖/产物/导出的数据都不入库，随时可再生
+viz-ui/node_modules/
+viz-ui/dist/
+viz-ui/data/
