@@ -864,6 +864,7 @@ main {
   margin: 10px 0;
   font-size: 14px;
   color: var(--ink-2);
+  max-width: 62ch;
 }
 
 .card footer {

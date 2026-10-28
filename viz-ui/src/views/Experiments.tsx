@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Exp, VizData } from "../types";
 import { clip, fmtDur, fmtTime, outcomeKey, OUTCOME_LABEL } from "../lib/fmt";
+import { Rich } from "../components/Rich";
 
 /**
  * 「实验」页签：**表格 + 卡片**两个形态（设计者裁定「两个都要」）。
@@ -25,7 +26,9 @@ const VER: { key: string; label: string }[] = [
 ];
 
 export function Experiments({ data, selected, onPick }: { data: VizData; selected: string | null; onPick: (id: string) => void }) {
-  const [mode, setMode] = useState<"table" | "cards">("table");
+  const [mode, setMode] = useState<"table" | "cards">(
+    new URLSearchParams(location.search).get("mode") === "cards" ? "cards" : "table",
+  );
   const [q, setQ] = useState("");
   const [proj, setProj] = useState("");
   const [out, setOut] = useState("");
@@ -161,7 +164,7 @@ export function Experiments({ data, selected, onPick }: { data: VizData; selecte
                 <span className={`chip k-${outcomeKey(e.outcome)}`}>{OUTCOME_LABEL[outcomeKey(e.outcome)]}</span>
                 <span className="dim">{fmtTime(e.at)}</span>
               </header>
-              <p className="claim">{clip(e.claim, 220)}</p>
+              <p className="claim"><Rich text={clip(e.claim, 220)} /></p>
               <footer>
                 <span>{e.verdict === "未声明" ? "同侪未审" : e.verdict}</span>
                 <span>{e.carriers.length} 个载体</span>
